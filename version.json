@@ -1,6 +1,24 @@
 {
-  "version": "4.3.4",
+  "version": "4.3.5",
   "changelog": [
+    {
+      "version": "4.3.5",
+      "date": "2026-07-28",
+      "changes": [
+        "Peer comparison could not produce a finding in a small group no matter what an account did. A deviation of 3.0 was required, but with n members the largest deviation any one of them can show is bounded by the group size, so nothing under about nine members could ever qualify - and most peer groups on a real case have three to eight members. The threshold is now capped to what the group size can express, and groups too small for a spread estimate compare against a multiple of the peer median instead",
+        "An entity was included in the baseline it was measured against, so in a small group one compromised account pulled the median toward itself and inflated the spread it then had to beat. Every comparison now leaves the scored entity out",
+        "Deviation was the distance from the median divided by the standard deviation, pairing a robust centre with a spread that a single outlier controls. One high-volume service account produced a group median near zero and a spread in the hundreds, against which no other member could deviate. Both figures are now robust",
+        "Accounts that never authenticated are no longer used as an authentication baseline. On a live case 37 of 118 profiled accounts have no logon or failure events at all, and counting them as zero inflated the spread enough to hide genuine deviation by the accounts that do authenticate",
+        "Event counts are compared on a log scale, since they are lognormal across a population. Compared linearly the whole upper tail cleared the threshold: on one case that flagged 23 of 68 accounts in a single group where about 4 are genuinely unusual",
+        "A deviation must now also be large enough in absolute terms to be worth an analyst's time. In a tightly grouped population the robust spread is a fraction of a host, so reaching two hosts where the peer median is one scored as a severe anomaly",
+        "Profiles with no activity are no longer clustered alongside real ones. The guard meant to exclude them tested whether a profile's features summed to zero, but the authentication and role encodings return a neutral 0.5 for an empty profile, so the sum was never zero and empty profiles formed groups whose median activity was zero",
+        "Clustering features are log-compressed, so one service account no longer flattens the rest of the population into a single indistinguishable band",
+        "Confidence tiers and the composite anomaly score now scale to the threshold that applied to the group rather than assuming deviations of 3, 4 and 5 are always reachable. At the full threshold the tier boundaries land exactly where they did before",
+        "Anomaly detection loads peer groups and members in two queries instead of two per profile, which on a case with a few hundred profiled accounts was several hundred round trips",
+        "Peer group references are cleared before the groups they point at are deleted, rather than relying on the whole sequence reaching the database before the constraint is checked",
+        "Taken together against live case data these produce 8 findings across 118 profiled accounts, spread across high, medium and low severity, where this detector had never produced a single finding"
+      ]
+    },
     {
       "version": "4.3.4",
       "date": "2026-07-28",

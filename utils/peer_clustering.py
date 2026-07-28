@@ -8,7 +8,6 @@ Peer groups enable "this user is acting differently than similar users" analysis
 import logging
 from datetime import datetime
 from typing import Dict, List, Optional, Any
-import statistics
 
 import numpy as np
 from sklearn.cluster import KMeans
@@ -20,7 +19,25 @@ from models.behavioral_profiles import (
     UserBehaviorProfile, SystemBehaviorProfile,
     PeerGroup, PeerGroupMember
 )
+from utils.peer_statistics import build_metric_baseline, compute_group_deviations
 from config import Config
+
+# Smallest difference from the peer median that counts as a deviation, per
+# metric. Without these, a tightly grouped population has a robust spread near
+# zero and reaching two hosts where the median is one scores as a large
+# deviation, which buries the analyst in differences too small to act on.
+DEVIATION_FLOORS = {
+    'daily_logons': 5.0,
+    'failure_rate': 10.0,      # percentage points
+    'unique_hosts': 3.0,
+    'off_hours': 15.0,         # percentage points
+    'auth_volume': 5.0,
+    'unique_users': 3.0,
+}
+
+# Unbounded counts are lognormal across a population, so they are compared in
+# log space. Percentages are already bounded and stay on their own scale.
+LOG_SCALED_METRICS = ('daily_logons', 'unique_hosts', 'auth_volume', 'unique_users')
 
 logger = logging.getLogger(__name__)
 
@@ -40,6 +57,7 @@ class PeerGroupBuilder:
         # Configuration
         self.min_group_size = getattr(Config, 'ANALYSIS_PEER_GROUP_MIN_SIZE', 3)
         self.outlier_threshold = 4.0  # Std devs from cluster center to be outlier
+        self.anomaly_threshold = getattr(Config, 'ANALYSIS_ANOMALY_Z_THRESHOLD', 3.0)
     
     def build_all_peer_groups(self) -> Dict[str, int]:
         """
@@ -146,17 +164,24 @@ class PeerGroupBuilder:
         profile_ids = []
         
         for profile in profiles:
+            # Skip profiles carrying no activity. Testing the feature sum could
+            # not do this: the auth-type encoding returns a neutral 0.5 when a
+            # profile has no authentication at all, so the sum was never zero
+            # and empty profiles were clustered alongside real ones, producing
+            # groups whose median activity was zero.
+            if not self._user_profile_has_activity(profile):
+                continue
+
             features = [
-                profile.avg_daily_logons or 0,
+                # Counts are heavy-tailed, so they are compressed before
+                # scaling; otherwise one service account flattens everyone else
+                # into a single indistinguishable band.
+                self._compress_count(profile.avg_daily_logons),
                 profile.failure_rate or 0,
-                profile.unique_hosts_accessed or 0,
+                self._compress_count(profile.unique_hosts_accessed),
                 profile.off_hours_percentage or 0,
                 self._encode_auth_type(profile.auth_types)
             ]
-            
-            # Skip profiles with no meaningful data
-            if sum(features) == 0:
-                continue
             
             feature_list.append(features)
             profile_ids.append(profile.id)
@@ -165,6 +190,21 @@ class PeerGroupBuilder:
             return None, None
         
         return np.array(feature_list), profile_ids
+
+    @staticmethod
+    def _compress_count(value) -> float:
+        """Log-compress a count so heavy tails do not dominate the scaler."""
+        return float(np.log1p(max(float(value or 0), 0.0)))
+
+    @staticmethod
+    def _user_profile_has_activity(profile) -> bool:
+        return bool(
+            (profile.total_events or 0)
+            or (profile.avg_daily_logons or 0)
+            or (profile.unique_hosts_accessed or 0)
+            or (profile.off_hours_percentage or 0)
+            or (profile.failure_rate or 0)
+        )
     
     def _extract_system_features(self, profiles: List[SystemBehaviorProfile]) -> tuple:
         """
@@ -180,17 +220,19 @@ class PeerGroupBuilder:
             # Extract auth volume
             auth_vol = profile.auth_destination_volume or {}
             mean_daily_auth = auth_vol.get('mean_daily', 0)
+
+            # As with users, the role encoding returns a neutral 0.5 for an
+            # unknown role, so the feature sum could never be zero and could
+            # not identify an empty profile.
+            if not (profile.total_events or 0) and not mean_daily_auth:
+                continue
             
             features = [
-                mean_daily_auth,
-                profile.unique_users or 0,
+                self._compress_count(mean_daily_auth),
+                self._compress_count(profile.unique_users),
                 self._encode_system_role(profile.system_role),
-                profile.total_events or 0
+                self._compress_count(profile.total_events)
             ]
-            
-            # Skip profiles with no meaningful data
-            if sum(features) == 0:
-                continue
             
             feature_list.append(features)
             profile_ids.append(profile.id)
@@ -329,6 +371,12 @@ class PeerGroupBuilder:
         
         # Build profile lookup
         profile_lookup = {p.id: p for p in profiles}
+
+        # An outlier has, by definition, no close peers, so comparing it to the
+        # other outliers tells us nothing. Outliers are measured against the
+        # whole profiled population instead.
+        all_profiles = [profile_lookup[profile_id] for profile_id in profile_ids]
+        population_values = self._metric_values(all_profiles, group_type)
         
         for label in unique_labels:
             if label == -1:
@@ -341,7 +389,8 @@ class PeerGroupBuilder:
             
             # Calculate group statistics
             member_profiles = [profile_lookup[profile_ids[i]] for i in member_indices]
-            group_stats = self._calculate_peer_statistics(member_profiles, group_type)
+            metric_values = self._metric_values(member_profiles, group_type)
+            group_stats = self._calculate_peer_statistics(metric_values, group_type)
             
             # Create peer group
             peer_group = PeerGroup(
@@ -355,12 +404,20 @@ class PeerGroupBuilder:
             db.session.flush()  # Get ID
             
             # Create member records and update profiles
-            for idx in member_indices:
+            for position, idx in enumerate(member_indices):
                 profile_id = profile_ids[idx]
                 profile = profile_lookup[profile_id]
-                
-                # Calculate z-scores for this member
-                z_scores = self._calculate_z_scores(profile, group_stats, group_type)
+
+                if label == -1:
+                    comparison_values = population_values
+                    comparison_index = idx
+                else:
+                    comparison_values = metric_values
+                    comparison_index = position
+
+                deviation_scores = self._calculate_deviation_scores(
+                    comparison_values, comparison_index
+                )
                 
                 # Calculate similarity to cluster center
                 if label != -1:
@@ -375,7 +432,7 @@ class PeerGroupBuilder:
                     entity_type=group_type,
                     entity_id=profile.user_id if group_type == 'user' else profile.system_id,
                     similarity_score=float(similarity),
-                    z_scores=z_scores
+                    z_scores=deviation_scores
                 )
                 db.session.add(member)
                 
@@ -385,135 +442,134 @@ class PeerGroupBuilder:
             groups_created += 1
         
         return groups_created
-    
-    def _calculate_peer_statistics(self, profiles: list, group_type: str) -> Dict[str, Any]:
-        """Calculate median and std_dev for all metrics in a peer group"""
-        
-        if group_type == 'user':
-            daily_logons = [p.avg_daily_logons or 0 for p in profiles]
-            failure_rates = [p.failure_rate or 0 for p in profiles]
-            unique_hosts = [p.unique_hosts_accessed or 0 for p in profiles]
-            off_hours = [p.off_hours_percentage or 0 for p in profiles]
-            
-            return {
-                'median_daily_logons': self._safe_median(daily_logons),
-                'median_failure_rate': self._safe_median(failure_rates),
-                'median_unique_hosts': self._safe_median(unique_hosts),
-                'median_off_hours_pct': self._safe_median(off_hours),
-                'std_daily_logons': self._safe_stdev(daily_logons),
-                'std_failure_rate': self._safe_stdev(failure_rates),
-                'profile_data': {
-                    'daily_logons': {'median': self._safe_median(daily_logons), 'std': self._safe_stdev(daily_logons)},
-                    'failure_rate': {'median': self._safe_median(failure_rates), 'std': self._safe_stdev(failure_rates)},
-                    'unique_hosts': {'median': self._safe_median(unique_hosts), 'std': self._safe_stdev(unique_hosts)},
-                    'off_hours_pct': {'median': self._safe_median(off_hours), 'std': self._safe_stdev(off_hours)}
-                }
-            }
-        else:
-            # System profiles
-            unique_users = [p.unique_users or 0 for p in profiles]
-            auth_volumes = []
-            for p in profiles:
-                vol = p.auth_destination_volume or {}
-                auth_volumes.append(vol.get('mean_daily', 0))
-            
-            return {
-                'median_daily_logons': self._safe_median(auth_volumes),  # Reusing field
-                'median_unique_hosts': self._safe_median(unique_users),  # Reusing for unique_users
-                'std_daily_logons': self._safe_stdev(auth_volumes),
-                'profile_data': {
-                    'auth_volume': {'median': self._safe_median(auth_volumes), 'std': self._safe_stdev(auth_volumes)},
-                    'unique_users': {'median': self._safe_median(unique_users), 'std': self._safe_stdev(unique_users)}
-                }
-            }
-    
-    def _calculate_z_scores(self, profile, peer_stats: Dict, group_type: str) -> Dict[str, float]:
+
+    def _metric_values(self, profiles: list, group_type: str) -> Dict[str, List[Optional[float]]]:
+        """Collect each comparison metric across a set of profiles, in order.
+
+        Authentication metrics are left as None for accounts and hosts that
+        never authenticated, so they contribute nothing to an authentication
+        baseline. Around a third of profiled accounts on a real case have no
+        logon or failure events at all, and counting them as zero pulled every
+        authentication median to the floor and made ordinary accounts look like
+        outliers.
         """
-        Calculate z-score for each metric: (value - median) / std_dev
-        """
-        z_scores = {}
-        profile_data = peer_stats.get('profile_data', {})
-        
         if group_type == 'user':
-            # Daily logons z-score
-            logon_stats = profile_data.get('daily_logons', {})
-            z_scores['daily_logons'] = self._calc_z_score(
-                profile.avg_daily_logons or 0,
-                logon_stats.get('median', 0),
-                logon_stats.get('std', 1)
-            )
-            
-            # Failure rate z-score
-            failure_stats = profile_data.get('failure_rate', {})
-            z_scores['failure_rate'] = self._calc_z_score(
-                profile.failure_rate or 0,
-                failure_stats.get('median', 0),
-                failure_stats.get('std', 1)
-            )
-            
-            # Unique hosts z-score
-            hosts_stats = profile_data.get('unique_hosts', {})
-            z_scores['unique_hosts'] = self._calc_z_score(
-                profile.unique_hosts_accessed or 0,
-                hosts_stats.get('median', 0),
-                hosts_stats.get('std', 1)
-            )
-            
-            # Off-hours z-score
-            off_hours_stats = profile_data.get('off_hours_pct', {})
-            z_scores['off_hours'] = self._calc_z_score(
-                profile.off_hours_percentage or 0,
-                off_hours_stats.get('median', 0),
-                off_hours_stats.get('std', 1)
-            )
-        else:
-            # System z-scores
-            auth_stats = profile_data.get('auth_volume', {})
-            vol = profile.auth_destination_volume or {}
-            z_scores['auth_volume'] = self._calc_z_score(
-                vol.get('mean_daily', 0),
-                auth_stats.get('median', 0),
-                auth_stats.get('std', 1)
-            )
-            
-            users_stats = profile_data.get('unique_users', {})
-            z_scores['unique_users'] = self._calc_z_score(
-                profile.unique_users or 0,
-                users_stats.get('median', 0),
-                users_stats.get('std', 1)
-            )
-        
-        return z_scores
+            def auth_metric(profile, value):
+                return float(value or 0) if self._user_has_authentication(profile) else None
+
+            return {
+                'daily_logons': [auth_metric(p, p.avg_daily_logons) for p in profiles],
+                'failure_rate': [auth_metric(p, p.failure_rate) for p in profiles],
+                'unique_hosts': [auth_metric(p, p.unique_hosts_accessed) for p in profiles],
+                # Off-hours activity applies to any profile that saw events.
+                'off_hours': [float(p.off_hours_percentage or 0) for p in profiles],
+            }
+
+        auth_volumes = [
+            float((p.auth_destination_volume or {}).get('mean_daily', 0) or 0)
+            for p in profiles
+        ]
+        return {
+            'auth_volume': [value if value else None for value in auth_volumes],
+            'unique_users': [
+                float(p.unique_users or 0) if (p.unique_users or 0) else None
+                for p in profiles
+            ],
+        }
+
+    @staticmethod
+    def _user_has_authentication(profile) -> bool:
+        """Whether this account produced any logon or logon-failure events."""
+        return bool(
+            (profile.total_logons or 0)
+            or (getattr(profile, 'avg_daily_failures', 0) or 0)
+            or (profile.failure_rate or 0)
+            or (profile.unique_hosts_accessed or 0)
+        )
+
+    def _calculate_deviation_scores(
+        self, metric_values: Dict[str, List[Optional[float]]], entity_index: int
+    ) -> Dict[str, float]:
+        """Score one member against its peers on every metric, leaving it out.
+
+        The stored shape stays a flat metric-to-number map, but each number is
+        now a leave-one-out robust deviation rather than a value measured
+        against a baseline the entity was part of.
+        """
+        deviations = compute_group_deviations(
+            metric_values=metric_values,
+            entity_index=entity_index,
+            configured_threshold=self.anomaly_threshold,
+            absolute_floors=DEVIATION_FLOORS,
+            log_scaled_metrics=LOG_SCALED_METRICS,
+        )
+        return {
+            metric: round(deviation.score, 2)
+            for metric, deviation in deviations.items()
+        }
     
-    def _calc_z_score(self, value: float, median: float, std: float) -> float:
-        """Calculate z-score with protection against division by zero"""
-        if std == 0 or std is None:
-            return 0.0
-        return round((value - median) / std, 2)
-    
-    def _safe_median(self, values: list) -> float:
-        """Calculate median with empty list protection"""
-        if not values:
-            return 0.0
-        return round(statistics.median(values), 2)
-    
-    def _safe_stdev(self, values: list) -> float:
-        """Calculate standard deviation with protection"""
-        if len(values) < 2:
-            return 0.0
-        return round(statistics.stdev(values), 2)
+    def _calculate_peer_statistics(
+        self, metric_values: Dict[str, List[float]], group_type: str
+    ) -> Dict[str, Any]:
+        """Summarize a peer group's metrics with a median and a robust spread.
+
+        The spread stored alongside each median is the median absolute
+        deviation rather than the standard deviation. Pairing a median with a
+        standard deviation meant a single high-volume member produced a median
+        near zero and a spread in the hundreds, against which nothing else in
+        the group could deviate.
+        """
+        baselines = {
+            metric: build_metric_baseline(metric, values)
+            for metric, values in metric_values.items()
+        }
+        profile_data = {
+            metric: baseline.as_summary() for metric, baseline in baselines.items()
+        }
+
+        def _median(metric: str) -> float:
+            baseline = baselines.get(metric)
+            return round(baseline.median, 2) if baseline else 0.0
+
+        def _spread(metric: str) -> float:
+            baseline = baselines.get(metric)
+            return round(baseline.mad, 2) if baseline else 0.0
+
+        if group_type == 'user':
+            return {
+                'median_daily_logons': _median('daily_logons'),
+                'median_failure_rate': _median('failure_rate'),
+                'median_unique_hosts': _median('unique_hosts'),
+                'median_off_hours_pct': _median('off_hours'),
+                'std_daily_logons': _spread('daily_logons'),
+                'std_failure_rate': _spread('failure_rate'),
+                'profile_data': profile_data,
+            }
+
+        return {
+            # These two columns are shared with the user groups, so the system
+            # equivalents are stored in them.
+            'median_daily_logons': _median('auth_volume'),
+            'median_unique_hosts': _median('unique_users'),
+            'std_daily_logons': _spread('auth_volume'),
+            'profile_data': profile_data,
+        }
     
     def _clear_existing_groups(self):
-        """Clear existing peer groups for this case"""
-        # Delete members first (cascade should handle this but being explicit)
+        """Clear existing peer groups for this case.
+
+        References are dropped before the rows they point at, so the deletes do
+        not depend on every statement landing in one transaction before the
+        database checks them.
+        """
+        UserBehaviorProfile.query.filter_by(case_id=self.case_id).update({'peer_group_id': None})
+        SystemBehaviorProfile.query.filter_by(case_id=self.case_id).update({'peer_group_id': None})
+        db.session.flush()
+
         existing_groups = PeerGroup.query.filter_by(case_id=self.case_id).all()
         for group in existing_groups:
             PeerGroupMember.query.filter_by(peer_group_id=group.id).delete()
-        
+
         PeerGroup.query.filter_by(case_id=self.case_id).delete()
-        
-        # Reset profile peer_group_id references
-        UserBehaviorProfile.query.filter_by(case_id=self.case_id).update({'peer_group_id': None})
-        SystemBehaviorProfile.query.filter_by(case_id=self.case_id).update({'peer_group_id': None})
         
         db.session.commit()

@@ -43,6 +43,18 @@ class _FakeProfile:
         self.user_id = entity_id
         self.system_id = entity_id
         self.peer_group_id = None
+        # Metrics the peer comparison reads. This suite is about how clusters
+        # are assigned, so every profile reports the same modest activity and
+        # no member deviates from another.
+        self.total_events = 100
+        self.total_logons = 20
+        self.avg_daily_logons = 5.0
+        self.avg_daily_failures = 0.0
+        self.failure_rate = 0.0
+        self.unique_hosts_accessed = 2
+        self.off_hours_percentage = 10.0
+        self.unique_users = 3
+        self.auth_destination_volume = {'mean_daily': 5.0}
 
 
 class _IdentityScaler:
@@ -74,6 +86,15 @@ class PeerClusteringTestCase(unittest.TestCase):
         fake_sklearn_preprocessing = types.ModuleType("sklearn.preprocessing")
         fake_sklearn_preprocessing.MinMaxScaler = object
 
+        # Loaded from source rather than stubbed: the deviation arithmetic is
+        # what the clustering under test is expected to use. Importing it by
+        # name would pull in the utils package init, which needs a real config.
+        peer_statistics_spec = importlib.util.spec_from_file_location(
+            "utils.peer_statistics",
+            "/opt/casescope/utils/peer_statistics.py",
+        )
+        peer_statistics = importlib.util.module_from_spec(peer_statistics_spec)
+
         previous_modules = {
             name: sys.modules.get(name)
             for name in [
@@ -84,6 +105,7 @@ class PeerClusteringTestCase(unittest.TestCase):
                 "sklearn.cluster",
                 "sklearn.metrics",
                 "sklearn.preprocessing",
+                "utils.peer_statistics",
             ]
         }
         sys.modules["models.database"] = fake_models_database
@@ -93,6 +115,9 @@ class PeerClusteringTestCase(unittest.TestCase):
         sys.modules["sklearn.cluster"] = fake_sklearn_cluster
         sys.modules["sklearn.metrics"] = fake_sklearn_metrics
         sys.modules["sklearn.preprocessing"] = fake_sklearn_preprocessing
+        sys.modules["utils.peer_statistics"] = peer_statistics
+        assert peer_statistics_spec.loader is not None
+        peer_statistics_spec.loader.exec_module(peer_statistics)
 
         try:
             spec = importlib.util.spec_from_file_location(
@@ -117,10 +142,10 @@ class PeerClusteringTestCase(unittest.TestCase):
         builder.case_id = 42
         builder.analysis_id = "analysis-42"
         builder.min_group_size = 2
-        builder._calculate_peer_statistics = lambda member_profiles, group_type: {
-            "median_daily_logons": float(len(member_profiles)),
+        builder.anomaly_threshold = 3.0
+        builder._calculate_peer_statistics = lambda metric_values, group_type: {
+            "median_daily_logons": float(len(metric_values.get("daily_logons", []))),
         }
-        builder._calculate_z_scores = lambda profile, group_stats, group_type: {"daily_logons": 0.0}
 
         profiles = [_FakeProfile(1, 101), _FakeProfile(2, 102), _FakeProfile(3, 103)]
         profile_ids = [profile.id for profile in profiles]

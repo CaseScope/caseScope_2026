@@ -21,6 +21,7 @@ from models.behavioral_profiles import (
 )
 from models.known_user import KnownUser
 from models.known_system import KnownSystem
+from utils.peer_statistics import resolve_threshold
 from utils.stateful_detectors import BaseGapDetector
 from config import Config
 
@@ -75,28 +76,46 @@ class BehavioralAnomalyDetector(BaseGapDetector):
         
         return findings
     
+    def _load_peer_context(self, profiles: List, entity_type: str) -> tuple:
+        """Load every peer group and member for these profiles in two queries.
+
+        Looking each one up per profile issued two queries per entity, which on
+        a case with a few hundred profiled accounts was hundreds of round trips
+        for data that fits in two.
+        """
+        group_ids = {profile.peer_group_id for profile in profiles if profile.peer_group_id}
+        if not group_ids:
+            return {}, {}
+
+        groups = PeerGroup.query.filter(PeerGroup.id.in_(group_ids)).all()
+        groups_by_id = {group.id: group for group in groups}
+
+        members = PeerGroupMember.query.filter(
+            PeerGroupMember.peer_group_id.in_(group_ids),
+            PeerGroupMember.entity_type == entity_type,
+        ).all()
+        members_by_key = {
+            (member.peer_group_id, member.entity_id): member for member in members
+        }
+        return groups_by_id, members_by_key
+
     def _detect_user_anomalies(self) -> List[GapDetectionFinding]:
         """Detect anomalous user behavior"""
         findings = []
         
         # Get all user profiles with peer groups
         profiles = UserBehaviorProfile.query.filter_by(case_id=self.case_id).all()
+        groups_by_id, members_by_key = self._load_peer_context(profiles, 'user')
         
         for profile in profiles:
             if not profile.peer_group_id:
                 continue
             
-            # Get peer group stats
-            peer_group = PeerGroup.query.get(profile.peer_group_id)
+            peer_group = groups_by_id.get(profile.peer_group_id)
             if not peer_group or not peer_group.profile_data:
                 continue
             
-            # Get member's z-scores
-            member = PeerGroupMember.query.filter_by(
-                peer_group_id=peer_group.id,
-                entity_type='user',
-                entity_id=profile.user_id
-            ).first()
+            member = members_by_key.get((peer_group.id, profile.user_id))
             
             if not member or not member.z_scores:
                 continue
@@ -117,22 +136,17 @@ class BehavioralAnomalyDetector(BaseGapDetector):
         
         # Get all system profiles with peer groups
         profiles = SystemBehaviorProfile.query.filter_by(case_id=self.case_id).all()
+        groups_by_id, members_by_key = self._load_peer_context(profiles, 'system')
         
         for profile in profiles:
             if not profile.peer_group_id:
                 continue
             
-            # Get peer group stats
-            peer_group = PeerGroup.query.get(profile.peer_group_id)
+            peer_group = groups_by_id.get(profile.peer_group_id)
             if not peer_group or not peer_group.profile_data:
                 continue
             
-            # Get member's z-scores
-            member = PeerGroupMember.query.filter_by(
-                peer_group_id=peer_group.id,
-                entity_type='system',
-                entity_id=profile.system_id
-            ).first()
+            member = members_by_key.get((peer_group.id, profile.system_id))
             
             if not member or not member.z_scores:
                 continue
@@ -160,59 +174,53 @@ class BehavioralAnomalyDetector(BaseGapDetector):
         - New target access (hosts not in typical_target_hosts)
         - Auth method change (switched Kerberos → NTLM)
         """
-        anomalies_detected = []
-        anomaly_details = {}
-        max_z_score = 0
-        
-        # Check each z-score
-        for metric, z_score in z_scores.items():
-            if abs(z_score) >= self.z_score_threshold:
-                anomalies_detected.append(metric)
-                anomaly_details[metric] = {
-                    'z_score': z_score,
-                    'direction': 'high' if z_score > 0 else 'low'
-                }
-                max_z_score = max(max_z_score, abs(z_score))
-        
-        if not anomalies_detected:
-            return None
-        
-        # Calculate composite anomaly score
-        composite_score = self._calculate_composite_anomaly_score(z_scores)
-        
-        # Identify primary anomaly type
-        primary_anomaly = self._identify_anomaly_type(z_scores, anomalies_detected)
-        
-        return {
-            'anomalies_detected': anomalies_detected,
-            'anomaly_details': anomaly_details,
-            'max_z_score': max_z_score,
-            'composite_score': composite_score,
-            'primary_anomaly': primary_anomaly
-        }
+        return self._analyze_deviation_scores(peer_group, z_scores)
     
     def _analyze_system_anomalies(self, profile: SystemBehaviorProfile,
                                   peer_group: PeerGroup, z_scores: Dict) -> Optional[Dict]:
         """
         Same analysis for systems.
         """
+        return self._analyze_deviation_scores(peer_group, z_scores)
+
+    def _effective_threshold(self, peer_group: PeerGroup) -> Optional[float]:
+        """Threshold for this group, capped to what its size can express.
+
+        A group of three members cannot produce a deviation of 3.0 no matter
+        what its members do, so applying the configured threshold unchanged
+        made every small group permanently silent.
+        """
+        return resolve_threshold(
+            peer_group.member_count or 0,
+            configured_threshold=self.z_score_threshold,
+        )
+
+    def _analyze_deviation_scores(
+        self, peer_group: PeerGroup, z_scores: Dict
+    ) -> Optional[Dict]:
+        """Flag the metrics whose deviation exceeds this group's threshold."""
+        threshold = self._effective_threshold(peer_group)
+        if threshold is None:
+            return None
+
         anomalies_detected = []
         anomaly_details = {}
         max_z_score = 0
         
         for metric, z_score in z_scores.items():
-            if abs(z_score) >= self.z_score_threshold:
+            if abs(z_score) >= threshold:
                 anomalies_detected.append(metric)
                 anomaly_details[metric] = {
                     'z_score': z_score,
-                    'direction': 'high' if z_score > 0 else 'low'
+                    'direction': 'high' if z_score > 0 else 'low',
+                    'threshold': round(threshold, 2),
                 }
                 max_z_score = max(max_z_score, abs(z_score))
         
         if not anomalies_detected:
             return None
         
-        composite_score = self._calculate_composite_anomaly_score(z_scores)
+        composite_score = self._calculate_composite_anomaly_score(z_scores, threshold)
         primary_anomaly = self._identify_anomaly_type(z_scores, anomalies_detected)
         
         return {
@@ -220,19 +228,22 @@ class BehavioralAnomalyDetector(BaseGapDetector):
             'anomaly_details': anomaly_details,
             'max_z_score': max_z_score,
             'composite_score': composite_score,
-            'primary_anomaly': primary_anomaly
+            'primary_anomaly': primary_anomaly,
+            'threshold': threshold,
         }
     
-    def _calculate_composite_anomaly_score(self, z_scores: Dict) -> float:
+    def _calculate_composite_anomaly_score(
+        self, z_scores: Dict, threshold: Optional[float] = None
+    ) -> float:
         """
-        Weighted combination of individual z-scores.
+        Weighted combination of individual deviation scores.
         """
         score = 0
         total_weight = 0
         
         for metric, weight in self.ANOMALY_WEIGHTS.items():
             if metric in z_scores:
-                # Use absolute z-score, capped at 10
+                # Use absolute deviation, capped at 10
                 z = min(abs(z_scores[metric]), 10)
                 score += z * weight
                 total_weight += weight
@@ -241,14 +252,41 @@ class BehavioralAnomalyDetector(BaseGapDetector):
                 score += z * weight
                 total_weight += weight
         
-        # Normalize to 0-100 scale
+        # Normalize to 0-100 scale, where a deviation sitting exactly on the
+        # threshold scores 50 and twice the threshold scores 100. Scaling
+        # against the threshold rather than a fixed z of 3 keeps the scale
+        # meaningful for groups whose threshold had to be lowered to something
+        # their size can express.
         if total_weight > 0:
-            # A z-score of 3 with full weight should give ~50
-            # A z-score of 6 with full weight should give ~100
-            normalized = (score / total_weight) * 16.67  # Scale factor
+            effective = threshold or self.z_score_threshold
+            if effective <= 0:
+                return 0
+            normalized = (score / total_weight) * (50.0 / effective)
             return min(100, normalized)
         
         return 0
+
+    def _confidence_from_deviation(self, anomaly_result: Dict) -> float:
+        """Confidence for a finding, scaled against the group's own threshold.
+
+        The tiers were absolute deviations of 3, 4 and 5, which no small group
+        could reach. They are now multiples of whatever threshold applied to
+        this group, so the boundaries land in the same place as before when the
+        full configured threshold was used.
+        """
+        max_z = anomaly_result['max_z_score']
+        composite = anomaly_result['composite_score']
+        threshold = anomaly_result.get('threshold') or self.z_score_threshold
+
+        ratio = (max_z / threshold) if threshold else 0
+
+        if ratio >= 5 / 3:
+            return min(95, 70 + composite * 0.25)
+        if ratio >= 4 / 3:
+            return min(85, 55 + composite * 0.3)
+        if ratio >= 1:
+            return min(70, 40 + composite * 0.3)
+        return 30 + composite * 0.2
     
     def _identify_anomaly_type(self, z_scores: Dict, anomalies: List[str]) -> str:
         """
@@ -276,19 +314,7 @@ class BehavioralAnomalyDetector(BaseGapDetector):
                                      anomaly_result: Dict) -> Optional[GapDetectionFinding]:
         """Create finding for user anomaly"""
         
-        # Calculate confidence based on z-scores
-        max_z = anomaly_result['max_z_score']
-        composite = anomaly_result['composite_score']
-        
-        # Confidence scales with z-score deviation
-        if max_z >= 5:
-            confidence = min(95, 70 + composite * 0.25)
-        elif max_z >= 4:
-            confidence = min(85, 55 + composite * 0.3)
-        elif max_z >= 3:
-            confidence = min(70, 40 + composite * 0.3)
-        else:
-            confidence = 30 + composite * 0.2
+        confidence = self._confidence_from_deviation(anomaly_result)
         
         if confidence < 35:
             return None
@@ -366,17 +392,7 @@ class BehavioralAnomalyDetector(BaseGapDetector):
                                        anomaly_result: Dict) -> Optional[GapDetectionFinding]:
         """Create finding for system anomaly"""
         
-        max_z = anomaly_result['max_z_score']
-        composite = anomaly_result['composite_score']
-        
-        if max_z >= 5:
-            confidence = min(95, 70 + composite * 0.25)
-        elif max_z >= 4:
-            confidence = min(85, 55 + composite * 0.3)
-        elif max_z >= 3:
-            confidence = min(70, 40 + composite * 0.3)
-        else:
-            confidence = 30 + composite * 0.2
+        confidence = self._confidence_from_deviation(anomaly_result)
         
         if confidence < 35:
             return None
