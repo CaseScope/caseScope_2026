@@ -20,10 +20,12 @@ Before starting, confirm:
 
 Read this section before starting if the installed version is earlier than 4.3.2. Which parts apply depends on where you are coming from:
 
+A `git pull` moves to the newest commit on the branch, so you land on the current release rather than on an intermediate version. That matters for which sections apply: coming from 3.x you run every migration using current code, which already does what the later sections describe.
+
 | Installed version | Read |
 |---|---|
-| Earlier than 4.0.0 | [Updating To Version 4.0.0](#updating-to-version-400), then [Updating To Versions 4.0.1 Through 4.3.2](#updating-to-versions-401-through-432) |
-| 4.0.0 | [Updating To Versions 4.0.1 Through 4.3.2](#updating-to-versions-401-through-432), including the alias vault rebuild |
+| Earlier than 4.0.0 | [Updating To Version 4.0.0](#updating-to-version-400) only. **Do not** run the alias vault rebuild; the backfill you run at step 6 already uses current code |
+| Exactly 4.0.0 | [Updating To Versions 4.0.1 Through 4.3.2](#updating-to-versions-401-through-432), including the alias vault rebuild |
 | 4.0.1 to 4.2.x | [Updating To Versions 4.0.1 Through 4.3.2](#updating-to-versions-401-through-432), skipping the alias vault rebuild |
 
 ## Updating To Version 4.0.0
@@ -94,7 +96,9 @@ RUN='cd /opt/casescope && set -a && source /etc/casescope/casescope.env && set +
 
 ### Rebuild The Alias Vault After 4.0.1
 
-Skip this if the installed version is 4.0.1 or later, or if the alias vault was never backfilled.
+This applies only if 4.0.0 was installed and its alias vault was backfilled while 4.0.0 was the running version.
+
+Skip it if you came from 3.x or earlier. The backfill you ran at step 6 already used current code, so the vault is already built to current rules and a rebuild would repeat a full scan of every case for no benefit.
 
 A vault built under 4.0.0 holds entries that later releases no longer create. 4.0.0 vaulted every entity type regardless of the configured privacy level, recorded unlabelled GUIDs from Windows volume and servicing paths, and scanned typed columns without a cap, so a case carrying firewall logs could contribute one alias per distinct public address. Those entries make substitution slower without protecting anything.
 
@@ -105,6 +109,12 @@ sudo -u casescope bash -lc "$RUN migrations/backfill_privacy_alias_vault.py --re
 ```
 
 Expect this to take time proportional to the stored event count, as with the original backfill.
+
+`--reset` requires 4.3.6 or later. Earlier releases restarted alias numbering at 1 while keeping aliases created during AI egress, which reissued a number the case already held and aborted the rebuild on a unique constraint. Because the reset commits its deletion before rebuilding, a case that failed this way was left holding only its egress-created aliases. If you hit `duplicate key value violates unique constraint "uq_privacy_alias_case_alias"`, update to 4.3.6 or later and rerun the backfill to restore the affected cases:
+
+```bash
+sudo -u casescope bash -lc "$RUN migrations/backfill_privacy_alias_vault.py"
+```
 
 ### The Chat Transcript Column Changes In 4.3.0
 

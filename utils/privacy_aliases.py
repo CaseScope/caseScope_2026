@@ -1402,13 +1402,42 @@ def extract_alias_candidates_from_event_rows(
     return candidates
 
 
+def _highest_alias_number(case_id: int, entity_type: str) -> int:
+    """Return the highest alias number already issued for this case and type.
+
+    Alias values are '{ENTITY_TYPE}_{number}', so the number is recoverable from
+    the vault itself. Read it rather than trusting the counter row to exist.
+    """
+    highest = db.session.query(
+        db.func.max(
+            db.cast(
+                db.func.substring(PrivacyAlias.alias_value, r'_(\d+)$'),
+                db.Integer,
+            )
+        )
+    ).filter(
+        PrivacyAlias.case_id == case_id,
+        PrivacyAlias.entity_type == entity_type,
+    ).scalar()
+    return int(highest or 0)
+
+
 def _next_alias_value(case_id: int, entity_type: str) -> str:
     counter = PrivacyAliasCounter.query.filter_by(
         case_id=case_id,
         entity_type=entity_type,
     ).with_for_update().first()
     if counter is None:
-        counter = PrivacyAliasCounter(case_id=case_id, entity_type=entity_type, next_number=1)
+        # A missing counter does not mean an empty vault. A --reset drops every
+        # counter but keeps aliases it did not create, and a restore can lose
+        # the counter too. Starting at 1 then reissues a number that is already
+        # taken and the unique constraint on (case_id, alias_value) aborts the
+        # whole rebuild, so resume above what the vault already holds.
+        counter = PrivacyAliasCounter(
+            case_id=case_id,
+            entity_type=entity_type,
+            next_number=_highest_alias_number(case_id, entity_type) + 1,
+        )
         db.session.add(counter)
         db.session.flush()
     number = counter.next_number

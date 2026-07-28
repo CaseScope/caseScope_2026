@@ -1,6 +1,15 @@
 {
-  "version": "4.3.5",
+  "version": "4.3.6",
   "changelog": [
+    {
+      "version": "4.3.6",
+      "date": "2026-07-28",
+      "changes": [
+        "Rebuilding the alias vault with --reset no longer aborts with 'duplicate key value violates unique constraint uq_privacy_alias_case_alias'. The reset drops every alias counter for the case but only deletes the aliases it created itself, so aliases created during AI egress survived still holding ACCOUNT_0001, and numbering restarted at 1 and handed that value out again. Because the reset commits its deletion before rebuilding, a case that failed this way was left holding only its egress-created aliases",
+        "Alias numbering now resumes above the highest number the vault already holds whenever the counter row is absent, rather than assuming a missing counter means an empty vault. That also covers a counter lost to a restore, and it is what lets a case emptied by the failed rebuild be repaired by rerunning the backfill",
+        "The update guide no longer sends a 3.x upgrade through the alias vault rebuild. A git pull lands on the current release, so the backfill run during that upgrade already uses current extraction rules and the rebuild only repeated a full scan of every case"
+      ]
+    },
     {
       "version": "4.3.5",
       "date": "2026-07-28",
