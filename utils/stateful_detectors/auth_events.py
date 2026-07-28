@@ -26,6 +26,11 @@ from __future__ import annotations
 
 from typing import Any, Dict, Optional, Tuple
 
+from utils.event_time_window import (
+    MIN_VALID_EVENT_TIME as EVENT_TIME_FLOOR,
+    event_time_bounds_sql,
+)
+
 # Events that represent an authentication attempt of some kind.
 AUTH_EVENT_IDS = ('4624', '4625', '4768', '4771', '4776', '18456')
 
@@ -40,9 +45,10 @@ STATUS_BEARING_EVENT_IDS = ('4768', '4771', '4776')
 # NTLM credential validation reports "Status OK".
 SUCCESS_STATUS_TOKENS = ('KDC_ERR_NONE', 'Status OK')
 
-# Events written with no recoverable time land on the epoch and would otherwise
-# be grouped into a single window in 1970.
-MIN_VALID_EVENT_TIME = '1970-01-02 00:00:00'
+# Corrupt timestamps are excluded at both ends: events with no recoverable time
+# land on the epoch and would be grouped into a single window in 1970, and
+# artifact timestamps dated decades ahead would each form a window of their own.
+MIN_VALID_EVENT_TIME = EVENT_TIME_FLOOR
 
 # Source values that identify no remote party: placeholders the Windows logs
 # use for "unknown", and loopback, which names the logging host itself.
@@ -115,6 +121,11 @@ _REAL_ACCOUNT_FILTER = (
     "AND match(username, '[A-Za-z0-9]')"
 )
 
+# Interpolated into the query bodies below. The value carries a ClickHouse
+# parameter placeholder of its own, which survives f-string interpolation
+# because the substituted text is not scanned again.
+event_bounds = event_time_bounds_sql()
+
 
 def build_source_slot_query(slot_minutes: int, sample_size: int = 50) -> str:
     """Per-source authentication activity, aggregated into fixed time slots.
@@ -139,7 +150,7 @@ def build_source_slot_query(slot_minutes: int, sample_size: int = 50) -> str:
         FROM events
         WHERE case_id = {{case_id:UInt32}}
           AND event_id IN ({_quoted_list(AUTH_EVENT_IDS)})
-          AND timestamp_utc > toDateTime64({{min_time:String}}, 3)
+          AND {event_bounds}
           AND source_identity IS NOT NULL
           AND {_REAL_ACCOUNT_FILTER}
         GROUP BY source_identity, slot_start
@@ -164,7 +175,7 @@ def build_target_slot_query(slot_minutes: int, sample_size: int = 50) -> str:
         FROM events
         WHERE case_id = {{case_id:UInt32}}
           AND event_id IN ({_quoted_list(AUTH_EVENT_IDS)})
-          AND timestamp_utc > toDateTime64({{min_time:String}}, 3)
+          AND {event_bounds}
           AND {_REAL_ACCOUNT_FILTER}
         GROUP BY username, slot_start
         ORDER BY username, slot_start

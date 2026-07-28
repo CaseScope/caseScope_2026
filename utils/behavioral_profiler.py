@@ -21,6 +21,10 @@ from models.behavioral_profiles import (
 )
 from utils.case_timezone import get_case_timezone
 from utils.clickhouse import get_fresh_client
+from utils.event_time_window import (
+    MIN_VALID_EVENT_TIME as EVENT_TIME_FLOOR,
+    event_time_bounds_sql,
+)
 from config import Config
 
 logger = logging.getLogger(__name__)
@@ -30,9 +34,11 @@ logger = logging.getLogger(__name__)
 BUSINESS_HOURS_START = 7
 BUSINESS_HOURS_END = 19
 
-# Events written with no recoverable time land on the epoch and would otherwise
-# pile onto hour 0 of 1970, skewing every hour-of-day and calendar-day metric.
-MIN_VALID_EVENT_TIME = '1970-01-02 00:00:00'
+# Corrupt timestamps are excluded at both ends. Events with no recoverable time
+# land on the epoch and pile onto hour 0 of 1970, and filesystem and browser
+# artifacts carry dates decades out in either direction, one of which produced a
+# profile period ending in 2101. See utils.event_time_window.
+MIN_VALID_EVENT_TIME = EVENT_TIME_FLOOR
 
 # Directory-service activity that only a domain controller produces.
 DOMAIN_CONTROLLER_EVENT_IDS = ('4662', '4933', '4935', '4936')
@@ -216,11 +222,13 @@ class BehavioralProfiler:
         user_filter = f"({' OR '.join(user_filters)})"
         
         # Query for user activity summary
-        query = f"""
+        # Assembled by concatenation rather than interpolation so the parameter
+        # placeholders ClickHouse expects do not have to be escaped.
+        query = """
             SELECT 
-                toHour(toTimeZone(timestamp_utc, {{tz:String}})) as hour,
-                toDayOfWeek(toTimeZone(timestamp_utc, {{tz:String}})) as day_of_week,
-                toDate(toTimeZone(timestamp_utc, {{tz:String}})) as date,
+                toHour(toTimeZone(timestamp_utc, {tz:String})) as hour,
+                toDayOfWeek(toTimeZone(timestamp_utc, {tz:String})) as day_of_week,
+                toDate(toTimeZone(timestamp_utc, {tz:String})) as date,
                 event_id,
                 source_host,
                 remote_host,
@@ -228,9 +236,9 @@ class BehavioralProfiler:
                 logon_type,
                 count() as event_count
             FROM events
-            WHERE case_id = {{case_id:UInt32}}
-              AND timestamp_utc > toDateTime64({{min_time:String}}, 3)
-              AND {user_filter}
+            WHERE case_id = {case_id:UInt32}
+              AND """ + event_time_bounds_sql() + """
+              AND """ + user_filter + """
             GROUP BY hour, day_of_week, date, event_id, source_host, remote_host, auth_package, logon_type
         """
         
@@ -404,7 +412,7 @@ class BehavioralProfiler:
                 count() as event_count
             FROM events
             WHERE case_id = {case_id:UInt32}
-              AND timestamp_utc > toDateTime64({min_time:String}, 3)
+              AND """ + event_time_bounds_sql() + """
               AND (upper(source_host) = {hostname:String}
                    OR upper(workstation_name) = {hostname:String}
                    OR upper(remote_host) = {hostname:String})

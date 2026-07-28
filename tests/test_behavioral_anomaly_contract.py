@@ -43,6 +43,7 @@ class _GapFindingType:
     VOLUME_SPIKE = 'volume_spike'
     OFF_HOURS_ACTIVITY = 'off_hours_activity'
     NEW_TARGET_ACCESS = 'new_target_access'
+    AUTH_METHOD_CHANGE = 'auth_method_change'
     ANOMALOUS_USER = 'anomalous_user'
     ANOMALOUS_SYSTEM = 'anomalous_system'
 
@@ -90,6 +91,10 @@ def _load_detector():
 
 anomaly_module = _load_detector()
 BehavioralAnomalyDetector = anomaly_module.BehavioralAnomalyDetector
+
+# Users and systems are scored against different metrics, so the weight table
+# is now passed in rather than being a single attribute on the detector.
+USER_WEIGHTS = BehavioralAnomalyDetector.USER_ANOMALY_WEIGHTS
 
 
 def _peer_group(member_count, name='user_cluster_1'):
@@ -139,18 +144,24 @@ class ThresholdReachabilityTestCase(unittest.TestCase):
     def test_group_of_three_can_produce_a_finding(self):
         """The case that was previously impossible."""
         scores = {'daily_logons': 1.7, 'failure_rate': 0.0, 'off_hours': 0.2, 'unique_hosts': 0.1}
-        result = self.detector._analyze_deviation_scores(_peer_group(3), scores)
+        result = self.detector._analyze_deviation_scores(
+            _peer_group(3), scores, USER_WEIGHTS
+        )
 
         self.assertIsNotNone(result, msg='a clear deviation in a small group must be flagged')
         self.assertIn('daily_logons', result['anomalies_detected'])
 
     def test_ordinary_variation_in_a_small_group_is_not_flagged(self):
         scores = {'daily_logons': 0.3, 'failure_rate': 0.1, 'off_hours': 0.2, 'unique_hosts': 0.0}
-        self.assertIsNone(self.detector._analyze_deviation_scores(_peer_group(3), scores))
+        self.assertIsNone(self.detector._analyze_deviation_scores(
+            _peer_group(3), scores, USER_WEIGHTS
+        ))
 
     def test_large_group_still_requires_the_full_threshold(self):
         scores = {'daily_logons': 2.4, 'failure_rate': 0.0, 'off_hours': 0.0, 'unique_hosts': 0.0}
-        self.assertIsNone(self.detector._analyze_deviation_scores(_peer_group(68), scores))
+        self.assertIsNone(
+            self.detector._analyze_deviation_scores(_peer_group(68), scores, USER_WEIGHTS)
+        )
 
 
 class ConfidenceScalingTestCase(unittest.TestCase):
@@ -159,7 +170,9 @@ class ConfidenceScalingTestCase(unittest.TestCase):
 
     def test_finding_is_created_for_a_small_group_deviation(self):
         scores = {'daily_logons': 1.8, 'failure_rate': 0.0, 'off_hours': 1.5, 'unique_hosts': 0.0}
-        result = self.detector._analyze_deviation_scores(_peer_group(4), scores)
+        result = self.detector._analyze_deviation_scores(
+            _peer_group(4), scores, USER_WEIGHTS
+        )
         self.assertIsNotNone(result)
 
         finding = self.detector._create_user_anomaly_finding(
@@ -196,18 +209,24 @@ class CompositeScoreTestCase(unittest.TestCase):
 
     def test_deviation_on_threshold_scores_about_fifty(self):
         scores = {'daily_logons': 3.0, 'failure_rate': 3.0, 'off_hours': 3.0}
-        composite = self.detector._calculate_composite_anomaly_score(scores, threshold=3.0)
+        composite = self.detector._calculate_composite_anomaly_score(
+            scores, USER_WEIGHTS, threshold=3.0
+        )
         self.assertAlmostEqual(composite, 50.0, places=1)
 
     def test_small_group_threshold_rescales_the_composite(self):
         """A deviation on a lowered threshold must not score as though it were tiny."""
         scores = {'daily_logons': 1.0, 'failure_rate': 1.0, 'off_hours': 1.0}
-        composite = self.detector._calculate_composite_anomaly_score(scores, threshold=1.0)
+        composite = self.detector._calculate_composite_anomaly_score(
+            scores, USER_WEIGHTS, threshold=1.0
+        )
         self.assertAlmostEqual(composite, 50.0, places=1)
 
     def test_composite_is_capped_at_one_hundred(self):
         scores = {'daily_logons': 10.0, 'failure_rate': 10.0, 'off_hours': 10.0}
-        composite = self.detector._calculate_composite_anomaly_score(scores, threshold=3.0)
+        composite = self.detector._calculate_composite_anomaly_score(
+            scores, USER_WEIGHTS, threshold=3.0
+        )
         self.assertLessEqual(composite, 100)
 
 

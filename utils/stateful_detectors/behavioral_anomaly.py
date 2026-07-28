@@ -36,13 +36,27 @@ class BehavioralAnomalyDetector(BaseGapDetector):
     significant deviations from normal behavior.
     """
     
-    # Anomaly type weights for composite scoring
-    ANOMALY_WEIGHTS = {
-        'auth_volume': 0.30,
-        'failure_rate': 0.25,
-        'off_hours': 0.15,
+    # Weights for the composite score, per entity type, naming only metrics that
+    # are actually produced.
+    #
+    # A single weight table used to cover both, and it named two metrics nothing
+    # computed - `new_targets` at 20 percent and `auth_method_change` at 10 - so
+    # thirty percent of the weight was inert. It also omitted `unique_hosts` and
+    # `unique_users`, which are computed and flagged, so an entity anomalous only
+    # on one of those scored zero on the composite. The two missing metrics are
+    # now supplied by utils.temporal_baseline.
+    USER_ANOMALY_WEIGHTS = {
+        'daily_logons': 0.25,
+        'failure_rate': 0.20,
+        'unique_hosts': 0.15,
+        'off_hours': 0.10,
         'new_targets': 0.20,
-        'auth_method_change': 0.10
+        'auth_method_change': 0.10,
+    }
+
+    SYSTEM_ANOMALY_WEIGHTS = {
+        'auth_volume': 0.55,
+        'unique_users': 0.45,
     }
     
     def __init__(self, case_id: int, analysis_id: str, z_score_threshold: float = None):
@@ -52,6 +66,10 @@ class BehavioralAnomalyDetector(BaseGapDetector):
         self.z_score_threshold = z_score_threshold or getattr(
             Config, 'ANALYSIS_ANOMALY_Z_THRESHOLD', 3.0
         )
+
+        # Populated once per run; comparing each account against its own earlier
+        # behaviour needs one query for the whole case, not one per account.
+        self._temporal_signals: Dict[str, Any] = {}
     
     def detect(self) -> List[GapDetectionFinding]:
         """
@@ -99,6 +117,43 @@ class BehavioralAnomalyDetector(BaseGapDetector):
         }
         return groups_by_id, members_by_key
 
+    def _load_temporal_signals(self) -> Dict[str, Any]:
+        """Compare every account's recent activity to its own earlier baseline.
+
+        Best effort: a case whose authentication history is too short to divide
+        yields nothing here, and the peer comparison stands on its own.
+        """
+        try:
+            from utils.temporal_baseline import load_temporal_signals
+
+            signals = load_temporal_signals(
+                self._get_clickhouse_client(), self.case_id
+            )
+            logger.info(
+                "Temporal baseline established for %s accounts in case %s",
+                len(signals), self.case_id,
+            )
+            return signals
+        except Exception as exc:
+            logger.warning(
+                "Temporal baseline unavailable for case %s: %s", self.case_id, exc
+            )
+            return {}
+
+    def _merge_temporal_scores(self, username: str, z_scores: Dict) -> Dict:
+        """Add this account's temporal deviations to its peer deviations.
+
+        Both are expressed on the same scale, where the anomaly threshold means
+        the same thing, so they can be compared and weighted together.
+        """
+        signal = self._temporal_signals.get((username or '').strip().lower())
+        if not signal:
+            return dict(z_scores)
+
+        merged = dict(z_scores)
+        merged.update(signal.deviation_scores(self.z_score_threshold))
+        return merged
+
     def _detect_user_anomalies(self) -> List[GapDetectionFinding]:
         """Detect anomalous user behavior"""
         findings = []
@@ -106,6 +161,7 @@ class BehavioralAnomalyDetector(BaseGapDetector):
         # Get all user profiles with peer groups
         profiles = UserBehaviorProfile.query.filter_by(case_id=self.case_id).all()
         groups_by_id, members_by_key = self._load_peer_context(profiles, 'user')
+        self._temporal_signals = self._load_temporal_signals()
         
         for profile in profiles:
             if not profile.peer_group_id:
@@ -120,8 +176,10 @@ class BehavioralAnomalyDetector(BaseGapDetector):
             if not member or not member.z_scores:
                 continue
             
+            z_scores = self._merge_temporal_scores(profile.username, member.z_scores)
+            
             # Analyze anomalies
-            anomaly_result = self._analyze_user_anomalies(profile, peer_group, member.z_scores)
+            anomaly_result = self._analyze_user_anomalies(profile, peer_group, z_scores)
             
             if anomaly_result:
                 finding = self._create_user_anomaly_finding(profile, peer_group, anomaly_result)
@@ -171,17 +229,21 @@ class BehavioralAnomalyDetector(BaseGapDetector):
         - Volume spike (auth count z-score > 3)
         - Failure spike (failure count z-score > 3)
         - Off-hours activity (off-hours % z-score > 3)
-        - New target access (hosts not in typical_target_hosts)
-        - Auth method change (switched Kerberos → NTLM)
+        - New target access (hosts absent from the account's own baseline)
+        - Auth method change (shift toward a weaker authentication package)
         """
-        return self._analyze_deviation_scores(peer_group, z_scores)
+        return self._analyze_deviation_scores(
+            peer_group, z_scores, self.USER_ANOMALY_WEIGHTS
+        )
     
     def _analyze_system_anomalies(self, profile: SystemBehaviorProfile,
                                   peer_group: PeerGroup, z_scores: Dict) -> Optional[Dict]:
         """
         Same analysis for systems.
         """
-        return self._analyze_deviation_scores(peer_group, z_scores)
+        return self._analyze_deviation_scores(
+            peer_group, z_scores, self.SYSTEM_ANOMALY_WEIGHTS
+        )
 
     def _effective_threshold(self, peer_group: PeerGroup) -> Optional[float]:
         """Threshold for this group, capped to what its size can express.
@@ -196,7 +258,7 @@ class BehavioralAnomalyDetector(BaseGapDetector):
         )
 
     def _analyze_deviation_scores(
-        self, peer_group: PeerGroup, z_scores: Dict
+        self, peer_group: PeerGroup, z_scores: Dict, weights: Dict[str, float]
     ) -> Optional[Dict]:
         """Flag the metrics whose deviation exceeds this group's threshold."""
         threshold = self._effective_threshold(peer_group)
@@ -220,7 +282,9 @@ class BehavioralAnomalyDetector(BaseGapDetector):
         if not anomalies_detected:
             return None
         
-        composite_score = self._calculate_composite_anomaly_score(z_scores, threshold)
+        composite_score = self._calculate_composite_anomaly_score(
+            z_scores, weights, threshold
+        )
         primary_anomaly = self._identify_anomaly_type(z_scores, anomalies_detected)
         
         return {
@@ -233,22 +297,23 @@ class BehavioralAnomalyDetector(BaseGapDetector):
         }
     
     def _calculate_composite_anomaly_score(
-        self, z_scores: Dict, threshold: Optional[float] = None
+        self, z_scores: Dict, weights: Dict[str, float],
+        threshold: Optional[float] = None
     ) -> float:
         """
         Weighted combination of individual deviation scores.
+
+        Only metrics present for this entity contribute, and the result is
+        divided by the weight actually used, so an absent metric neither dilutes
+        the score nor silently drops the entity to zero.
         """
         score = 0
         total_weight = 0
         
-        for metric, weight in self.ANOMALY_WEIGHTS.items():
+        for metric, weight in weights.items():
             if metric in z_scores:
                 # Use absolute deviation, capped at 10
                 z = min(abs(z_scores[metric]), 10)
-                score += z * weight
-                total_weight += weight
-            elif metric == 'auth_volume' and 'daily_logons' in z_scores:
-                z = min(abs(z_scores['daily_logons']), 10)
                 score += z * weight
                 total_weight += weight
         
@@ -304,7 +369,9 @@ class BehavioralAnomalyDetector(BaseGapDetector):
             'failure_rate': GapFindingType.VOLUME_SPIKE,  # Failure spike
             'off_hours': GapFindingType.OFF_HOURS_ACTIVITY,
             'unique_hosts': GapFindingType.NEW_TARGET_ACCESS,
-            'unique_users': GapFindingType.VOLUME_SPIKE
+            'unique_users': GapFindingType.VOLUME_SPIKE,
+            'new_targets': GapFindingType.NEW_TARGET_ACCESS,
+            'auth_method_change': GapFindingType.AUTH_METHOD_CHANGE,
         }
         
         return type_map.get(max_metric, GapFindingType.ANOMALOUS_USER)
@@ -370,6 +437,14 @@ class BehavioralAnomalyDetector(BaseGapDetector):
             'avg_daily_logons': profile.avg_daily_logons,
             'peer_median_logons': peer_group.median_daily_logons
         }
+
+        # Which hosts were newly reached, and how the authentication mix moved,
+        # for whichever of those two signals fired.
+        temporal_signal = self._temporal_signals.get(
+            (profile.username or '').strip().lower()
+        )
+        if temporal_signal:
+            behavioral_context['temporal_baseline'] = temporal_signal.evidence()
         
         return self._create_finding(
             finding_type=anomaly_type,
