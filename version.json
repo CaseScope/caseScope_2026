@@ -1,6 +1,16 @@
 {
-  "version": "4.11.3",
+  "version": "4.11.4",
   "changelog": [
+    {
+      "version": "4.11.4",
+      "date": "2026-08-10",
+      "changes": [
+        "Semantic IOC extraction now preserves identity/authentication mini-schema results when affected users and authentication findings appear together. The task projection explicitly maps credential exposure, compromised users, created accounts and observed passwords into the canonical authentication IOC structure instead of treating a partial top-level match as already canonical",
+        "The semantic residual review pass has been removed from runtime planning because its threat-name and notes output had no durable canonical IOC destination. The targeted semantic pipeline now runs only supported task schemas whose fields survive coercion, filtering, normalization and merge",
+        "Compromised-user classification now requires candidate-specific source evidence naming the account with explicit account-misuse language, so compromise wording for one account can no longer promote another affected or credential-exposure user",
+        "Targeted semantic task prompts now define compact item shapes for evidence and evidence origin, and semantic candidate-count telemetry counts only known IOC-bearing fields rather than metadata lists"
+      ]
+    },
     {
       "version": "4.11.3",
       "date": "2026-07-28",
