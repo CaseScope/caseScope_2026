@@ -539,30 +539,52 @@ class BaseLLMProvider(ABC):
 
         raw_text = result['response']
 
+        raw_candidate = raw_text.strip()
         candidates = [
-            raw_text,
-            self._strip_think_blocks(raw_text),
-            self._strip_markdown_fences(raw_text),
-            self._strip_markdown_fences(self._strip_think_blocks(raw_text)),
-            self._extract_json_object(raw_text),
-            self._extract_json_object(self._strip_think_blocks(raw_text)),
-            self._extract_json_object(self._strip_markdown_fences(raw_text)),
-            self._extract_json_object(self._strip_markdown_fences(self._strip_think_blocks(raw_text))),
+            (raw_candidate, False, None),
+            (self._strip_think_blocks(raw_text), True, 'stripped_think_blocks'),
+            (self._strip_markdown_fences(raw_text), True, 'stripped_markdown_fences'),
+            (
+                self._strip_markdown_fences(self._strip_think_blocks(raw_text)),
+                True,
+                'stripped_think_blocks_and_markdown_fences',
+            ),
+            (self._extract_json_object(raw_text), True, 'extracted_balanced_json_object'),
+            (
+                self._extract_json_object(self._strip_think_blocks(raw_text)),
+                True,
+                'stripped_think_blocks_and_extracted_balanced_json_object',
+            ),
+            (
+                self._extract_json_object(self._strip_markdown_fences(raw_text)),
+                True,
+                'stripped_markdown_fences_and_extracted_balanced_json_object',
+            ),
+            (
+                self._extract_json_object(self._strip_markdown_fences(self._strip_think_blocks(raw_text))),
+                True,
+                'stripped_think_blocks_markdown_fences_and_extracted_balanced_json_object',
+            ),
         ]
 
-        for candidate in candidates:
-            candidate = candidate.strip()
+        reasoning_text = result.get('reasoning') if os.getenv('CASESCOPE_CAPTURE_LLM_REASONING') == '1' else None
+        for candidate, repaired, repair_reason in candidates:
+            candidate = str(candidate or '').strip()
             if not candidate:
                 continue
             try:
                 parsed = json.loads(candidate)
+                response_repaired = bool(repaired and candidate != raw_candidate)
                 return {
                     'success': True,
                     'data': parsed,
                     'model': result.get('model'),
                     'raw_response': raw_text,
+                    'response_repaired': response_repaired,
+                    'repair_reason': repair_reason if response_repaired else None,
                     'finish_reason': result.get('finish_reason'),
-                    'reasoning': result.get('reasoning'),
+                    'reasoning': reasoning_text,
+                    'reasoning_present': bool(result.get('reasoning')),
                     'usage': result.get('usage'),
                 }
             except json.JSONDecodeError:
@@ -574,7 +596,8 @@ class BaseLLMProvider(ABC):
             'error': 'Failed to parse JSON response',
             'raw_response': raw_text[:500],
             'finish_reason': result.get('finish_reason'),
-            'reasoning': result.get('reasoning'),
+            'reasoning': reasoning_text,
+            'reasoning_present': bool(result.get('reasoning')),
             'usage': result.get('usage'),
         }
 

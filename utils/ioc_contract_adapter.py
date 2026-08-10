@@ -288,7 +288,8 @@ def prepare_ai_extraction_payload(
         task_name=task_name,
         semantic_task_allowed_fields=semantic_task_allowed_fields,
     )
-    review_applied = (not is_valid_ioc_schema(payload)) or bool(semantic_review_reasons)
+    review_requested = (not is_valid_ioc_schema(payload)) or bool(semantic_review_reasons)
+    review_applied = review_requested and not bool(task_name)
     candidate = coerce_ioc_contract_payload(payload)
     review_callable = review_structured_output or _ai_review.review_structured_output
 
@@ -308,6 +309,8 @@ def prepare_ai_extraction_payload(
 
     return candidate, {
         'review_applied': review_applied,
+        'review_requested': review_requested,
+        'review_skipped_reason': 'semantic_task_requires_source_evidence' if review_requested and task_name else None,
         'schema_before': schema_before,
         'schema_after': ioc_schema_metrics(candidate),
         'semantic_review_reasons': semantic_review_reasons,

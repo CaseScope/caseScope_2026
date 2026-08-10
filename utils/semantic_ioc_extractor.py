@@ -24,7 +24,7 @@ _ioc_contract = _load_local_module("semantic_ioc_contract_shared", "ioc_contract
 _report_normalizer = _load_local_module("semantic_report_normalizer_shared", "report_normalizer.py")
 
 SEMANTIC_TASK_KEYWORDS = {
-    "semantic_users_and_accounts": (
+    "semantic_identity_and_auth": (
         "user",
         "account",
         "sid",
@@ -34,6 +34,8 @@ SEMANTIC_TASK_KEYWORDS = {
         "credential",
         "password",
         "auth",
+        "infostealer",
+        "stealer",
     ),
     "semantic_process_relationships": (
         "process",
@@ -46,34 +48,25 @@ SEMANTIC_TASK_KEYWORDS = {
         "cmd",
         "wscript",
         "rundll32",
+        "service",
+        "scheduled task",
+        "taskname",
     ),
     "semantic_persistence_actions": (
         "registry",
         "startup",
-        "service",
-        "scheduled task",
         "persistence",
         "autorun",
         "run key",
         "webshell",
-    ),
-    "semantic_credentials_and_auth": (
-        "credential",
-        "password",
-        "auth",
-        "user",
-        "account",
-        "login",
-        "logon",
-        "token",
+        "credential theft",
     ),
 }
 
 SEMANTIC_FIELD_DEPENDENCIES = {
-    "semantic_users_and_accounts": ("users", "sids", "hostnames"),
+    "semantic_identity_and_auth": ("users", "sids", "credentials"),
     "semantic_process_relationships": ("commands", "services", "scheduled_tasks"),
     "semantic_persistence_actions": ("registry_keys", "file_paths"),
-    "semantic_credentials_and_auth": ("credentials", "users"),
 }
 
 
@@ -156,6 +149,105 @@ def _render_task_text(task: Dict[str, Any]) -> str:
     return task["prompt_template"].format(section_text.strip())
 
 
+def _nullable(value: Any) -> Any:
+    if value is None:
+        return None
+    if isinstance(value, str) and not value.strip():
+        return None
+    return value
+
+
+def _as_list(value: Any) -> List[Any]:
+    if value is None:
+        return []
+    if isinstance(value, list):
+        return value
+    return [value]
+
+
+def _canonical_from_task_payload(task_name: str, payload: Any) -> Dict[str, Any]:
+    """Project a task-scoped semantic response into the canonical IOC shape."""
+    canonical = _ioc_contract.build_empty_ioc_extraction()
+    payload = payload if isinstance(payload, dict) else {}
+    canonical_keys = set(_ioc_contract.build_empty_ioc_extraction().keys())
+    if canonical_keys.intersection(payload.keys()):
+        return payload
+
+    if task_name == "semantic_identity_and_auth":
+        canonical["affected_users"] = _as_list(payload.get("affected_users"))
+        auth = canonical["authentication_iocs"]
+        auth["credential_exposure_users"] = _as_list(payload.get("credential_exposure_users"))
+        auth["compromised_users"] = _as_list(payload.get("compromised_users"))
+        auth["created_users"] = _as_list(payload.get("created_users"))
+        auth["passwords_observed"] = _as_list(payload.get("passwords_observed"))
+        return canonical
+
+    if task_name == "semantic_process_relationships":
+        process = canonical["process_iocs"]
+        for command in _as_list(payload.get("commands")):
+            if isinstance(command, dict):
+                item = dict(command)
+                item["full_command"] = _nullable(
+                    item.get("full_command") or item.get("command") or item.get("value")
+                )
+                item["executable"] = _nullable(item.get("executable"))
+                item["parent_process"] = _nullable(item.get("parent_process") or item.get("parent"))
+                item["user"] = _nullable(item.get("user"))
+                item["pid"] = _nullable(item.get("pid"))
+                process["commands"].append(item)
+            elif command:
+                process["commands"].append({"full_command": str(command)})
+        for service in _as_list(payload.get("services")):
+            if isinstance(service, dict):
+                item = dict(service)
+                item["name"] = _nullable(item.get("name") or item.get("value"))
+                item["path"] = _nullable(item.get("path"))
+                item["action"] = _nullable(item.get("action"))
+                process["services"].append(item)
+            elif service:
+                process["services"].append({"name": str(service), "path": None, "action": None})
+        for task in _as_list(payload.get("scheduled_tasks")):
+            if isinstance(task, dict):
+                item = dict(task)
+                item["name"] = _nullable(item.get("name") or item.get("value"))
+                item["path"] = _nullable(item.get("path"))
+                item["command"] = _nullable(item.get("command"))
+                item["action"] = _nullable(item.get("action"))
+                process["scheduled_tasks"].append(item)
+            elif task:
+                process["scheduled_tasks"].append({"name": str(task), "path": None, "command": None})
+        return canonical
+
+    if task_name == "semantic_persistence_actions":
+        persistence = canonical["persistence_iocs"]
+        persistence["registry"] = _as_list(payload.get("registry"))
+        persistence["credential_theft_indicators"] = _as_list(payload.get("credential_theft_indicators"))
+        canonical["vulnerability_iocs"]["webshells"] = _as_list(payload.get("webshells"))
+        return canonical
+
+    if task_name == "semantic_residual_review":
+        canonical.setdefault("threat_intel", {})["threat_names"] = _as_list(payload.get("threat_names"))
+        return canonical
+
+    return payload
+
+
+def _count_semantic_candidates(payload: Dict[str, Any]) -> int:
+    total = 0
+
+    def _walk(value: Any) -> None:
+        nonlocal total
+        if isinstance(value, list):
+            total += len([item for item in value if item])
+            return
+        if isinstance(value, dict):
+            for child in value.values():
+                _walk(child)
+
+    _walk(payload)
+    return total
+
+
 def run_semantic_stage(
     provider: Any,
     report_text: str,
@@ -192,7 +284,7 @@ def run_semantic_stage(
             ai_result = invoke_json(
                 function="ioc_extraction",
                 prompt=prompt,
-                system=_ioc_contract.IOC_SYSTEM_PROMPT,
+                system=_ioc_contract.IOC_SEMANTIC_SYSTEM_PROMPT,
                 temperature=0.0,
                 max_tokens=max_response_tokens,
                 provider=provider,
@@ -223,7 +315,7 @@ def run_semantic_stage(
 
             prepared_payload, payload_meta = prepare_payload(
                 provider,
-                ai_result["data"],
+                _canonical_from_task_payload(task_name, ai_result["data"]),
                 max_tokens=max_response_tokens,
                 task_name=task_name,
             )
@@ -238,6 +330,10 @@ def run_semantic_stage(
             normalized.setdefault("extraction_summary", {})
             normalized["extraction_summary"]["semantic_task"] = task_name
             normalized["extraction_summary"]["semantic_sections"] = list(task.get("section_names") or [])
+            normalized["extraction_summary"]["response_repaired"] = bool(ai_result.get("response_repaired"))
+            normalized["extraction_summary"]["repair_reason"] = ai_result.get("repair_reason")
+            normalized["extraction_summary"]["semantic_prompt_chars"] = len(prompt)
+            normalized["extraction_summary"]["semantic_candidate_count"] = _count_semantic_candidates(filtered_payload)
             route_warnings = [
                 f"Removed disallowed field {field} from {task_name}"
                 for field in filter_meta.get("stripped_fields", [])
@@ -253,6 +349,15 @@ def run_semantic_stage(
                     "chunk": chunk_meta.get("chunk_index"),
                     "chunk_count": chunk_meta.get("chunk_count"),
                     "route_filter": filter_meta,
+                    "prompt_chars": len(prompt),
+                    "prompt_tokens": (ai_result.get("runtime", {}).get("metrics", {}) or {}).get("input_tokens", 0),
+                    "completion_tokens": (ai_result.get("runtime", {}).get("metrics", {}) or {}).get("output_tokens", 0),
+                    "elapsed_ms": (ai_result.get("runtime", {}) or {}).get("duration_ms", 0),
+                    "model": ai_result.get("model") or getattr(provider, "model", ""),
+                    "success": True,
+                    "response_repaired": bool(ai_result.get("response_repaired")),
+                    "candidate_count": normalized["extraction_summary"]["semantic_candidate_count"],
+                    "accepted_candidate_count": _count_semantic_candidates(normalized),
                 }
             )
 

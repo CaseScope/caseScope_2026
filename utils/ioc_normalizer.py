@@ -45,16 +45,19 @@ INVALID_AI_PLACEHOLDERS = {
 }
 
 COMPROMISE_EVIDENCE_HINTS = (
-    'credential theft',
-    'credentials stolen',
+    'attacker authenticated',
+    'authenticated successfully using account',
+    'authenticated using account',
+    'logged in as',
+    'logged on as',
+    'used account',
+    'account misuse',
     'compromised account',
     'compromised user',
     'password observed',
-    'password reset',
     'password spray',
     'unauthorized login',
     'account takeover',
-    'stolen credentials',
 )
 
 URL_PATTERN = re.compile(
@@ -101,6 +104,11 @@ def _is_placeholder_value(value: Any) -> bool:
     return False
 
 
+def _optional_value(value: Any) -> Any:
+    """Use JSON null for unknown optional IOC fields instead of empty strings."""
+    return None if _is_placeholder_value(value) else value
+
+
 def _is_huntress_portal_value(value: str) -> bool:
     """Return True when the value points at Huntress portal infrastructure."""
     return 'huntress.io' in _defang_text(value or '').lower()
@@ -113,6 +121,7 @@ def _normalize_ai_network_item(item: Any, item_type: str) -> Optional[Dict[str, 
     if _is_placeholder_value(value):
         return None
 
+    raw_value = normalized.get('raw_value') or value
     cleaned = _defang_text(value).strip()
     if item_type == 'domain':
         if '://' in cleaned:
@@ -129,6 +138,8 @@ def _normalize_ai_network_item(item: Any, item_type: str) -> Optional[Dict[str, 
     elif item_type == 'ipv6':
         cleaned = cleaned.lower()
 
+    normalized['raw_value'] = raw_value
+    normalized['normalized_value'] = cleaned
     normalized['value'] = cleaned
     return normalized
 
@@ -220,6 +231,8 @@ def _normalize_ai_user_item(item: Any, context: str = '') -> Optional[Dict[str, 
             return None
         normalized = dict(item)
         normalized['value'] = username
+        normalized['username'] = username
+        normalized['sid'] = _optional_value(normalized.get('sid'))
         if context and not normalized.get('context'):
             normalized['context'] = context
         return normalized
@@ -227,7 +240,7 @@ def _normalize_ai_user_item(item: Any, context: str = '') -> Optional[Dict[str, 
     username = str(item).strip()
     if _is_placeholder_value(username):
         return None
-    normalized = {'value': username}
+    normalized = {'value': username, 'username': username, 'sid': None}
     if context:
         normalized['context'] = context
     return normalized
@@ -549,15 +562,26 @@ def _normalize_ai_extraction(extraction: Dict[str, Any], report_text: str = '') 
 
     for service in process_iocs.get('services', []):
         if isinstance(service, dict):
-            normalized['iocs']['services'].append(service)
+            cleaned = dict(service)
+            cleaned['name'] = _optional_value(cleaned.get('name'))
+            cleaned['path'] = _optional_value(cleaned.get('path'))
+            cleaned['action'] = _optional_value(cleaned.get('action'))
+            if cleaned.get('name') or cleaned.get('path'):
+                normalized['iocs']['services'].append(cleaned)
         else:
-            normalized['iocs']['services'].append({'name': service})
+            normalized['iocs']['services'].append({'name': service, 'path': None, 'action': None})
 
     for task in process_iocs.get('scheduled_tasks', []):
         if isinstance(task, dict):
-            normalized['iocs']['scheduled_tasks'].append(task)
+            cleaned = dict(task)
+            cleaned['name'] = _optional_value(cleaned.get('name'))
+            cleaned['path'] = _optional_value(cleaned.get('path'))
+            cleaned['command'] = _optional_value(cleaned.get('command'))
+            cleaned['action'] = _optional_value(cleaned.get('action'))
+            if cleaned.get('name') or cleaned.get('path'):
+                normalized['iocs']['scheduled_tasks'].append(cleaned)
         else:
-            normalized['iocs']['scheduled_tasks'].append({'name': task})
+            normalized['iocs']['scheduled_tasks'].append({'name': task, 'path': None, 'command': None})
 
     persistence = extraction.get('persistence_iocs', {})
     for reg in persistence.get('registry', []):
@@ -585,6 +609,11 @@ def _normalize_ai_extraction(extraction: Dict[str, Any], report_text: str = '') 
             cleaned_user = _normalize_ai_user_item(user, context='Compromised user in report')
             if cleaned_user:
                 normalized['iocs']['users'].append(cleaned_user)
+
+    for user in auth.get('credential_exposure_users', []):
+        cleaned_user = _normalize_ai_user_item(user, context='Credential exposure candidate')
+        if cleaned_user:
+            normalized['iocs']['users'].append(cleaned_user)
 
     for user in auth.get('created_users', []):
         if isinstance(user, dict):

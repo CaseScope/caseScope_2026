@@ -197,6 +197,19 @@ def process_extraction_for_import(
         seen_values.add(key)
         return True
 
+    def _is_confirmed_user_context(context: str) -> bool:
+        lowered = str(context or "").lower()
+        return any(
+            marker in lowered
+            for marker in (
+                "compromised user",
+                "attacker-created account",
+                "confirmed compromised",
+                "attacker authenticated",
+                "account misuse",
+            )
+        )
+
     for hash_item in iocs_data.get("hashes", []):
         value = hash_item.get("value", "").strip().lower()
         hash_type = hash_item.get("type", "sha256").lower()
@@ -604,15 +617,15 @@ def process_extraction_for_import(
 
     for user_item in iocs_data.get("users", []):
         if isinstance(user_item, dict):
-            username_val = user_item.get("value", "").strip()
-            sid = user_item.get("sid", "")
+            username_val = str(user_item.get("value") or "").strip()
+            sid = user_item.get("sid") or ""
             context = user_item.get("context", "")
         else:
             username_val = str(user_item).strip()
             sid = ""
             context = ""
 
-        if not username_val:
+        if not username_val or not _is_confirmed_user_context(context):
             continue
 
         user_result = _process_known_user(username_val, sid, case_id, username, context)
@@ -654,24 +667,8 @@ def process_extraction_for_import(
             if system_result:
                 known_systems_results.append(system_result)
 
-    for user in summary.get("affected_users", []):
-        if isinstance(user, dict):
-            username_val = user.get("username", "").strip()
-            sid = user.get("sid", "")
-        else:
-            username_val = str(user).strip()
-            sid = ""
-
-        if username_val:
-            user_result = _process_known_user(
-                username_val,
-                sid,
-                case_id,
-                username,
-                "From extraction summary",
-            )
-            if user_result:
-                known_users_results.append(user_result)
+    # Affected users remain extraction context only. They are not promoted
+    # to compromised KnownUser records without explicit compromise evidence.
 
     known_systems_results = _dedupe_known_results(
         known_systems_results,

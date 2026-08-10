@@ -356,7 +356,7 @@ class IOCHuntressExtractorRegressionTestCase(unittest.TestCase):
         self.assertNotIn('registry', payload)
         self.assertNotIn('credential_theft_indicators', payload)
 
-    def test_prepare_ai_extraction_payload_reviews_semantic_task_field_leakage_and_invalid_hash(self):
+    def test_prepare_ai_extraction_payload_skips_source_less_review_for_semantic_task_leakage(self):
         prepare_payload = self.extractor_module._prepare_ai_extraction_payload
         review_calls = []
         original_review = self.extractor_module._ai_review.review_structured_output
@@ -388,8 +388,9 @@ class IOCHuntressExtractorRegressionTestCase(unittest.TestCase):
         finally:
             self.extractor_module._ai_review.review_structured_output = original_review
 
-        self.assertTrue(meta['review_applied'])
-        self.assertEqual(len(review_calls), 1)
+        self.assertFalse(meta['review_applied'])
+        self.assertEqual(len(review_calls), 0)
+        self.assertEqual(meta['review_skipped_reason'], 'semantic_task_requires_source_evidence')
         self.assertTrue(
             any(reason.startswith('invalid_hash:') for reason in meta['semantic_review_reasons'])
         )
@@ -541,9 +542,9 @@ class IOCHuntressExtractorRegressionTestCase(unittest.TestCase):
             return {
                 'normalized_results': [normalized],
                 'task_failures': [{'task': 'semantic_residual_review', 'chunk': 2, 'error': 'simulated chunk failure'}],
-                'task_provenance': [{'task': 'semantic_users_and_accounts', 'sections': ['Overview'], 'chunk': 1, 'chunk_count': 2}],
+                'task_provenance': [{'task': 'semantic_identity_and_auth', 'sections': ['Overview'], 'chunk': 1, 'chunk_count': 2}],
                 'schema_reviews': 0,
-                'planned_tasks': ['semantic_users_and_accounts', 'semantic_residual_review'],
+                'planned_tasks': ['semantic_identity_and_auth', 'semantic_residual_review'],
             }
 
         self.extractor_module._semantic_stage.run_semantic_stage = fake_semantic_stage
@@ -625,7 +626,7 @@ class IOCHuntressExtractorRegressionTestCase(unittest.TestCase):
         payload['network_iocs']['domains'] = [{'value': 'evil.example'}]
 
         filtered, filter_meta = self.extractor_module._filter_semantic_payload_for_task(
-            'semantic_users_and_accounts',
+            'semantic_identity_and_auth',
             payload,
         )
 
@@ -942,7 +943,7 @@ class IOCHuntressExtractorRegressionTestCase(unittest.TestCase):
 
         self.assertIn('FIN-LAPTOP-9', extraction['extraction_summary']['affected_hosts'])
         self.assertIn(
-            {'username': 'maria.lopez', 'sid': ''},
+            {'username': 'maria.lopez', 'sid': None},
             extraction['extraction_summary']['affected_users'],
         )
         self.assertTrue(
@@ -957,6 +958,175 @@ class IOCHuntressExtractorRegressionTestCase(unittest.TestCase):
         self.assertTrue(
             any(item['value'] == r'HKCU\Software\Microsoft\Windows\CurrentVersion\Run\BootstrapSvc' for item in extraction['iocs']['registry_keys'])
         )
+
+    def test_partial_scheduled_task_remediation_is_preserved_with_null_unknowns(self):
+        extractor = self.extractor_module.RegexIOCExtractor()
+
+        extraction = extractor.extract("Delete Scheduled Task - name: UpdateService")
+        tasks = extraction['iocs']['scheduled_tasks']
+
+        self.assertEqual(len(tasks), 1)
+        self.assertEqual(tasks[0]['name'], 'UpdateService')
+        self.assertIsNone(tasks[0]['path'])
+        self.assertIsNone(tasks[0]['command'])
+        self.assertEqual(tasks[0]['evidence_origin'], 'remediation')
+
+    def test_two_scheduled_task_remediation_targets_are_retained(self):
+        extractor = self.extractor_module.RegexIOCExtractor()
+        report = (
+            "Delete Scheduled Task - name: UpdateService\n"
+            "Delete Scheduled Task - name: WmiPrvSE\n"
+        )
+
+        extraction = extractor.extract(report)
+        task_names = sorted(item['name'] for item in extraction['iocs']['scheduled_tasks'])
+
+        self.assertEqual(task_names, ['UpdateService', 'WmiPrvSE'])
+
+    def test_affected_user_with_infostealer_is_not_confirmed_compromised(self):
+        normalize = self.extractor_module._normalize_ai_extraction
+        extraction = self.extractor_module._ioc_contract.build_empty_ioc_extraction()
+        extraction['affected_users'] = [{'username': 'DFollacchio', 'sid': None}]
+        extraction['authentication_iocs']['credential_exposure_users'] = [
+            {'username': 'DFollacchio', 'sid': None, 'evidence': 'Infostealer executed in the user context.'}
+        ]
+        extraction['authentication_iocs']['compromised_users'] = [
+            {'username': 'DFollacchio', 'sid': None}
+        ]
+        report = "User: DFollacchio\nInfostealer executed in DFollacchio user context; credentials may have been targeted."
+
+        normalized = normalize(extraction, report)
+
+        contexts = [item.get('context') for item in normalized['iocs']['users']]
+        self.assertIn('Affected user in report', contexts)
+        self.assertIn('Credential exposure candidate', contexts)
+        self.assertNotIn('Compromised user in report', contexts)
+
+    def test_explicit_compromised_account_classification_is_allowed(self):
+        normalize = self.extractor_module._normalize_ai_extraction
+        extraction = self.extractor_module._ioc_contract.build_empty_ioc_extraction()
+        extraction['authentication_iocs']['compromised_users'] = [
+            {'username': 'jsmith', 'sid': None, 'evidence': 'The attacker authenticated successfully using account jsmith.'}
+        ]
+
+        normalized = normalize(
+            extraction,
+            "The attacker authenticated successfully using account jsmith.",
+        )
+
+        self.assertTrue(
+            any(
+                item['value'] == 'jsmith' and item.get('context') == 'Compromised user in report'
+                for item in normalized['iocs']['users']
+            )
+        )
+
+    def test_missing_sid_is_null_not_invented(self):
+        extractor = self.extractor_module.RegexIOCExtractor()
+
+        extraction = extractor.extract("User: DFollacchio")
+
+        self.assertEqual(
+            extraction['extraction_summary']['affected_users'],
+            [{'username': 'DFollacchio', 'sid': None}],
+        )
+
+    def test_deterministic_sha256_extraction_does_not_require_semantic_inference(self):
+        extraction = self.extractor_module.run_deterministic_ioc_extraction(
+            "sha256: ff4ebff39f3a6e04e8da235b9e23e8d90b650f951becf71066b62792288e823c"
+        )
+
+        self.assertIn(
+            {'value': 'ff4ebff39f3a6e04e8da235b9e23e8d90b650f951becf71066b62792288e823c', 'type': 'sha256', 'context': ''},
+            extraction['iocs']['hashes'],
+        )
+
+    def test_defanged_domain_preserves_raw_and_normalized_values(self):
+        extractor = self.extractor_module.RegexIOCExtractor()
+
+        extraction = extractor.extract("Network evidence: frptoolsdownload[.]com")
+        domain = extraction['iocs']['domains'][0]
+
+        self.assertEqual(domain['raw_value'], 'frptoolsdownload[.]com')
+        self.assertEqual(domain['normalized_value'], 'frptoolsdownload.com')
+        self.assertEqual(domain['value'], 'frptoolsdownload.com')
+
+    def test_huntress_platform_urls_are_not_network_iocs(self):
+        extractor = self.extractor_module.RegexIOCExtractor()
+        report = (
+            "Portal: https://huntress.io/cases/123\n"
+            "Remediation: https://app.huntress.io/case-management/abc\n"
+            "C2: hxxps://frptoolsdownload[.]com/samfw-tool/\n"
+        )
+
+        extraction = extractor.extract(report)
+        urls = [item['value'] for item in extraction['iocs']['urls']]
+
+        self.assertEqual(urls, ['https://frptoolsdownload.com/samfw-tool/'])
+
+    def test_semantic_reviewer_cannot_delete_partial_scheduled_task_without_source(self):
+        prepare_payload = self.extractor_module._prepare_ai_extraction_payload
+        review_calls = []
+        original_review = self.extractor_module._ai_review.review_structured_output
+
+        def fake_review(provider, **kwargs):
+            review_calls.append(kwargs)
+            return self.extractor_module._ioc_contract.build_empty_ioc_extraction()
+
+        payload = self.extractor_module._ioc_contract.build_empty_ioc_extraction()
+        payload['process_iocs']['scheduled_tasks'] = [
+            {'name': 'UpdateService', 'path': None, 'command': None, 'evidence': 'Delete Scheduled Task - name: UpdateService'}
+        ]
+
+        self.extractor_module._ai_review.review_structured_output = fake_review
+        try:
+            prepared, meta = prepare_payload(
+                provider=object(),
+                payload=payload,
+                max_tokens=2000,
+                task_name='semantic_process_relationships',
+            )
+        finally:
+            self.extractor_module._ai_review.review_structured_output = original_review
+
+        self.assertFalse(review_calls)
+        self.assertFalse(meta['review_applied'])
+        self.assertEqual(prepared['process_iocs']['scheduled_tasks'][0]['name'], 'UpdateService')
+
+    def test_llm_verifier_without_source_is_not_invoked_for_semantic_task(self):
+        prepare_payload = self.extractor_module._prepare_ai_extraction_payload
+        payload = {'unexpected': ['field']}
+
+        prepared, meta = prepare_payload(
+            provider=object(),
+            payload=payload,
+            max_tokens=2000,
+            task_name='semantic_process_relationships',
+        )
+
+        self.assertEqual(meta['review_skipped_reason'], 'semantic_task_requires_source_evidence')
+        self.assertTrue(self.extractor_module._is_valid_ioc_schema(prepared))
+
+    def test_duplicate_ioc_records_preserve_multiple_evidence_sources(self):
+        records_from_extraction = self.extractor_module._ioc_schema.records_from_extraction
+        merge_records = self.extractor_module._ioc_merge.merge_record_lists
+        hash_value = 'ff4ebff39f3a6e04e8da235b9e23e8d90b650f951becf71066b62792288e823c'
+
+        first = records_from_extraction(
+            {'iocs': {'hashes': [{'value': hash_value, 'type': 'sha256', 'evidence': 'Investigative summary hash'}]}, 'extraction_summary': {}},
+            source='regex',
+            trust_tier=self.extractor_module._ioc_schema.TRUST_HIGH,
+        )
+        second = records_from_extraction(
+            {'iocs': {'hashes': [{'value': hash_value, 'type': 'sha256', 'evidence': 'Remediation list hash'}]}, 'extraction_summary': {}},
+            source='regex',
+            trust_tier=self.extractor_module._ioc_schema.TRUST_HIGH,
+        )
+
+        merged = merge_records(first, second)
+
+        self.assertEqual(len(merged), 1)
+        self.assertEqual(len(merged[0]['evidence_refs']), 2)
 
     def test_audit_delta_validation_enforces_traceable_closed_enum_values(self):
         validate_delta = self.extractor_module._audit_stage.validate_audit_delta

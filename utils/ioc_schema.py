@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 from typing import Any, Dict, Iterable, List, Tuple
 
 TRUST_HIGH = "high"
@@ -19,10 +20,28 @@ def build_ioc_record(
     context: str = "",
     section: str = "",
     raw_value: str = "",
+    normalized_value: str = "",
+    evidence: str = "",
+    evidence_origin: str = "",
+    extraction_method: str = "",
+    semantic_route: str = "",
 ) -> Dict[str, Any]:
     """Build a normalized internal IOC record."""
+    normalized = (normalized_value or value or "").strip()
+    raw = raw_value if raw_value not in (None, "") else (value or "").strip()
+    evidence_excerpt = evidence or context or ""
+    record_id_seed = "|".join([
+        source or "",
+        field or "",
+        ioc_type or "",
+        normalized.lower(),
+        evidence_excerpt[:500],
+    ])
+    record_id = "ioc_candidate_" + hashlib.sha256(record_id_seed.encode("utf-8")).hexdigest()[:16]
     return {
+        "candidate_id": record_id,
         "value": (value or "").strip(),
+        "normalized_value": normalized,
         "ioc_type": ioc_type,
         "category": category,
         "source": source,
@@ -30,7 +49,25 @@ def build_ioc_record(
         "field": field,
         "context": context or "",
         "section": section or "",
-        "raw_value": raw_value or (value or "").strip(),
+        "raw_value": raw,
+        "evidence": evidence_excerpt,
+        "evidence_origin": evidence_origin or "",
+        "extraction_method": extraction_method or source,
+        "semantic_route": semantic_route or "",
+        "evidence_refs": [
+            {
+                "candidate_id": record_id,
+                "source": source,
+                "section": section or "",
+                "field": field,
+                "raw_value": raw,
+                "normalized_value": normalized,
+                "evidence": evidence_excerpt,
+                "evidence_origin": evidence_origin or "",
+                "extraction_method": extraction_method or source,
+                "semantic_route": semantic_route or "",
+            }
+        ],
     }
 
 
@@ -51,6 +88,18 @@ def records_from_extraction(
     iocs = extraction.get("iocs", {}) or {}
     summary = extraction.get("extraction_summary", {}) or {}
     section = ", ".join(summary.get("semantic_sections", []) or [])
+    semantic_route = str(summary.get("semantic_task") or "")
+
+    def _item_meta(item: Any) -> Dict[str, str]:
+        if not isinstance(item, dict):
+            return {}
+        return {
+            "raw_value": item.get("raw_value", ""),
+            "normalized_value": item.get("normalized_value", item.get("value", "")),
+            "evidence": item.get("evidence") or item.get("evidence_excerpt") or item.get("context", ""),
+            "evidence_origin": item.get("evidence_origin", ""),
+            "semantic_route": item.get("semantic_route", semantic_route),
+        }
 
     for item in iocs.get("hashes", []):
         if not isinstance(item, dict):
@@ -75,6 +124,11 @@ def records_from_extraction(
             context=context,
             section=section,
             raw_value=item.get("value", ""),
+            normalized_value=item.get("normalized_value", item.get("value", "")),
+            evidence=item.get("evidence") or context,
+            evidence_origin=item.get("evidence_origin", ""),
+            extraction_method=source,
+            semantic_route=semantic_route,
         )
 
     for item in iocs.get("ip_addresses", []):
@@ -101,6 +155,11 @@ def records_from_extraction(
             context=" | ".join(context_parts),
             section=section,
             raw_value=value,
+            normalized_value=item.get("normalized_value", value),
+            evidence=item.get("evidence") or item.get("context", ""),
+            evidence_origin=item.get("evidence_origin", ""),
+            extraction_method=source,
+            semantic_route=semantic_route,
         )
 
     simple_map = [
@@ -116,9 +175,11 @@ def records_from_extraction(
             if isinstance(item, dict):
                 value = item.get("value", "") or item.get("name", "") or item.get("path", "")
                 context = item.get("context", "")
+                meta = _item_meta(item)
             else:
                 value = str(item)
                 context = ""
+                meta = {}
             _append_record(
                 records,
                 value=value,
@@ -129,7 +190,12 @@ def records_from_extraction(
                 field=field,
                 context=context,
                 section=section,
-                raw_value=value,
+                raw_value=meta.get("raw_value", value),
+                normalized_value=meta.get("normalized_value", value),
+                evidence=meta.get("evidence", context),
+                evidence_origin=meta.get("evidence_origin", ""),
+                extraction_method=source,
+                semantic_route=meta.get("semantic_route", semantic_route),
             )
 
     for item in iocs.get("registry_keys", []):
@@ -159,6 +225,11 @@ def records_from_extraction(
             context=context,
             section=section,
             raw_value=value,
+            normalized_value=item.get("normalized_value", value) if isinstance(item, dict) else value,
+            evidence=item.get("evidence") or context if isinstance(item, dict) else context,
+            evidence_origin=item.get("evidence_origin", "") if isinstance(item, dict) else "",
+            extraction_method=source,
+            semantic_route=semantic_route,
         )
 
     for item in iocs.get("services", []):
@@ -186,6 +257,11 @@ def records_from_extraction(
             context=context,
             section=section,
             raw_value=value,
+            normalized_value=item.get("normalized_value", value) if isinstance(item, dict) else value,
+            evidence=item.get("evidence") or context if isinstance(item, dict) else context,
+            evidence_origin=item.get("evidence_origin", "") if isinstance(item, dict) else "",
+            extraction_method=source,
+            semantic_route=semantic_route,
         )
 
     for item in iocs.get("scheduled_tasks", []):
@@ -206,6 +282,11 @@ def records_from_extraction(
             context=context,
             section=section,
             raw_value=value,
+            normalized_value=item.get("normalized_value", value) if isinstance(item, dict) else value,
+            evidence=item.get("evidence") or context if isinstance(item, dict) else context,
+            evidence_origin=item.get("evidence_origin", "") if isinstance(item, dict) else "",
+            extraction_method=source,
+            semantic_route=semantic_route,
         )
 
     for item in iocs.get("commands", []):
@@ -236,6 +317,11 @@ def records_from_extraction(
             context=context,
             section=section,
             raw_value=value,
+            normalized_value=item.get("normalized_value", value) if isinstance(item, dict) else value,
+            evidence=item.get("evidence") or context if isinstance(item, dict) else context,
+            evidence_origin=item.get("evidence_origin", "") if isinstance(item, dict) else "",
+            extraction_method=source,
+            semantic_route=semantic_route,
         )
 
     for item in iocs.get("credentials", []):
@@ -255,6 +341,11 @@ def records_from_extraction(
             context=context,
             section=section,
             raw_value=item.get("value", ""),
+            normalized_value=item.get("normalized_value", item.get("value", "")),
+            evidence=item.get("evidence") or context,
+            evidence_origin=item.get("evidence_origin", ""),
+            extraction_method=source,
+            semantic_route=semantic_route,
         )
 
     for item in iocs.get("users", []):
@@ -275,6 +366,11 @@ def records_from_extraction(
             context=context,
             section=section,
             raw_value=value,
+            normalized_value=item.get("normalized_value", value) if isinstance(item, dict) else value,
+            evidence=item.get("evidence") or context if isinstance(item, dict) else context,
+            evidence_origin=item.get("evidence_origin", "") if isinstance(item, dict) else "",
+            extraction_method=source,
+            semantic_route=semantic_route,
         )
 
     for item in iocs.get("hostnames", []):
@@ -298,6 +394,11 @@ def records_from_extraction(
             context=context,
             section=section,
             raw_value=value,
+            normalized_value=item.get("normalized_value", value) if isinstance(item, dict) else value,
+            evidence=item.get("evidence") or context if isinstance(item, dict) else context,
+            evidence_origin=item.get("evidence_origin", "") if isinstance(item, dict) else "",
+            extraction_method=source,
+            semantic_route=semantic_route,
         )
 
     for host in summary.get("affected_hosts", []):
@@ -373,4 +474,12 @@ def annotate_import_entry(
     entry["trust_tier"] = record.get("trust_tier", "")
     entry["provenance_field"] = record.get("field", "")
     entry["provenance_section"] = record.get("section", "")
+    entry["candidate_id"] = record.get("candidate_id")
+    entry["raw_value"] = record.get("raw_value", "")
+    entry["normalized_value"] = record.get("normalized_value", "")
+    entry["evidence"] = record.get("evidence", "")
+    entry["evidence_origin"] = record.get("evidence_origin", "")
+    entry["extraction_method"] = record.get("extraction_method", "")
+    entry["semantic_route"] = record.get("semantic_route", "")
+    entry["evidence_refs"] = record.get("evidence_refs", [])
     return entry

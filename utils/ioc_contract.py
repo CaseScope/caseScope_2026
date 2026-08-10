@@ -13,7 +13,7 @@ RULES:
 1. Extract ONLY concrete indicators that appear in the report text.
 2. Do NOT classify, score, or analyze. No MITRE, no severity, no attack type.
 3. Empty arrays [] for sections with no data. Never invent values.
-4. Defang: hxxp->http, [.]->., [:]->:, [@]->@, [://]->://
+4. Normalize/refang: hxxp->http, [.]->., [:]->:, [@]->@, [://]->:// while preserving raw values where fields support them.
 5. Skip analyst-platform or case-portal URLs that point back to the reporting platform.
 6. Preserve command lines exactly as written.
 7. Keep full subdomains and full Windows paths, including spaces.
@@ -66,31 +66,78 @@ IOC_USER_PROMPT_TEMPLATE = (
 )
 
 IOC_SEMANTIC_TASK_PROMPTS = {
-    "semantic_users_and_accounts": (
-        "Review the report sections below and extract only user, account, SID, created-user, "
-        "password, and authentication-related IOC evidence. Return valid JSON using the required "
-        "schema, but leave unrelated sections empty.\n\n{}"
+    "semantic_identity_and_auth": (
+        "This is one specialized pass in a multi-pass IOC extraction pipeline. Extract ONLY "
+        "identity and authentication evidence from the report sections below. Other passes handle "
+        "network, file, process, service, scheduled-task, registry, and persistence evidence.\n\n"
+        "Preserve distinctions: affected endpoint users are not confirmed compromised accounts "
+        "unless the evidence explicitly says the attacker authenticated as or misused that account. "
+        "Use null for unknown optional values. Preserve raw_value and normalized_value when they "
+        "differ. Include an evidence excerpt for every item.\n\n"
+        "Return valid JSON only using this task schema:\n"
+        "{{\"affected_users\":[],\"credential_exposure_users\":[],\"compromised_users\":[],"
+        "\"created_users\":[],\"passwords_observed\":[]}}\n\n{}"
     ),
     "semantic_process_relationships": (
-        "Review the report sections below and extract only process, command, executable, parent "
-        "process, service, scheduled task, and host relationship IOC evidence. Return valid JSON "
-        "using the required schema, but leave unrelated sections empty.\n\n{}"
+        "This is one specialized pass in a multi-pass IOC extraction pipeline. Extract ONLY "
+        "process, command, executable, parent-process, service, and scheduled-task evidence from "
+        "the report sections below. Other passes handle unrelated IOC classes.\n\n"
+        "Use null for unknown optional values. A supported task or service name must be preserved "
+        "even when path or command is unknown. Preserve raw_value and normalized_value when they "
+        "differ. Include an evidence excerpt and origin for every item; remediation targets must "
+        "be marked as remediation or reported_finding, not observed execution.\n\n"
+        "Return valid JSON only using this task schema:\n"
+        "{{\"commands\":[],\"services\":[],\"scheduled_tasks\":[]}}\n\n{}"
     ),
     "semantic_persistence_actions": (
-        "Review the report sections below and extract only persistence, registry, web shell, and "
-        "credential-theft IOC evidence. Return valid JSON using the required schema, but leave "
-        "unrelated sections empty.\n\n{}"
-    ),
-    "semantic_credentials_and_auth": (
-        "Review the report sections below and extract only observed credentials, compromised users, "
-        "created users, and password-related IOC evidence. Return valid JSON using the required "
-        "schema, but leave unrelated sections empty.\n\n{}"
+        "This is one specialized pass in a multi-pass IOC extraction pipeline. Extract ONLY "
+        "persistence, registry, web shell, and credential-theft mechanism evidence from the report "
+        "sections below. Other passes handle identity and process relationships.\n\n"
+        "Use null for unknown optional values. Preserve raw_value and normalized_value when they "
+        "differ. Include an evidence excerpt and origin for every item.\n\n"
+        "Return valid JSON only using this task schema:\n"
+        "{{\"registry\":[],\"credential_theft_indicators\":[],\"webshells\":[]}}\n\n{}"
     ),
     "semantic_residual_review": (
-        "Review the unresolved report sections below and extract any concrete IOC-relevant facts "
-        "that the targeted semantic passes may have missed. Return valid JSON using the required "
-        "schema and leave unsupported fields empty.\n\n{}"
+        "This is a narrow residual pass in a multi-pass IOC extraction pipeline. Extract ONLY "
+        "concrete semantic IOC facts that do not fit the identity/auth, process/service/task, or "
+        "persistence task schemas. Do not repeat deterministic hashes, IPs, URLs, domains, CVEs, "
+        "SIDs, email addresses, or paths already visible as exact-pattern indicators.\n\n"
+        "Use null for unknown optional values. Include an evidence excerpt for every item.\n\n"
+        "Return valid JSON only using this task schema:\n"
+        "{{\"threat_names\":[],\"notes\":[]}}\n\n{}"
     ),
+}
+
+IOC_SEMANTIC_SYSTEM_PROMPT = build_role_system_prompt('ioc_extraction', """You are running one stateless, specialized IOC extraction pass.
+
+Return ONLY valid JSON matching the task-specific schema supplied in the user prompt.
+Extract only evidence assigned to that task. Never invent values. Use null for unknown optional fields.
+Every returned item must be grounded in the supplied source text and include concise evidence where the schema permits it.
+Do not include markdown, explanations, analysis, or unrelated IOC classes.""")
+
+IOC_SEMANTIC_TASK_SCHEMAS = {
+    "semantic_identity_and_auth": {
+        "affected_users": [],
+        "credential_exposure_users": [],
+        "compromised_users": [],
+        "created_users": [],
+        "passwords_observed": [],
+    },
+    "semantic_process_relationships": {
+        "commands": [],
+        "services": [],
+        "scheduled_tasks": [],
+    },
+    "semantic_persistence_actions": {
+        "registry": [],
+        "credential_theft_indicators": [],
+        "webshells": [],
+    },
+    "semantic_residual_review": {
+        "threat_names": [],
+        "notes": [],
+    },
 }
 
 IOC_TRAINING_USER_PROMPTS = [
@@ -137,6 +184,7 @@ IOC_EMPTY_EXTRACTION = {
     },
     "authentication_iocs": {
         "compromised_users": [],
+        "credential_exposure_users": [],
         "created_users": [],
         "passwords_observed": [],
     },

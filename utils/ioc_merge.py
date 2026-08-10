@@ -25,19 +25,27 @@ def merge_semantic_results(
 
 
 def merge_record_lists(*record_lists: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-    """Merge IOC record lists by value, type, and provenance source."""
+    """Merge IOC record lists by value and type while preserving evidence refs."""
     merged: List[Dict[str, Any]] = []
-    seen = set()
+    index: Dict[tuple[str, str], Dict[str, Any]] = {}
     for record_list in record_lists:
         for record in record_list or []:
             key = (
                 str(record.get("ioc_type") or "").lower(),
-                str(record.get("value") or "").strip().lower(),
-                str(record.get("source") or "").lower(),
+                str(record.get("normalized_value") or record.get("value") or "").strip().lower(),
             )
-            if not key[1] or key in seen:
+            if not key[1]:
                 continue
-            seen.add(key)
+            if key in index:
+                existing = index[key]
+                refs = list(existing.get("evidence_refs") or [])
+                for ref in record.get("evidence_refs") or []:
+                    ref_key = json.dumps(ref, sort_keys=True, default=str)
+                    if all(json.dumps(item, sort_keys=True, default=str) != ref_key for item in refs):
+                        refs.append(ref)
+                existing["evidence_refs"] = refs
+                continue
+            index[key] = record
             merged.append(record)
     return merged
 

@@ -115,7 +115,7 @@ class RegexIOCExtractor:
                     continue
                 window = "\n".join(lines[max(0, index - 1) : min(len(lines), index + 3)])
                 sid_match = sid_pattern.search(window)
-                sid = sid_match.group(1) if sid_match else ""
+                sid = sid_match.group(1) if sid_match else None
                 dedupe_key = (username.lower(), sid)
                 if username and dedupe_key not in seen_users:
                     seen_users.add(dedupe_key)
@@ -147,6 +147,7 @@ class RegexIOCExtractor:
         )
         task_patterns = (
             re.compile(r"^\s*(?:Scheduled Task|ScheduledTask|TaskName|task)\s*(?:=>|[:=])\s*(.+?)\s*$", re.I),
+            re.compile(r"^\s*(?:- )?(?:Delete|Create)\s+Scheduled\s+Task\s*-\s*name:\s*(.+?)\s*$", re.I),
         )
         registry_patterns = (
             re.compile(r"^\s*(?:RegistryKey|Registry Key|registry)\s*(?:=>|[:=])\s*(.+?)\s*$", re.I),
@@ -233,8 +234,12 @@ class RegexIOCExtractor:
                 results["iocs"]["scheduled_tasks"].append(
                     {
                         "name": task_name,
-                        "action": "delete" if "delete" in line.lower() else "unknown",
+                        "path": None,
+                        "command": None,
+                        "action": "delete" if "delete" in line.lower() else "create" if "create" in line.lower() else "unknown",
                         "context": context,
+                        "evidence": raw_line.strip(),
+                        "evidence_origin": "remediation" if "delete" in line.lower() else "reported_finding",
                     }
                 )
 
@@ -335,22 +340,35 @@ class RegexIOCExtractor:
                 }
             )
 
-        for match in self.PATTERNS["domain"].findall(clean_text):
+        for match in self.PATTERNS["domain"].findall(original_text):
+            raw_domain = match
             domain = self.defang(match.lower())
             if "huntress.io" in domain:
                 continue
-            results["iocs"]["domains"].append({"value": domain, "context": ""})
+            results["iocs"]["domains"].append({
+                "value": domain,
+                "raw_value": raw_domain,
+                "normalized_value": domain,
+                "context": "",
+            })
 
         for match in self.PATTERNS["cloudflare_tunnel"].findall(clean_text):
             results["iocs"]["domains"].append(
                 {"value": match.lower(), "context": "Cloudflare Quick Tunnel (potential C2)"}
             )
 
-        for match in self.PATTERNS["url"].findall(clean_text):
+        for match in self.PATTERNS["url"].findall(original_text):
+            raw_url = match
             url = self.defang(match)
             if "huntress" in url.lower() or "portal" in url.lower():
                 continue
-            results["iocs"]["urls"].append({"value": url, "type": "unknown", "context": ""})
+            results["iocs"]["urls"].append({
+                "value": url,
+                "raw_value": raw_url,
+                "normalized_value": url,
+                "type": "unknown",
+                "context": "",
+            })
 
         for match in self.PATTERNS["file_path_windows"].findall(clean_text):
             path, note = _normalize_extracted_file_path(match)
@@ -405,7 +423,30 @@ class RegexIOCExtractor:
 
         for match in self.PATTERNS["scheduled_task"].findall(clean_text):
             results["iocs"]["scheduled_tasks"].append(
-                {"path": match, "action": "delete", "context": ""}
+                {
+                    "name": match.rsplit("\\", 1)[-1],
+                    "path": match,
+                    "command": None,
+                    "action": "delete",
+                    "context": "",
+                    "evidence": match,
+                    "evidence_origin": "remediation",
+                }
+            )
+        for match in self.PATTERNS["scheduled_task_remediation"].findall(original_text):
+            task_name = self.defang(match.strip().strip('"'))
+            if not task_name:
+                continue
+            results["iocs"]["scheduled_tasks"].append(
+                {
+                    "name": task_name,
+                    "path": None,
+                    "command": None,
+                    "action": "delete",
+                    "context": "Remediation reference",
+                    "evidence": f"Delete Scheduled Task - name: {task_name}",
+                    "evidence_origin": "remediation",
+                }
             )
 
         for match in self.PATTERNS["screenconnect_id"].findall(original_text):
@@ -511,6 +552,7 @@ class RegexIOCExtractor:
         results["iocs"]["scheduled_tasks"] = self._dedupe_list_of_dicts(
             results["iocs"]["scheduled_tasks"],
             "name",
+            fallback_key="path",
         )
         results["iocs"]["hostnames"] = self._dedupe_list_of_dicts(results["iocs"]["hostnames"], "value")
         results["iocs"]["sids"] = list(set(results["iocs"]["sids"]))
@@ -532,7 +574,7 @@ class RegexIOCExtractor:
                 continue
             key = (
                 str(item.get("username", "")).strip().lower(),
-                str(item.get("sid", "")).strip(),
+                str(item.get("sid") or "").strip(),
             )
             if key in seen_users:
                 continue
@@ -555,11 +597,11 @@ class RegexIOCExtractor:
                 return False
         return True
 
-    def _dedupe_list_of_dicts(self, items: List[Dict], key: str) -> List[Dict]:
+    def _dedupe_list_of_dicts(self, items: List[Dict], key: str, fallback_key: Optional[str] = None) -> List[Dict]:
         seen = set()
         unique = []
         for item in items:
-            val = item.get(key, "").lower()
+            val = str(item.get(key) or item.get(fallback_key or "") or "").lower()
             if val and val not in seen:
                 seen.add(val)
                 unique.append(item)

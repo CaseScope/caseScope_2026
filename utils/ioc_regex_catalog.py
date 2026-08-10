@@ -90,6 +90,7 @@ REGEX_IOC_PATTERNS = {
     'malware_family': re.compile(r'Malware Family(?:\s+as)?\s+([^\n\r.]+)', re.I),
     'service_name': re.compile(r'(?:Delete Service\s*-\s*name:\s*)([^\n+]+)', re.I),
     'scheduled_task': re.compile(r'C:\\WINDOWS\\System32\\Tasks\\[^\s\n"]+', re.I),
+    'scheduled_task_remediation': re.compile(r'Delete\s+Scheduled\s+Task\s*-\s*name:\s*([^\n\r+]+)', re.I),
     'screenconnect_id': re.compile(r'ScreenConnect Client \(([a-f0-9]{16})\)', re.I),
     'vnc_connection_id': re.compile(r'-autoreconnect\s+ID:(\d+)', re.I),
     'net_user_password': re.compile(r'net\s+user\s+(\S+)\s+(\S+)\s+/add', re.I),

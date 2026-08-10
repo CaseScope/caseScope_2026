@@ -132,9 +132,10 @@ COMPROMISE_EVIDENCE_HINTS = (
 )
 
 SEMANTIC_TASK_ALLOWED_FIELDS = {
-    'semantic_users_and_accounts': {
+    'semantic_identity_and_auth': {
         'affected_users': None,
         'authentication_iocs': (
+            'credential_exposure_users',
             'compromised_users',
             'created_users',
             'passwords_observed',
@@ -154,14 +155,6 @@ SEMANTIC_TASK_ALLOWED_FIELDS = {
         ),
         'vulnerability_iocs': (
             'webshells',
-        ),
-    },
-    'semantic_credentials_and_auth': {
-        'affected_users': None,
-        'authentication_iocs': (
-            'compromised_users',
-            'created_users',
-            'passwords_observed',
         ),
     },
 }
