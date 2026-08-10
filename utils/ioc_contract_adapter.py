@@ -328,9 +328,6 @@ def filter_semantic_payload_for_task(
         'stripped_fields': [],
         'preserved_context_fields': [],
     }
-    if task_name == 'semantic_residual_review':
-        return payload, meta
-
     allowed = semantic_task_allowed_fields.get(task_name)
     if not allowed:
         return payload, meta

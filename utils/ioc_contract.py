@@ -75,8 +75,13 @@ IOC_SEMANTIC_TASK_PROMPTS = {
         "Use null for unknown optional values. Preserve raw_value and normalized_value when they "
         "differ. Include an evidence excerpt for every item.\n\n"
         "Return valid JSON only using this task schema:\n"
-        "{{\"affected_users\":[],\"credential_exposure_users\":[],\"compromised_users\":[],"
-        "\"created_users\":[],\"passwords_observed\":[]}}\n\n{}"
+        "{{"
+        "\"affected_users\":[{{\"username\":\"string\",\"sid\":\"string|null\",\"evidence\":\"string\"}}],"
+        "\"credential_exposure_users\":[{{\"username\":\"string\",\"sid\":\"string|null\",\"evidence\":\"string\"}}],"
+        "\"compromised_users\":[{{\"username\":\"string\",\"sid\":\"string|null\",\"evidence\":\"string\"}}],"
+        "\"created_users\":[{{\"username\":\"string\",\"sid\":\"string|null\",\"password\":\"string|null\",\"groups\":[],\"evidence\":\"string\"}}],"
+        "\"passwords_observed\":[{{\"username\":\"string|null\",\"password\":\"string\",\"evidence\":\"string\"}}]"
+        "}}\n\n{}"
     ),
     "semantic_process_relationships": (
         "This is one specialized pass in a multi-pass IOC extraction pipeline. Extract ONLY "
@@ -87,7 +92,11 @@ IOC_SEMANTIC_TASK_PROMPTS = {
         "differ. Include an evidence excerpt and origin for every item; remediation targets must "
         "be marked as remediation or reported_finding, not observed execution.\n\n"
         "Return valid JSON only using this task schema:\n"
-        "{{\"commands\":[],\"services\":[],\"scheduled_tasks\":[]}}\n\n{}"
+        "{{"
+        "\"commands\":[{{\"full_command\":\"string|null\",\"executable\":\"string|null\",\"parent_process\":\"string|null\",\"user\":\"string|null\",\"pid\":\"string|null\",\"evidence\":\"string\",\"evidence_origin\":\"observed|reported_finding|remediation\"}}],"
+        "\"services\":[{{\"name\":\"string|null\",\"path\":\"string|null\",\"action\":\"create|delete|null\",\"evidence\":\"string\",\"evidence_origin\":\"observed|reported_finding|remediation\"}}],"
+        "\"scheduled_tasks\":[{{\"name\":\"string|null\",\"path\":\"string|null\",\"command\":\"string|null\",\"action\":\"create|delete|null\",\"evidence\":\"string\",\"evidence_origin\":\"observed|reported_finding|remediation\"}}]"
+        "}}\n\n{}"
     ),
     "semantic_persistence_actions": (
         "This is one specialized pass in a multi-pass IOC extraction pipeline. Extract ONLY "
@@ -96,16 +105,11 @@ IOC_SEMANTIC_TASK_PROMPTS = {
         "Use null for unknown optional values. Preserve raw_value and normalized_value when they "
         "differ. Include an evidence excerpt and origin for every item.\n\n"
         "Return valid JSON only using this task schema:\n"
-        "{{\"registry\":[],\"credential_theft_indicators\":[],\"webshells\":[]}}\n\n{}"
-    ),
-    "semantic_residual_review": (
-        "This is a narrow residual pass in a multi-pass IOC extraction pipeline. Extract ONLY "
-        "concrete semantic IOC facts that do not fit the identity/auth, process/service/task, or "
-        "persistence task schemas. Do not repeat deterministic hashes, IPs, URLs, domains, CVEs, "
-        "SIDs, email addresses, or paths already visible as exact-pattern indicators.\n\n"
-        "Use null for unknown optional values. Include an evidence excerpt for every item.\n\n"
-        "Return valid JSON only using this task schema:\n"
-        "{{\"threat_names\":[],\"notes\":[]}}\n\n{}"
+        "{{"
+        "\"registry\":[{{\"key\":\"string|null\",\"value_name\":\"string|null\",\"value_data\":\"string|null\",\"action\":\"create|delete|null\",\"evidence\":\"string\",\"evidence_origin\":\"observed|reported_finding|remediation\"}}],"
+        "\"credential_theft_indicators\":[{{\"registry_key\":\"string|null\",\"value\":\"string|null\",\"data\":\"string|null\",\"evidence\":\"string\",\"evidence_origin\":\"observed|reported_finding|remediation\"}}],"
+        "\"webshells\":[{{\"path\":\"string|null\",\"evidence\":\"string\",\"evidence_origin\":\"observed|reported_finding|remediation\"}}]"
+        "}}\n\n{}"
     ),
 }
 
@@ -133,10 +137,6 @@ IOC_SEMANTIC_TASK_SCHEMAS = {
         "registry": [],
         "credential_theft_indicators": [],
         "webshells": [],
-    },
-    "semantic_residual_review": {
-        "threat_names": [],
-        "notes": [],
     },
 }
 

@@ -541,10 +541,10 @@ class IOCHuntressExtractorRegressionTestCase(unittest.TestCase):
             normalized = self.extractor_module._normalize_ai_extraction(payload, report_text)
             return {
                 'normalized_results': [normalized],
-                'task_failures': [{'task': 'semantic_residual_review', 'chunk': 2, 'error': 'simulated chunk failure'}],
+                'task_failures': [{'task': 'semantic_process_relationships', 'chunk': 2, 'error': 'simulated chunk failure'}],
                 'task_provenance': [{'task': 'semantic_identity_and_auth', 'sections': ['Overview'], 'chunk': 1, 'chunk_count': 2}],
                 'schema_reviews': 0,
-                'planned_tasks': ['semantic_identity_and_auth', 'semantic_residual_review'],
+                'planned_tasks': ['semantic_identity_and_auth', 'semantic_process_relationships'],
             }
 
         self.extractor_module._semantic_stage.run_semantic_stage = fake_semantic_stage
@@ -583,7 +583,7 @@ class IOCHuntressExtractorRegressionTestCase(unittest.TestCase):
         self.assertGreater(large_config['max_chunk_chars'], local_config['max_chunk_chars'])
         self.assertEqual(local_config['max_response_tokens'], 4000)
 
-    def test_semantic_task_plan_includes_residual_pass_for_unmapped_sections(self):
+    def test_semantic_task_plan_does_not_add_residual_pass_for_unmapped_sections(self):
         build_plan = self.extractor_module._semantic_stage.build_semantic_task_plan
         report = (
             "Overview\n--------\n"
@@ -595,7 +595,7 @@ class IOCHuntressExtractorRegressionTestCase(unittest.TestCase):
         tasks = build_plan(report, {'iocs': {}, 'extraction_summary': {}})
 
         task_names = [task['task_name'] for task in tasks]
-        self.assertIn('semantic_residual_review', task_names)
+        self.assertNotIn('semantic_residual_review', task_names)
 
     def test_filter_semantic_payload_for_task_strips_process_task_user_leakage(self):
         payload = self.extractor_module._ioc_contract.build_empty_ioc_extraction()
@@ -1002,6 +1002,42 @@ class IOCHuntressExtractorRegressionTestCase(unittest.TestCase):
         self.assertIn('Credential exposure candidate', contexts)
         self.assertNotIn('Compromised user in report', contexts)
 
+    def test_identity_task_projection_preserves_authentication_fields(self):
+        project = self.extractor_module._semantic_stage._canonical_from_task_payload
+        payload = {
+            'affected_users': [{'username': 'DFollacchio', 'sid': None}],
+            'credential_exposure_users': [
+                {
+                    'username': 'DFollacchio',
+                    'sid': None,
+                    'evidence': 'Infostealer executed in the user context.',
+                }
+            ],
+            'compromised_users': [{'username': 'jsmith', 'sid': None, 'evidence': 'The attacker authenticated successfully using account jsmith.'}],
+            'created_users': [{'username': 'svc-backup', 'sid': None, 'password': None, 'groups': [], 'evidence': 'Attacker created account svc-backup.'}],
+            'passwords_observed': [{'username': 'svc-backup', 'password': 'P@ssw0rd!', 'evidence': 'Password P@ssw0rd! was observed for svc-backup.'}],
+        }
+
+        projected = project('semantic_identity_and_auth', payload)
+
+        self.assertEqual(projected['affected_users'][0]['username'], 'DFollacchio')
+        auth = projected['authentication_iocs']
+        self.assertEqual(auth['credential_exposure_users'][0]['username'], 'DFollacchio')
+        self.assertEqual(auth['compromised_users'][0]['username'], 'jsmith')
+        self.assertEqual(auth['created_users'][0]['username'], 'svc-backup')
+        self.assertEqual(auth['passwords_observed'][0]['password'], 'P@ssw0rd!')
+
+    def test_identity_task_projection_accepts_already_canonical_payload(self):
+        project = self.extractor_module._semantic_stage._canonical_from_task_payload
+        canonical = self.extractor_module._ioc_contract.build_empty_ioc_extraction()
+        canonical['authentication_iocs']['credential_exposure_users'] = [
+            {'username': 'DFollacchio', 'sid': None, 'evidence': 'Credential exposure evidence.'}
+        ]
+
+        projected = project('semantic_identity_and_auth', canonical)
+
+        self.assertEqual(projected['authentication_iocs']['credential_exposure_users'][0]['username'], 'DFollacchio')
+
     def test_explicit_compromised_account_classification_is_allowed(self):
         normalize = self.extractor_module._normalize_ai_extraction
         extraction = self.extractor_module._ioc_contract.build_empty_ioc_extraction()
@@ -1020,6 +1056,80 @@ class IOCHuntressExtractorRegressionTestCase(unittest.TestCase):
                 for item in normalized['iocs']['users']
             )
         )
+
+    def test_compromise_wording_for_one_account_does_not_promote_other_user(self):
+        normalize = self.extractor_module._normalize_ai_extraction
+        extraction = self.extractor_module._ioc_contract.build_empty_ioc_extraction()
+        extraction['authentication_iocs']['compromised_users'] = [
+            {
+                'username': 'jsmith',
+                'sid': None,
+                'evidence': 'The attacker authenticated successfully using account jsmith.',
+            },
+            {
+                'username': 'DFollacchio',
+                'sid': None,
+                'evidence': 'Malware executed while DFollacchio was logged in.',
+            },
+        ]
+        report = (
+            'The attacker authenticated successfully using account jsmith.\n'
+            'Malware executed while DFollacchio was logged in.'
+        )
+
+        normalized = normalize(extraction, report)
+        compromised_users = [
+            item['value']
+            for item in normalized['iocs']['users']
+            if item.get('context') == 'Compromised user in report'
+        ]
+
+        self.assertEqual(compromised_users, ['jsmith'])
+
+    def test_attacker_created_account_behavior_still_works(self):
+        normalize = self.extractor_module._normalize_ai_extraction
+        extraction = self.extractor_module._ioc_contract.build_empty_ioc_extraction()
+        extraction['authentication_iocs']['created_users'] = [
+            {
+                'username': 'svc-backup',
+                'sid': None,
+                'password': 'TempPass123!',
+                'groups': ['Administrators'],
+                'evidence': 'The attacker created account svc-backup.',
+            }
+        ]
+
+        normalized = normalize(extraction, 'The attacker created account svc-backup.')
+
+        self.assertTrue(
+            any(
+                item['value'] == 'svc-backup' and item.get('context') == 'Attacker-created account'
+                for item in normalized['iocs']['users']
+            )
+        )
+        self.assertTrue(
+            any(item['username'] == 'svc-backup' and item['value'] == 'TempPass123!' for item in normalized['iocs']['credentials'])
+        )
+
+    def test_semantic_task_prompts_define_evidence_item_shapes(self):
+        prompts = self.extractor_module._ioc_contract.IOC_SEMANTIC_TASK_PROMPTS
+
+        self.assertIn('"evidence":"string"', prompts['semantic_identity_and_auth'])
+        self.assertIn('"evidence_origin":"observed|reported_finding|remediation"', prompts['semantic_process_relationships'])
+        self.assertIn('"registry_key":"string|null"', prompts['semantic_persistence_actions'])
+        self.assertNotIn('semantic_residual_review', prompts)
+
+    def test_semantic_candidate_count_ignores_metadata_lists(self):
+        count_candidates = self.extractor_module._semantic_stage._count_semantic_candidates
+        payload = self.extractor_module._ioc_contract.build_empty_ioc_extraction()
+        payload['affected_users'] = [{'username': 'DFollacchio', 'sid': None}]
+        payload['process_iocs']['scheduled_tasks'] = [{'name': 'UpdateService', 'path': None, 'command': None}]
+        payload['extraction_summary'] = {
+            'semantic_sections': ['Overview', 'Remediation'],
+            'validation_warnings': ['warning-one'],
+        }
+
+        self.assertEqual(count_candidates(payload), 2)
 
     def test_missing_sid_is_null_not_invented(self):
         extractor = self.extractor_module.RegexIOCExtractor()

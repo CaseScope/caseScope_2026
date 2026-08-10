@@ -284,13 +284,17 @@ class IOCExtractorCaseScopeTestCase(unittest.TestCase):
                 },
                 'authentication_iocs': {
                     'compromised_users': [
-                        {'username': 'sues', 'sid': 'S-1-5-21-123'}
+                        {
+                            'username': 'sues',
+                            'sid': 'S-1-5-21-123',
+                            'evidence': 'The attacker authenticated successfully using account sues.',
+                        }
                     ],
                     'created_users': [],
                     'passwords_observed': [],
                 },
             },
-            'The user account should be considered compromised after unauthorized login activity.',
+            'The attacker authenticated successfully using account sues.',
         )
 
         self.assertEqual(

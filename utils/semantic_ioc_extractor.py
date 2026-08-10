@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import importlib.util
 import os
-from typing import Any, Callable, Dict, List, Set
+from typing import Any, Callable, Dict, List
 
 from utils.ai.router import invoke_json
 
@@ -98,7 +98,6 @@ def build_semantic_task_plan(
         if stripped:
             sections = [{"name": "Full Report", "body": stripped}]
 
-    used_indexes: Set[int] = set()
     planned_tasks: List[Dict[str, Any]] = []
 
     for task_name, keywords in SEMANTIC_TASK_KEYWORDS.items():
@@ -114,9 +113,6 @@ def build_semantic_task_plan(
         if not matching_indexes:
             continue
 
-        for idx in matching_indexes:
-            used_indexes.add(idx)
-
         task_sections = [sections[idx] for idx in matching_indexes]
         planned_tasks.append(
             {
@@ -124,20 +120,6 @@ def build_semantic_task_plan(
                 "prompt_template": _ioc_contract.IOC_SEMANTIC_TASK_PROMPTS[task_name],
                 "sections": task_sections,
                 "section_names": [section["name"] for section in task_sections],
-            }
-        )
-
-    residual_sections = [
-        section for idx, section in enumerate(sections)
-        if idx not in used_indexes
-    ]
-    if residual_sections:
-        planned_tasks.append(
-            {
-                "task_name": "semantic_residual_review",
-                "prompt_template": _ioc_contract.IOC_SEMANTIC_TASK_PROMPTS["semantic_residual_review"],
-                "sections": residual_sections,
-                "section_names": [section["name"] for section in residual_sections],
             }
         )
 
@@ -169,8 +151,18 @@ def _canonical_from_task_payload(task_name: str, payload: Any) -> Dict[str, Any]
     """Project a task-scoped semantic response into the canonical IOC shape."""
     canonical = _ioc_contract.build_empty_ioc_extraction()
     payload = payload if isinstance(payload, dict) else {}
-    canonical_keys = set(_ioc_contract.build_empty_ioc_extraction().keys())
-    if canonical_keys.intersection(payload.keys()):
+
+    canonical_nested_keys = {
+        "authentication_iocs",
+        "process_iocs",
+        "persistence_iocs",
+        "network_iocs",
+        "file_iocs",
+        "vulnerability_iocs",
+        "raw_artifacts",
+        "iocs",
+    }
+    if canonical_nested_keys.intersection(payload.keys()):
         return payload
 
     if task_name == "semantic_identity_and_auth":
@@ -225,26 +217,55 @@ def _canonical_from_task_payload(task_name: str, payload: Any) -> Dict[str, Any]
         canonical["vulnerability_iocs"]["webshells"] = _as_list(payload.get("webshells"))
         return canonical
 
-    if task_name == "semantic_residual_review":
-        canonical.setdefault("threat_intel", {})["threat_names"] = _as_list(payload.get("threat_names"))
-        return canonical
-
     return payload
 
 
 def _count_semantic_candidates(payload: Dict[str, Any]) -> int:
+    """Count IOC-bearing candidate lists, excluding metadata arrays."""
+    if not isinstance(payload, dict):
+        return 0
+
+    def _count_list(value: Any) -> int:
+        return len([item for item in _as_list(value) if item])
+
     total = 0
+    total += _count_list(payload.get("affected_users"))
 
-    def _walk(value: Any) -> None:
-        nonlocal total
-        if isinstance(value, list):
-            total += len([item for item in value if item])
-            return
-        if isinstance(value, dict):
-            for child in value.values():
-                _walk(child)
+    iocs = payload.get("iocs") if isinstance(payload.get("iocs"), dict) else {}
+    for field in (
+        "hashes",
+        "ip_addresses",
+        "domains",
+        "urls",
+        "file_paths",
+        "file_names",
+        "users",
+        "sids",
+        "registry_keys",
+        "commands",
+        "credentials",
+        "hostnames",
+        "email_addresses",
+        "services",
+        "scheduled_tasks",
+        "cves",
+        "threat_names",
+    ):
+        total += _count_list(iocs.get(field))
 
-    _walk(payload)
+    for section_name, fields in (
+        ("network_iocs", ("ipv4", "ipv6", "domains", "urls", "cloudflare_tunnels")),
+        ("file_iocs", ("hashes", "file_paths", "file_names")),
+        ("process_iocs", ("commands", "services", "scheduled_tasks")),
+        ("persistence_iocs", ("registry", "credential_theft_indicators")),
+        ("authentication_iocs", ("credential_exposure_users", "compromised_users", "created_users", "passwords_observed")),
+        ("vulnerability_iocs", ("cves", "webshells")),
+        ("raw_artifacts", ("encoded_powershell", "vnc_connection_ids", "screenconnect_ids")),
+    ):
+        section = payload.get(section_name) if isinstance(payload.get(section_name), dict) else {}
+        for field in fields:
+            total += _count_list(section.get(field))
+
     return total
 
 
@@ -261,7 +282,7 @@ def run_semantic_stage(
     normalize_extraction: Callable[..., Dict[str, Any]],
     privacy_context: Any = None,
 ) -> Dict[str, Any]:
-    """Run targeted semantic extraction prompts plus a residual review pass."""
+    """Run targeted semantic extraction prompts."""
     planned_tasks = build_semantic_task_plan(report_text, deterministic_extraction)
     normalized_results: List[Dict[str, Any]] = []
     task_failures: List[Dict[str, Any]] = []

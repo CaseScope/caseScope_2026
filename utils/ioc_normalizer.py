@@ -60,6 +60,19 @@ COMPROMISE_EVIDENCE_HINTS = (
     'account takeover',
 )
 
+WEAK_COMPROMISE_CONTEXT_HINTS = (
+    'infostealer',
+    'stealer executed',
+    'malware executed',
+    'user context',
+    'logged in user',
+    'credentials may have been targeted',
+    'may have been targeted',
+    'credential theft capability',
+    'password reset recommended',
+    'affected user',
+)
+
 URL_PATTERN = re.compile(
     r'(?:hxxps?|https?)(?:\[?://\]?|://)[\w\-\.]+(?:\[\.\]|\.)[\w\-\.]+[^\s<>"{}|\\^`\[\]]*',
     re.I,
@@ -298,6 +311,57 @@ def _report_supports_compromised_users(report_text: str) -> bool:
     return any(hint in lowered for hint in COMPROMISE_EVIDENCE_HINTS)
 
 
+def _normalize_evidence_text(value: Any) -> str:
+    text = _defang_text(str(value or ''))
+    text = re.sub(r'\s+', ' ', text)
+    return text.strip().lower()
+
+
+def _candidate_supports_compromised_user(user_item: Any, report_text: str) -> bool:
+    """Validate a compromised-user claim against candidate-specific evidence."""
+    if not isinstance(user_item, dict):
+        return False
+
+    username = str(user_item.get('username') or user_item.get('value') or '').strip()
+    if _is_placeholder_value(username):
+        return False
+
+    evidence = str(
+        user_item.get('evidence')
+        or user_item.get('evidence_excerpt')
+        or user_item.get('context')
+        or ''
+    ).strip()
+    if _is_placeholder_value(evidence):
+        return False
+
+    normalized_evidence = _normalize_evidence_text(evidence)
+    normalized_report = _normalize_evidence_text(report_text)
+    normalized_user = re.escape(_normalize_evidence_text(username))
+
+    if not normalized_evidence or normalized_evidence not in normalized_report:
+        return False
+    if not re.search(rf'\b{normalized_user}\b', normalized_evidence, re.I):
+        return False
+
+    if any(hint in normalized_evidence for hint in WEAK_COMPROMISE_CONTEXT_HINTS):
+        return False
+
+    strong_patterns = (
+        rf'\battacker\b.{{0,80}}\bauthenticated\b.{{0,80}}\b{normalized_user}\b',
+        rf'\bauthenticated successfully\b.{{0,80}}\baccount\b.{{0,40}}\b{normalized_user}\b',
+        rf'\bunauthorized login\b.{{0,80}}\b{normalized_user}\b',
+        rf'\bcompromised account\b.{{0,80}}\b{normalized_user}\b',
+        rf'\baccount\b.{{0,40}}\b{normalized_user}\b.{{0,80}}\bcompromised\b',
+        rf'\b{normalized_user}\b.{{0,40}}\baccount\b.{{0,80}}\bcompromised\b',
+        rf'\battacker\b.{{0,80}}\blogged (?:in|on) as\b.{{0,40}}\b{normalized_user}\b',
+        rf'\blogged (?:in|on) as\b.{{0,40}}\b{normalized_user}\b.{{0,80}}\battacker\b',
+        rf'\b{normalized_user}\b.{{0,80}}\baccount takeover\b',
+        rf'\baccount takeover\b.{{0,80}}\b{normalized_user}\b',
+    )
+    return any(re.search(pattern, normalized_evidence, re.I) for pattern in strong_patterns)
+
+
 def _dedupe_mixed_list(*sequences: List[Any]) -> List[Any]:
     """Deduplicate strings and dict-like values while preserving order."""
     seen = set()
@@ -407,14 +471,13 @@ def _apply_ai_guardrails(normalized: Dict[str, Any], report_text: str) -> Dict[s
         merged_file_names.append(cleaned_name)
     iocs['file_names'] = merged_file_names
 
-    if not _report_supports_compromised_users(report_text):
-        auth_context_users = []
-        for user_item in iocs.get('users', []):
-            context = str((user_item or {}).get('context') or '').lower()
-            if 'compromised' in context:
-                continue
-            auth_context_users.append(user_item)
-        iocs['users'] = auth_context_users
+    auth_context_users = []
+    for user_item in iocs.get('users', []):
+        context = str((user_item or {}).get('context') or '').lower()
+        if 'compromised' in context and not _candidate_supports_compromised_user(user_item, report_text):
+            continue
+        auth_context_users.append(user_item)
+    iocs['users'] = auth_context_users
 
     iocs['domains'] = _dedupe_mixed_list(iocs.get('domains', []))
     iocs['urls'] = _dedupe_mixed_list(iocs.get('urls', []))
@@ -556,6 +619,8 @@ def _normalize_ai_extraction(extraction: Dict[str, Any], report_text: str = '') 
                 'parent': cmd.get('parent_process', ''),
                 'user': cmd.get('user', ''),
                 'pid': cmd.get('pid', ''),
+                'evidence': cmd.get('evidence', ''),
+                'evidence_origin': cmd.get('evidence_origin', ''),
             })
         else:
             normalized['iocs']['commands'].append({'value': cmd})
@@ -592,6 +657,8 @@ def _normalize_ai_extraction(extraction: Dict[str, Any], report_text: str = '') 
                 'value_data': reg.get('value_data', ''),
                 'action': reg.get('action', 'unknown'),
                 'context': reg.get('context', ''),
+                'evidence': reg.get('evidence', ''),
+                'evidence_origin': reg.get('evidence_origin', ''),
             })
 
     for cred_theft in persistence.get('credential_theft_indicators', []):
@@ -601,14 +668,17 @@ def _normalize_ai_extraction(extraction: Dict[str, Any], report_text: str = '') 
                 'value_name': cred_theft.get('value', ''),
                 'value_data': cred_theft.get('data', ''),
                 'context': f"Credential theft: {cred_theft.get('context', '')}",
+                'evidence': cred_theft.get('evidence', ''),
+                'evidence_origin': cred_theft.get('evidence_origin', ''),
             })
 
     auth = extraction.get('authentication_iocs', {})
-    if _report_supports_compromised_users(report_text):
-        for user in auth.get('compromised_users', []):
-            cleaned_user = _normalize_ai_user_item(user, context='Compromised user in report')
-            if cleaned_user:
-                normalized['iocs']['users'].append(cleaned_user)
+    for user in auth.get('compromised_users', []):
+        if not _candidate_supports_compromised_user(user, report_text):
+            continue
+        cleaned_user = _normalize_ai_user_item(user, context='Compromised user in report')
+        if cleaned_user:
+            normalized['iocs']['users'].append(cleaned_user)
 
     for user in auth.get('credential_exposure_users', []):
         cleaned_user = _normalize_ai_user_item(user, context='Credential exposure candidate')

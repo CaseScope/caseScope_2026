@@ -607,7 +607,7 @@ def run_ioc_pipeline_with_provider(
         ai_extraction['extraction_summary']['method'] = 'deterministic_plus_semantic'
         ai_extraction['extraction_summary']['method_detail'] = (
             'Extraction used deterministic parsing first, then targeted semantic analysis '
-            'and a residual review pass for contextual IOC coverage.'
+            'for contextual IOC categories with task-specific schemas.'
         )
     used_ai = bool(ai_extraction['extraction_summary'].get('semantic_task_count'))
     return ai_extraction, used_ai
