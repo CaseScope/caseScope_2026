@@ -1,6 +1,7 @@
 import inspect
 import importlib.util
 import os
+import subprocess
 import sys
 import types
 import unittest
@@ -36,7 +37,23 @@ try:
     utils_package = types.ModuleType("utils")
     clickhouse_module = types.ModuleType("utils.clickhouse")
     clickhouse_module.destructive_event_rewrite_guard = _rewrite_guard
-    clickhouse_module.get_fresh_client = lambda: None
+    clickhouse_module.get_migration_client = lambda: None
+    clickhouse_module.migration_source_query_settings = lambda: {
+        "max_threads": 1,
+        "max_block_size": 8192,
+        "max_execution_time": 0,
+    }
+    clickhouse_module.migration_client_effective_settings = lambda: {
+        "CLICKHOUSE_HOST": "localhost",
+        "CLICKHOUSE_PORT": 8123,
+        "CLICKHOUSE_DATABASE": "casescope",
+        "CLICKHOUSE_USER": "default",
+        "max_threads": 1,
+        "max_block_size": 8192,
+        "max_execution_time": 0,
+        "max_memory_usage": None,
+        "send_receive_timeout": 86400,
+    }
     utils_package.clickhouse = clickhouse_module
     utils_package.evidence_identity = evidence_identity_module
     sys.modules["utils"] = utils_package
@@ -68,6 +85,23 @@ class _Stream:
 
     def __enter__(self):
         return iter(self.rows)
+
+    def __exit__(self, exc_type, exc, tb):
+        return False
+
+
+class _FailingStream:
+    def __init__(self, rows, exc):
+        self.rows = rows
+        self.exc = exc
+
+    def __enter__(self):
+        def _iter():
+            for row in self.rows:
+                yield row
+            raise self.exc
+
+        return _iter()
 
     def __exit__(self, exc_type, exc, tb):
         return False
@@ -113,6 +147,9 @@ class _RewriteFakeClient:
         self.inserts = []
         self.operations = []
         self.after_fence_source_count_calls = 0
+        self.last_stream_query = None
+        self.last_stream_parameters = None
+        self.last_stream_settings = None
         self.stream_rows = [
             _event_row(ParsedEventColumns, raw_json=f'{{"message": "row-{index}"}}')
             for index in range(source_rows)
@@ -132,6 +169,8 @@ class _RewriteFakeClient:
             return SimpleNamespace(result_rows=[(1 if table in self.tables else 0,)])
         if "system.data_skipping_indices" in sql:
             return SimpleNamespace(result_rows=[(1,)])
+        if compact == "SELECT DISTINCT case_id FROM events ORDER BY case_id":
+            return SimpleNamespace(result_rows=[(7,)])
         if f"SELECT count() FROM {migration.SHADOW_TABLE}" in compact:
             count = self.shadow_count_override
             if count is None:
@@ -154,8 +193,11 @@ class _RewriteFakeClient:
             return SimpleNamespace(result_rows=[(0,)])
         return SimpleNamespace(result_rows=[(0,)])
 
-    def query_rows_stream(self, query):
+    def query_rows_stream(self, query, parameters=None, settings=None):
         self.operations.append("shadow_copy")
+        self.last_stream_query = query
+        self.last_stream_parameters = parameters or {}
+        self.last_stream_settings = settings or {}
         return _Stream(self.stream_rows)
 
     def insert(self, table, rows, column_names=None):
@@ -260,6 +302,8 @@ class _PreIdentitySchemaClient:
             return SimpleNamespace(result_rows=[(1 if table in self.tables else 0,)])
         if "system.data_skipping_indices" in sql:
             return SimpleNamespace(result_rows=[])
+        if compact == "SELECT DISTINCT case_id FROM events ORDER BY case_id":
+            return SimpleNamespace(result_rows=[(7,)] if self.source_rows else [])
         if compact == "SELECT count() FROM events_buffer":
             return SimpleNamespace(result_rows=[(self.source_rows,)])
         if compact.startswith("SELECT count() FROM events"):
@@ -329,7 +373,15 @@ class EvidenceIdentityMigrationTestCase(unittest.TestCase):
                 self.inserts = []
                 self.commands = []
 
-            def query_rows_stream(self, query):
+            def query(self, sql, parameters=None):
+                compact = " ".join(sql.split())
+                if compact == "SELECT DISTINCT case_id FROM events ORDER BY case_id":
+                    return SimpleNamespace(result_rows=[(7,)])
+                if compact == "SELECT count() FROM events":
+                    return SimpleNamespace(result_rows=[(1,)])
+                return SimpleNamespace(result_rows=[(0,)])
+
+            def query_rows_stream(self, query, parameters=None, settings=None):
                 return _Stream([tuple(row)])
 
             def insert(self, table, rows, column_names=None):
@@ -357,12 +409,19 @@ class EvidenceIdentityMigrationTestCase(unittest.TestCase):
         class FakeClient:
             def __init__(self):
                 self.commands = []
+                self.index_exists = False
 
             def query(self, sql, parameters=None):
+                if "FROM system.columns" in sql:
+                    return SimpleNamespace(result_rows=[(name,) for name in ParsedEventColumns])
+                if "system.data_skipping_indices" in sql:
+                    return SimpleNamespace(result_rows=[(migration.IDENTITY_INDEX_NAME,)] if self.index_exists else [])
                 return SimpleNamespace(result_rows=[])
 
             def command(self, sql):
                 self.commands.append(sql)
+                if "ADD INDEX" in sql:
+                    self.index_exists = True
 
         client = FakeClient()
 
@@ -405,6 +464,7 @@ class EvidenceIdentityMigrationTestCase(unittest.TestCase):
                     return SimpleNamespace(result_rows=[
                         ("case_id", ""),
                         ("artifact_type", ""),
+                        *([("evidence_record_key", "")] if self.events_buffer_exists and any("ENGINE = Buffer" in command for command in self.commands) else []),
                         ("selector_key", "MATERIALIZED"),
                     ])
                 return SimpleNamespace(result_rows=[])
@@ -473,8 +533,18 @@ class EvidenceIdentityMigrationTestCase(unittest.TestCase):
             def __init__(self):
                 self.inserts = []
 
-            def query_rows_stream(self, query):
-                return _Stream([tuple(base_row), tuple(other_case_row)])
+            def query(self, sql, parameters=None):
+                compact = " ".join(sql.split())
+                if compact == "SELECT DISTINCT case_id FROM events ORDER BY case_id":
+                    return SimpleNamespace(result_rows=[(1,), (2,)])
+                if compact == "SELECT count() FROM events":
+                    return SimpleNamespace(result_rows=[(2,)])
+                return SimpleNamespace(result_rows=[(0,)])
+
+            def query_rows_stream(self, query, parameters=None, settings=None):
+                if (parameters or {}).get("case_id") == 1:
+                    return _Stream([tuple(base_row)])
+                return _Stream([tuple(other_case_row)])
 
             def insert(self, table, rows, column_names=None):
                 self.inserts.extend(rows)
@@ -511,7 +581,15 @@ class EvidenceIdentityMigrationTestCase(unittest.TestCase):
             def __init__(self):
                 self.inserts = []
 
-            def query_rows_stream(self, query):
+            def query(self, sql, parameters=None):
+                compact = " ".join(sql.split())
+                if compact == "SELECT DISTINCT case_id FROM events ORDER BY case_id":
+                    return SimpleNamespace(result_rows=[(7,)])
+                if compact == "SELECT count() FROM events":
+                    return SimpleNamespace(result_rows=[(1,)])
+                return SimpleNamespace(result_rows=[(0,)])
+
+            def query_rows_stream(self, query, parameters=None, settings=None):
                 return _Stream([tuple(row)])
 
             def insert(self, table, rows, column_names=None):
@@ -622,6 +700,8 @@ class EvidenceIdentityMigrationTestCase(unittest.TestCase):
                     return SimpleNamespace(result_rows=[("Buffer",)])
                 if "FROM system.tables" in sql:
                     return SimpleNamespace(result_rows=[(1 if (parameters or {}).get("table_name") == "events_buffer" else 0,)])
+                if "system.data_skipping_indices" in sql:
+                    return SimpleNamespace(result_rows=[(1,)])
                 if "SELECT count() FROM events_buffer" in sql:
                     return SimpleNamespace(result_rows=[(3,)])
                 if "SELECT count() FROM events" in sql:
@@ -662,7 +742,7 @@ class EvidenceIdentityMigrationTestCase(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError, "Source events row count changed"):
             migration.backfill_identity_columns(client, batch_size=200)
 
-        self.assertIn("drop_shadow", client.operations)
+        self.assertIn("count_shadow", client.operations)
         self.assertNotIn("rename_swap", client.operations)
         self.assertNotIn("create_buffer", client.operations)
         self.assertIn("events", client.tables)
@@ -674,7 +754,7 @@ class EvidenceIdentityMigrationTestCase(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError, "Shadow row count mismatch"):
             migration.backfill_identity_columns(client, batch_size=200)
 
-        self.assertIn("drop_shadow", client.operations)
+        self.assertIn("count_shadow", client.operations)
         self.assertNotIn("rename_swap", client.operations)
         self.assertNotIn("create_buffer", client.operations)
         self.assertNotIn("events_buffer", client.tables)
@@ -703,8 +783,8 @@ class EvidenceIdentityMigrationTestCase(unittest.TestCase):
 
         for args in (["--dry-run"], ["--status"]):
             client = _RewriteFakeClient(source_rows=100)
-            original_get_client = migration.get_fresh_client
-            migration.get_fresh_client = lambda: client
+            original_get_client = migration.get_migration_client
+            migration.get_migration_client = lambda: client
             try:
                 from io import StringIO
                 from contextlib import redirect_stdout
@@ -712,7 +792,7 @@ class EvidenceIdentityMigrationTestCase(unittest.TestCase):
                 with redirect_stdout(StringIO()):
                     migration.migrate(args)
             finally:
-                migration.get_fresh_client = original_get_client
+                migration.get_migration_client = original_get_client
 
             self.assertEqual(client.inserts, [])
             self.assertEqual(client.commands, [])
@@ -757,8 +837,8 @@ class EvidenceIdentityMigrationTestCase(unittest.TestCase):
 
     def test_status_before_identity_columns_reports_unavailable_without_writes(self):
         client = _PreIdentitySchemaClient(source_rows=100)
-        original_get_client = migration.get_fresh_client
-        migration.get_fresh_client = lambda: client
+        original_get_client = migration.get_migration_client
+        migration.get_migration_client = lambda: client
         try:
             from io import StringIO
             from contextlib import redirect_stdout
@@ -767,7 +847,7 @@ class EvidenceIdentityMigrationTestCase(unittest.TestCase):
             with redirect_stdout(output):
                 migration.migrate(["--status"])
         finally:
-            migration.get_fresh_client = original_get_client
+            migration.get_migration_client = original_get_client
 
         status = output.getvalue()
         self.assertIn("events table present: true", status)
@@ -780,8 +860,8 @@ class EvidenceIdentityMigrationTestCase(unittest.TestCase):
 
     def test_dry_run_before_identity_columns_plans_rewrite_without_writes(self):
         client = _PreIdentitySchemaClient(source_rows=100)
-        original_get_client = migration.get_fresh_client
-        migration.get_fresh_client = lambda: client
+        original_get_client = migration.get_migration_client
+        migration.get_migration_client = lambda: client
         try:
             from io import StringIO
             from contextlib import redirect_stdout
@@ -790,7 +870,7 @@ class EvidenceIdentityMigrationTestCase(unittest.TestCase):
             with redirect_stdout(output):
                 migration.migrate(["--dry-run"])
         finally:
-            migration.get_fresh_client = original_get_client
+            migration.get_migration_client = original_get_client
 
         dry_run = output.getvalue()
         self.assertIn("schema change required: true", dry_run)
@@ -803,8 +883,8 @@ class EvidenceIdentityMigrationTestCase(unittest.TestCase):
 
     def test_dry_run_before_identity_columns_with_zero_events_skips_rewrite(self):
         client = _PreIdentitySchemaClient(source_rows=0)
-        original_get_client = migration.get_fresh_client
-        migration.get_fresh_client = lambda: client
+        original_get_client = migration.get_migration_client
+        migration.get_migration_client = lambda: client
         try:
             from io import StringIO
             from contextlib import redirect_stdout
@@ -813,7 +893,7 @@ class EvidenceIdentityMigrationTestCase(unittest.TestCase):
             with redirect_stdout(output):
                 migration.migrate(["--dry-run"])
         finally:
-            migration.get_fresh_client = original_get_client
+            migration.get_migration_client = original_get_client
 
         dry_run = output.getvalue()
         self.assertIn("schema change required: true", dry_run)
@@ -821,6 +901,149 @@ class EvidenceIdentityMigrationTestCase(unittest.TestCase):
         self.assertIn("full table copy required: false", dry_run)
         self.assertEqual(client.commands, [])
         self.assertEqual(client.inserts, [])
+
+    def test_migration_import_does_not_require_secret_key(self):
+        env = os.environ.copy()
+        env.pop("SECRET_KEY", None)
+        env.setdefault("CLICKHOUSE_HOST", "localhost")
+        env.setdefault("CLICKHOUSE_PORT", "8123")
+        env.setdefault("CLICKHOUSE_DATABASE", "casescope")
+        env.setdefault("CLICKHOUSE_USER", "default")
+        result = subprocess.run(
+            [
+                sys.executable,
+                "-c",
+                "import migrations.add_evidence_record_identity as m; "
+                "from utils.clickhouse import migration_client_effective_settings as s; "
+                "print(m.IDENTITY_INDEX_NAME, s()['max_execution_time'])",
+            ],
+            cwd=REPO_ROOT,
+            env=env,
+            text=True,
+            capture_output=True,
+            check=False,
+        )
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("idx_evidence_record_key 0", result.stdout)
+
+    def test_web_config_still_requires_secret_key(self):
+        env = os.environ.copy()
+        env.pop("SECRET_KEY", None)
+        result = subprocess.run(
+            [sys.executable, "-c", "import config"],
+            cwd=REPO_ROOT,
+            env=env,
+            text=True,
+            capture_output=True,
+            check=False,
+        )
+
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("SECRET_KEY environment variable is not set", result.stderr)
+
+    def test_add_identity_columns_converges_partial_schema_combinations(self):
+        base_columns = {"case_id", "artifact_type", "timestamp_utc"}
+        combinations = [
+            set(),
+            {"evidence_record_key"},
+            {"evidence_record_key", "evidence_identity_version"},
+            {"evidence_identity_version", "evidence_identity_quality"},
+        ]
+
+        class FakeClient:
+            def __init__(self, identity_columns):
+                self.columns = set(base_columns) | set(identity_columns)
+                self.commands = []
+
+            def query(self, sql, parameters=None):
+                if "FROM system.columns" in sql:
+                    return SimpleNamespace(result_rows=[(name,) for name in sorted(self.columns)])
+                return SimpleNamespace(result_rows=[])
+
+            def command(self, sql):
+                self.commands.append(sql)
+                for column in migration.IDENTITY_COLUMNS:
+                    if f"ADD COLUMN IF NOT EXISTS {column} " in sql:
+                        self.columns.add(column)
+
+        for identity_columns in combinations:
+            with self.subTest(identity_columns=sorted(identity_columns)):
+                client = FakeClient(identity_columns)
+                migration.add_identity_columns(client)
+                self.assertTrue(set(migration.IDENTITY_COLUMNS).issubset(client.columns))
+
+    def test_source_query_uses_case_scope_settings_and_no_order_by(self):
+        client = _RewriteFakeClient(source_rows=2)
+
+        migration._rewrite_rows_to_shadow(
+            client,
+            columns=ParsedEventColumns,
+            batch_size=10,
+            case_id=None,
+            recompute_existing=False,
+        )
+
+        self.assertIn("WHERE case_id = {case_id:UInt32}", client.last_stream_query)
+        self.assertNotIn("ORDER BY", client.last_stream_query.upper())
+        self.assertEqual(client.last_stream_parameters, {"case_id": 7})
+        self.assertEqual(client.last_stream_settings["max_threads"], 1)
+        self.assertEqual(client.last_stream_settings["max_block_size"], 8192)
+        self.assertEqual(client.last_stream_settings["max_execution_time"], 0)
+
+    def test_interrupted_shadow_is_discarded_and_rebuilt_with_buffer_absent(self):
+        client = _RewriteFakeClient(source_rows=3)
+        client.tables = {"events", migration.SHADOW_TABLE}
+
+        migration.backfill_identity_columns(client, batch_size=2)
+
+        self.assertIn("drop_shadow", client.operations)
+        self.assertIn("create_shadow", client.operations)
+        self.assertNotIn("drop_buffer", client.operations)
+        self.assertLess(client.operations.index("create_shadow"), client.operations.index("shadow_copy"))
+        self.assertLess(client.operations.index("rename_swap"), client.operations.index("create_buffer"))
+
+    def test_source_stream_failure_keeps_events_authoritative_and_buffer_absent(self):
+        class FailingClient(_RewriteFakeClient):
+            def query_rows_stream(self, query, parameters=None, settings=None):
+                self.operations.append("shadow_copy")
+                return _FailingStream(
+                    [self.stream_rows[0]],
+                    RuntimeError("TIMEOUT_EXCEEDED simulated"),
+                )
+
+        client = FailingClient(source_rows=3)
+
+        with self.assertRaisesRegex(RuntimeError, "TIMEOUT_EXCEEDED"):
+            migration.backfill_identity_columns(client, batch_size=1)
+
+        self.assertIn("events", client.tables)
+        self.assertNotIn(migration.OLD_TABLE, client.tables)
+        self.assertNotIn("events_buffer", client.tables)
+        self.assertIn(migration.SHADOW_TABLE, client.tables)
+        self.assertNotIn("rename_swap", client.operations)
+        self.assertNotIn("create_buffer", client.operations)
+
+    def test_batch_size_changes_only_insert_grouping(self):
+        totals = []
+        generated_keys = []
+        for batch_size in (1, 2, 10):
+            client = _RewriteFakeClient(source_rows=5)
+            migration._rewrite_rows_to_shadow(
+                client,
+                columns=ParsedEventColumns,
+                batch_size=batch_size,
+                case_id=None,
+                recompute_existing=False,
+            )
+            rows = [row for _table, batch, _columns in client.inserts for row in batch]
+            totals.append(len(rows))
+            generated_keys.append([row[ParsedEventColumns.index("evidence_record_key")] for row in rows])
+            self.assertEqual(client.last_stream_settings["max_block_size"], 8192)
+
+        self.assertEqual(totals, [5, 5, 5])
+        self.assertEqual(generated_keys[0], generated_keys[1])
+        self.assertEqual(generated_keys[1], generated_keys[2])
 
 
 ParsedEventColumns = migration.ParsedEvent.clickhouse_columns()

@@ -35,6 +35,7 @@ event_selector = _load_module("event_selector_under_test", "utils/event_selector
 build_event_selector_key = event_selector.build_event_selector_key
 
 sys.modules.setdefault("clickhouse_connect", types.SimpleNamespace(get_client=lambda *args, **kwargs: None))
+_original_config = sys.modules.get("config")
 if "config" not in sys.modules:
     config_module = types.ModuleType("config")
     config_module.Config = types.SimpleNamespace(
@@ -45,7 +46,13 @@ if "config" not in sys.modules:
         CLICKHOUSE_PASSWORD="",
     )
     sys.modules["config"] = config_module
-clickhouse_module = _load_module("clickhouse_under_test", "utils/clickhouse.py")
+try:
+    clickhouse_module = _load_module("clickhouse_under_test", "utils/clickhouse.py")
+finally:
+    if _original_config is None:
+        sys.modules.pop("config", None)
+    else:
+        sys.modules["config"] = _original_config
 get_event_by_evidence_record_key = clickhouse_module.get_event_by_evidence_record_key
 
 

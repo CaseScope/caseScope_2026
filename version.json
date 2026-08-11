@@ -5,7 +5,11 @@
       "version": "4.12.10",
       "date": "2026-08-11",
       "changes": [
-        "Phase 0A Evidence Identity migration now emits valid ClickHouse ADD INDEX syntax for idx_evidence_record_key"
+        "Phase 0A Evidence Identity migration now emits valid ClickHouse ADD INDEX syntax for idx_evidence_record_key",
+        "Evidence Identity administrative migration now uses a migration-specific ClickHouse client without requiring Flask SECRET_KEY",
+        "Evidence Identity migration now converges missing or partial identity schema with post-DDL metadata verification",
+        "Evidence Identity shadow rewrites now process case partitions with bounded source stream settings and no OFFSET pagination",
+        "Interrupted Evidence Identity shadows are discarded and rebuilt while events_buffer remains fenced until successful swap"
       ]
     },
     {

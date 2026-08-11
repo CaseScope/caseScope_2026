@@ -101,9 +101,27 @@ JSON conversion. These raw payloads remain distinct:
 
 Migration behavior
 ------------------
-The migration adds missing identity columns, ensures `idx_evidence_record_key`,
-preflights table state, fences `events_buffer`, and then uses a bounded batched
-shadow-table rewrite only when work is required.
+The migration is an administrative ClickHouse migration. It requires the
+ClickHouse connection environment (`CLICKHOUSE_HOST`, `CLICKHOUSE_PORT`,
+`CLICKHOUSE_DATABASE`, `CLICKHOUSE_USER`, and `CLICKHOUSE_PASSWORD` when used)
+but does not require the Flask `SECRET_KEY`. The web application still requires
+`SECRET_KEY`; this migration only removes the unnecessary administrative import
+coupling.
+
+The migration adds any missing identity columns, ensures
+`idx_evidence_record_key`, preflights table state, fences `events_buffer`, and
+then uses a bounded batched shadow-table rewrite only when work is required.
+Missing and partial schemas are converged from ClickHouse metadata. After each
+identity-column ADD the migration re-queries `system.columns`; after index ADD it
+re-queries `system.data_skipping_indices`. It aborts before destructive rewrite
+if required schema/index postconditions are not true.
+
+The canonical index DDL is:
+`ALTER TABLE events ADD INDEX IF NOT EXISTS idx_evidence_record_key evidence_record_key TYPE bloom_filter(0.01) GRANULARITY 4`
+
+The invalid duplicate-keyword form
+`ALTER TABLE events ADD INDEX IF NOT EXISTS INDEX idx_evidence_record_key ...`
+must never be generated.
 
 Handling:
 - Missing keys are generated as v2.
@@ -119,6 +137,40 @@ Handling:
 - `--dry-run` is read-only. It performs no DDL, no Buffer drains/fences, no
   inserts, no mutations, and no index creation or materialization.
 - `--status` is read-only.
+
+Python `--batch-size` controls only insert grouping into the shadow table. It is
+not a ClickHouse source-query memory control. Source reads use a migration
+client with conservative defaults:
+- `max_threads = 1`
+- `max_block_size = 8192`
+- `max_execution_time = 0`
+- `send_receive_timeout = 86400`
+
+`max_execution_time = 0` is passed as the ClickHouse query setting for the
+migration client/source stream, which ClickHouse uses as no server-side
+execution-time limit. The transport timeout is set separately to a large
+explicit value so long forensic streams do not inherit the normal interactive
+five-minute HTTP timeout. The migration does not globally alter ClickHouse
+configuration, does not raise or disable global memory limits, and does not use
+`LIMIT ... OFFSET` pagination.
+
+Source rewrite design
+---------------------
+When a destructive rewrite is required, the migration enumerates case partitions
+deterministically:
+
+`SELECT DISTINCT case_id FROM events ORDER BY case_id`
+
+It then streams each case separately:
+
+`SELECT <insertable columns> FROM events WHERE case_id = {case_id:UInt32}`
+
+There is no source row `ORDER BY`; identity generation is per-record and does
+not depend on traversal order. Large cases are still streamed through
+ClickHouse's row-stream API using the migration source settings above. Memory is
+bounded by ClickHouse stream block size plus the Python insert batch, not by the
+number of rows in a case. A 174,899,397-row case therefore does not require
+materializing 174,899,397 rows in Python.
 
 Buffer safety
 -------------
@@ -157,22 +209,32 @@ default. Operators may rerun with `--replace-previous` only after validating,
 archiving, or intentionally discarding that rollback copy.
 
 `events_evidence_identity_backfill` is a disposable stale shadow from an
-interrupted pre-swap run. It may be dropped after preflight when a new rewrite
-starts.
+interrupted pre-swap run. If `events` is still active and
+`events_evidence_identity_previous` is absent, the rerun discards the stale
+shadow after preflight and creates a fresh shadow. This applies whether the
+stale shadow has zero rows or millions of partial rows. Operators do not need to
+manually clean up the shadow before rerunning.
 
 Failure handling
 ----------------
 If the Buffer cannot be safely fenced, no snapshot is taken and no shadow table
 is created.
 
-If the source row count changes during the copy, the migration drops the
-unfinished shadow table, does not rename tables, and leaves the original
-`events` table active.
+If the source row count changes during the copy, the migration does not rename
+tables and leaves the original `events` table active.
 
-If shadow validation fails, the migration drops the unfinished shadow table and
-does not recreate a writable Buffer target before a successful swap. The
-operator output reports the active `events` table, Buffer state, shadow state,
-rollback table state, and the next recovery action.
+If shadow validation fails, the migration does not rename tables and does not
+recreate a writable Buffer target before a successful swap. The operator output
+reports the active `events` table row count when safely obtainable, Buffer
+state, shadow state and row count when safely obtainable, rollback table state,
+whether the authoritative table was swapped, and the next recovery action.
+
+If memory, timeout, connection loss, source-stream, insert, shadow-count, or
+source-recount failures occur during the destructive stage, `events` remains
+authoritative, `events_evidence_identity_previous` remains absent, the partial
+shadow may remain for diagnostics, and `events_buffer` remains absent/fenced.
+Operators should keep event-producing services stopped. The next rerun can
+discard and rebuild the interrupted shadow.
 
 If `events_evidence_identity_previous` already exists and a rewrite is required,
 the migration aborts by default before fencing Buffer ingestion. Operators may
@@ -197,27 +259,27 @@ Recommended operator flow
 
 3. Run the normal event schema migration:
    `cd /opt/casescope`
-   `python3 migrations/add_events_table.py`
+   `/opt/casescope/venv/bin/python migrations/add_events_table.py`
 
 4. Check Evidence Identity status:
-   `python3 migrations/add_evidence_record_identity.py --status`
+   `/opt/casescope/venv/bin/python migrations/add_evidence_record_identity.py --status`
 
 5. Inspect row counts, v1/v2 distribution, previous/shadow table state, Buffer
    pending rows, and index state.
 
 6. Dry-run:
-   `python3 migrations/add_evidence_record_identity.py --dry-run`
+   `/opt/casescope/venv/bin/python migrations/add_evidence_record_identity.py --dry-run`
 
    This performs no DDL or data writes.
 
 7. Run the migration:
-   `python3 migrations/add_evidence_record_identity.py --batch-size 10000`
+   `/opt/casescope/venv/bin/python migrations/add_evidence_record_identity.py --batch-size 10000`
 
    To intentionally recompute all targeted existing keys:
-   `python3 migrations/add_evidence_record_identity.py --batch-size 10000 --recompute-existing`
+   `/opt/casescope/venv/bin/python migrations/add_evidence_record_identity.py --batch-size 10000 --recompute-existing`
 
 8. Check status again:
-   `python3 migrations/add_evidence_record_identity.py --status`
+   `/opt/casescope/venv/bin/python migrations/add_evidence_record_identity.py --status`
 
 9. Verify row count unchanged, no unexplained empty keys, expected v2 count, no
    unintended v1 keys, Buffer recreated, and evidence index present.
@@ -227,3 +289,5 @@ Recommended operator flow
 11. Restart services:
    `sudo -n /usr/bin/systemctl start casescope-workers`
    `sudo -n /usr/bin/systemctl start casescope-web`
+
+4.12.10 production hardening does not change Evidence Identity v2 semantics.

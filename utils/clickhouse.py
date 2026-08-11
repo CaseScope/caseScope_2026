@@ -8,13 +8,13 @@ Connection pool settings optimized for concurrent access.
 """
 import json
 import logging
+import os
 import threading
 import time
 import uuid
 from contextlib import contextmanager
 
 import clickhouse_connect
-from config import Config
 
 logger = logging.getLogger(__name__)
 
@@ -23,17 +23,69 @@ logger = logging.getLogger(__name__)
 _client = None
 _client_lock = threading.Lock()
 
-# Connection pool settings for concurrent access
-# These settings help prevent connection exhaustion under load
-_POOL_SETTINGS = {
-    'pool_size': getattr(Config, 'CLICKHOUSE_POOL_SIZE', 10),
-    'pool_timeout': getattr(Config, 'CLICKHOUSE_POOL_TIMEOUT', 30),
-}
 _DESTRUCTIVE_REWRITE_LOCK_KEY = 'clickhouse:events_destructive_rewrite'
-_DESTRUCTIVE_REWRITE_LOCK_TTL_SECONDS = max(
-    int(getattr(Config, 'CLICKHOUSE_DESTRUCTIVE_REWRITE_LOCK_TTL_SECONDS', 21600) or 0),
-    300,
+
+MIGRATION_MAX_THREADS = int(os.environ.get('CLICKHOUSE_MIGRATION_MAX_THREADS', 1))
+MIGRATION_MAX_BLOCK_SIZE = int(os.environ.get('CLICKHOUSE_MIGRATION_MAX_BLOCK_SIZE', 8192))
+MIGRATION_MAX_EXECUTION_TIME = int(os.environ.get('CLICKHOUSE_MIGRATION_MAX_EXECUTION_TIME', 0))
+MIGRATION_SEND_RECEIVE_TIMEOUT = int(
+    os.environ.get('CLICKHOUSE_MIGRATION_SEND_RECEIVE_TIMEOUT', 86400)
 )
+_MIGRATION_MAX_MEMORY_USAGE = os.environ.get('CLICKHOUSE_MIGRATION_MAX_MEMORY_USAGE')
+
+
+def _get_app_config():
+    from config import Config
+
+    return Config
+
+
+def _get_config_attr(name, default):
+    return getattr(_get_app_config(), name, default)
+
+
+def _destructive_rewrite_lock_ttl_seconds():
+    return max(
+        int(_get_config_attr('CLICKHOUSE_DESTRUCTIVE_REWRITE_LOCK_TTL_SECONDS', 21600) or 0),
+        300,
+    )
+
+
+def _clickhouse_connection_config():
+    return {
+        'host': os.environ.get('CLICKHOUSE_HOST') or 'localhost',
+        'port': int(os.environ.get('CLICKHOUSE_PORT', 8123)),
+        'database': os.environ.get('CLICKHOUSE_DATABASE') or 'casescope',
+        'username': os.environ.get('CLICKHOUSE_USER') or 'default',
+        'password': os.environ.get('CLICKHOUSE_PASSWORD') or '',
+    }
+
+
+def migration_source_query_settings():
+    settings = {
+        'max_threads': MIGRATION_MAX_THREADS,
+        'max_block_size': MIGRATION_MAX_BLOCK_SIZE,
+        'max_execution_time': MIGRATION_MAX_EXECUTION_TIME,
+    }
+    if _MIGRATION_MAX_MEMORY_USAGE:
+        settings['max_memory_usage'] = int(_MIGRATION_MAX_MEMORY_USAGE)
+    return settings
+
+
+def migration_client_effective_settings():
+    config = _clickhouse_connection_config()
+    settings = migration_source_query_settings()
+    return {
+        'CLICKHOUSE_HOST': config['host'],
+        'CLICKHOUSE_PORT': config['port'],
+        'CLICKHOUSE_DATABASE': config['database'],
+        'CLICKHOUSE_USER': config['username'],
+        'max_threads': settings['max_threads'],
+        'max_block_size': settings['max_block_size'],
+        'max_execution_time': settings['max_execution_time'],
+        'max_memory_usage': settings.get('max_memory_usage'),
+        'send_receive_timeout': MIGRATION_SEND_RECEIVE_TIMEOUT,
+    }
 
 
 class ClickHouseMutationGuardActive(RuntimeError):
@@ -98,7 +150,7 @@ def destructive_event_rewrite_guard(operation, *, case_id=None, ttl_seconds=None
         yield None
         return
 
-    ttl = max(int(ttl_seconds or _DESTRUCTIVE_REWRITE_LOCK_TTL_SECONDS), 300)
+    ttl = max(int(ttl_seconds or _destructive_rewrite_lock_ttl_seconds()), 300)
     payload = {
         'token': str(uuid.uuid4()),
         'operation': str(operation),
@@ -147,6 +199,7 @@ def get_client():
         with _client_lock:
             # Double-check after acquiring lock
             if _client is None:
+                Config = _get_app_config()
                 _client = clickhouse_connect.get_client(
                     host=Config.CLICKHOUSE_HOST,
                     port=Config.CLICKHOUSE_PORT,
@@ -156,9 +209,9 @@ def get_client():
                     autogenerate_session_id=False,
                     settings={
                         # Query execution settings for better concurrency
-                        'max_threads': getattr(Config, 'CLICKHOUSE_MAX_THREADS', 8),
+                        'max_threads': _get_config_attr('CLICKHOUSE_MAX_THREADS', 8),
                         # Prevent long-running queries from blocking
-                        'max_execution_time': getattr(Config, 'CLICKHOUSE_QUERY_TIMEOUT', 300),
+                        'max_execution_time': _get_config_attr('CLICKHOUSE_QUERY_TIMEOUT', 300),
                     },
                     # Connection pool settings
                     connect_timeout=10,
@@ -176,6 +229,7 @@ def get_fresh_client():
     Each fresh client gets its own connection, avoiding
     contention with the shared cached client.
     """
+    Config = _get_app_config()
     return clickhouse_connect.get_client(
         host=Config.CLICKHOUSE_HOST,
         port=Config.CLICKHOUSE_PORT,
@@ -184,11 +238,27 @@ def get_fresh_client():
         password=Config.CLICKHOUSE_PASSWORD,
         autogenerate_session_id=False,
         settings={
-            'max_threads': getattr(Config, 'CLICKHOUSE_MAX_THREADS', 8),
-            'max_execution_time': getattr(Config, 'CLICKHOUSE_QUERY_TIMEOUT', 300),
+            'max_threads': _get_config_attr('CLICKHOUSE_MAX_THREADS', 8),
+            'max_execution_time': _get_config_attr('CLICKHOUSE_QUERY_TIMEOUT', 300),
         },
         connect_timeout=10,
         send_receive_timeout=300,
+    )
+
+
+def get_migration_client():
+    """Get an administrative ClickHouse client for long Evidence migrations."""
+    config = _clickhouse_connection_config()
+    return clickhouse_connect.get_client(
+        host=config['host'],
+        port=config['port'],
+        database=config['database'],
+        username=config['username'],
+        password=config['password'],
+        autogenerate_session_id=False,
+        settings=migration_source_query_settings(),
+        connect_timeout=int(os.environ.get('CLICKHOUSE_MIGRATION_CONNECT_TIMEOUT', 10)),
+        send_receive_timeout=MIGRATION_SEND_RECEIVE_TIMEOUT,
     )
 
 
@@ -499,7 +569,9 @@ def health_check():
     Returns:
         Dict with connection status and version
     """
+    Config = None
     try:
+        Config = _get_app_config()
         client = get_client()
         result = client.query("SELECT version()")
         version = result.result_rows[0][0] if result.result_rows else 'unknown'
@@ -513,6 +585,6 @@ def health_check():
         return {
             'status': 'error',
             'error': str(e),
-            'host': Config.CLICKHOUSE_HOST,
-            'database': Config.CLICKHOUSE_DATABASE
+            'host': getattr(Config, 'CLICKHOUSE_HOST', 'unknown') if Config else 'unknown',
+            'database': getattr(Config, 'CLICKHOUSE_DATABASE', 'unknown') if Config else 'unknown',
         }

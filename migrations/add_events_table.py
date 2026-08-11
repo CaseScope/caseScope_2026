@@ -134,10 +134,10 @@ SETTINGS
     min_rows_for_wide_part = 0;
 """
 
-EVENTS_BUFFER_SCHEMA = """
+EVENTS_BUFFER_SCHEMA_TEMPLATE = """
 CREATE TABLE IF NOT EXISTS events_buffer AS events
 ENGINE = Buffer(
-    casescope,
+    {database},
     events,
     16,
     10, 100,
@@ -145,6 +145,28 @@ ENGINE = Buffer(
     10000000, 100000000
 );
 """
+
+
+def _quote_clickhouse_identifier(identifier):
+    return f"`{str(identifier).replace('`', '``')}`"
+
+
+def _current_database_name(client):
+    try:
+        result = client.query("SELECT currentDatabase()")
+        if result.result_rows:
+            return str(result.result_rows[0][0])
+    except Exception:
+        pass
+    return os.environ.get("CLICKHOUSE_DATABASE") or "casescope"
+
+
+def events_buffer_schema(client=None):
+    database = _current_database_name(client) if client is not None else os.environ.get("CLICKHOUSE_DATABASE", "casescope")
+    return EVENTS_BUFFER_SCHEMA_TEMPLATE.format(database=_quote_clickhouse_identifier(database))
+
+
+EVENTS_BUFFER_SCHEMA = events_buffer_schema()
 
 
 def _assert_insert_columns_are_defined():
@@ -289,7 +311,7 @@ def fence_events_buffer_ingestion(client, *, context="events migration"):
 
 
 def recreate_events_buffer(client):
-    client.command(EVENTS_BUFFER_SCHEMA)
+    client.command(events_buffer_schema(client))
     print("- Created or verified events_buffer table")
 
 
