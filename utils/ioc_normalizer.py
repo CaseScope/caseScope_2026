@@ -22,6 +22,7 @@ def _load_local_module(name: str, filename: str):
 
 
 _ioc_text = _load_local_module("ioc_normalizer_text_shared", "ioc_text.py")
+_ioc_host_evidence = _load_local_module("ioc_host_evidence_for_normalizer", "ioc_host_evidence.py")
 
 INVALID_HASH_PLACEHOLDERS = (
     'file is no longer on disk',
@@ -72,28 +73,6 @@ WEAK_COMPROMISE_CONTEXT_HINTS = (
     'password reset recommended',
     'affected user',
 )
-
-HOST_COMPROMISE_PATTERNS = (
-    r'\bhost\s+(?P<host>[A-Za-z0-9][A-Za-z0-9._-]{1,254})\s+(?:was\s+|is\s+)?(?:confirmed\s+)?compromised\b',
-    r'\b(?P<host>[A-Za-z0-9][A-Za-z0-9._-]{1,254})\s+(?:was\s+|is\s+)?(?:confirmed\s+)?compromised\b',
-    r'\battacker\s+compromised\s+(?P<host>[A-Za-z0-9][A-Za-z0-9._-]{1,254})\b',
-    r'\battacker\s+gained\s+access\s+to\s+(?P<host>[A-Za-z0-9][A-Za-z0-9._-]{1,254})\b',
-)
-
-HOST_COMPROMISE_STOPWORDS = {
-    'affected',
-    'attacker',
-    'compromised',
-    'confirmed',
-    'endpoint',
-    'host',
-    'is',
-    'machine',
-    'system',
-    'the',
-    'was',
-    'we',
-}
 
 URL_PATTERN = re.compile(
     r'(?:hxxps?|https?)(?:\[?://\]?|://)[\w\-\.]+(?:\[\.\]|\.)[\w\-\.]+[^\s<>"{}|\\^`\[\]]*',
@@ -339,46 +318,6 @@ def _normalize_evidence_text(value: Any) -> str:
     return text.strip().lower()
 
 
-def _extract_confirmed_compromised_hosts(report_text: str, candidate_hosts: Optional[List[Any]] = None) -> List[str]:
-    """Extract explicitly compromised hosts without treating mere affected hosts as compromised."""
-    candidates = {
-        str(host.get('value') if isinstance(host, dict) else host).strip().lower(): str(host.get('value') if isinstance(host, dict) else host).strip()
-        for host in candidate_hosts or []
-        if str(host.get('value') if isinstance(host, dict) else host).strip()
-    }
-    confirmed: List[str] = []
-    seen = set()
-    for pattern in HOST_COMPROMISE_PATTERNS:
-        for match in re.finditer(pattern, report_text or '', re.I):
-            host = (match.groupdict().get('host') or '').strip().strip('.,;:')
-            if not host:
-                continue
-            normalized = host.lower()
-            if not _is_plausible_confirmed_host(host, normalized in candidates):
-                continue
-            if normalized in seen:
-                continue
-            seen.add(normalized)
-            confirmed.append(candidates.get(normalized, host))
-    return confirmed
-
-
-def _is_plausible_confirmed_host(host: str, is_known_candidate: bool = False) -> bool:
-    token = (host or '').strip().strip('.,;:')
-    lowered = token.lower()
-    if not token or lowered in HOST_COMPROMISE_STOPWORDS:
-        return False
-    if _is_valid_ipv4(token):
-        return False
-    if is_known_candidate:
-        return True
-    if any(char.isdigit() for char in token):
-        return True
-    if any(char in token for char in '.-_'):
-        return True
-    return token.isupper() and len(token) >= 3
-
-
 def _copy_provenance_fields(source: Dict[str, Any], target: Dict[str, Any]) -> Dict[str, Any]:
     for key in (
         'raw_value',
@@ -473,15 +412,11 @@ def _apply_ai_guardrails(normalized: Dict[str, Any], report_text: str) -> Dict[s
         host for host in iocs.get('hostnames', [])
         if not _is_placeholder_value(host)
     ]
-    confirmed_hosts = _extract_confirmed_compromised_hosts(
+    confirmed_hosts = _ioc_host_evidence.extract_confirmed_compromised_hosts(
         report_text,
         [*affected_hosts, *iocs.get('hostnames', [])],
     )
-    if confirmed_hosts:
-        summary['confirmed_compromised_hosts'] = _dedupe_mixed_list(
-            summary.get('confirmed_compromised_hosts', []),
-            confirmed_hosts,
-        )
+    summary['confirmed_compromised_hosts'] = confirmed_hosts
 
     for user in summary.get('affected_users', []) or []:
         cleaned_user = _normalize_ai_user_item(user, context='Affected user in report')

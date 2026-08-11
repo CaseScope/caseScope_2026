@@ -276,6 +276,72 @@ class Phase5IOCNormalizerContractTestCase(unittest.TestCase):
             any(command['value'] == 'pythonw.exe run.pyw' for command in normalized['iocs']['commands'])
         )
 
+    def test_ai_guardrail_rejects_uppercase_generic_confirmed_hosts(self):
+        for report, claimed_host in (
+            ('The SERVER was compromised.', 'SERVER'),
+            ('The COMPUTER was compromised.', 'COMPUTER'),
+            ('The WORKSTATION was compromised.', 'WORKSTATION'),
+            ('The DEVICE was compromised.', 'DEVICE'),
+            ('The CLIENT was compromised.', 'CLIENT'),
+            ('The NODE was compromised.', 'NODE'),
+            ('The ASSET was compromised.', 'ASSET'),
+            ('The SERVERS were compromised.', 'SERVERS'),
+            ('The WORKSTATIONS were compromised.', 'WORKSTATIONS'),
+        ):
+            with self.subTest(report=report):
+                normalized = ioc_normalizer._normalize_ai_extraction(
+                    {
+                        'network_iocs': {'ipv4': [], 'ipv6': [], 'domains': [], 'urls': [], 'cloudflare_tunnels': []},
+                        'file_iocs': {'hashes': [], 'file_paths': [], 'file_names': []},
+                        'process_iocs': {'commands': [], 'services': [], 'scheduled_tasks': []},
+                        'persistence_iocs': {'registry': [], 'credential_theft_indicators': []},
+                        'authentication_iocs': {'compromised_users': [], 'created_users': [], 'passwords_observed': []},
+                        'vulnerability_iocs': {'cves': [], 'webshells': []},
+                        'raw_artifacts': {},
+                        'iocs': {'hostnames': [{'value': claimed_host}]},
+                        'extraction_summary': {
+                            'affected_hosts': [claimed_host],
+                            'confirmed_compromised_hosts': [claimed_host],
+                        },
+                    },
+                    report_text=report,
+                )
+                self.assertEqual(
+                    normalized['extraction_summary'].get('confirmed_compromised_hosts'),
+                    [],
+                )
+
+    def test_ai_guardrail_keeps_named_confirmed_hosts(self):
+        for report, claimed_host in (
+            ('DC01 was compromised.', 'DC01'),
+            ('FILESRV was compromised.', 'FILESRV'),
+            ('FIN-LAPTOP-9 was compromised.', 'FIN-LAPTOP-9'),
+            ('ATN86573 was compromised.', 'ATN86573'),
+            ('host01.example.local was compromised.', 'host01.example.local'),
+        ):
+            with self.subTest(report=report):
+                normalized = ioc_normalizer._normalize_ai_extraction(
+                    {
+                        'network_iocs': {'ipv4': [], 'ipv6': [], 'domains': [], 'urls': [], 'cloudflare_tunnels': []},
+                        'file_iocs': {'hashes': [], 'file_paths': [], 'file_names': []},
+                        'process_iocs': {'commands': [], 'services': [], 'scheduled_tasks': []},
+                        'persistence_iocs': {'registry': [], 'credential_theft_indicators': []},
+                        'authentication_iocs': {'compromised_users': [], 'created_users': [], 'passwords_observed': []},
+                        'vulnerability_iocs': {'cves': [], 'webshells': []},
+                        'raw_artifacts': {},
+                        'iocs': {'hostnames': [{'value': claimed_host}]},
+                        'extraction_summary': {
+                            'affected_hosts': [claimed_host],
+                            'confirmed_compromised_hosts': [claimed_host],
+                        },
+                    },
+                    report_text=report,
+                )
+                self.assertEqual(
+                    normalized['extraction_summary'].get('confirmed_compromised_hosts'),
+                    [claimed_host],
+                )
+
 
 if __name__ == '__main__':
     unittest.main()

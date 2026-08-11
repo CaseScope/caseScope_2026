@@ -1462,17 +1462,81 @@ class IOCHuntressExtractorRegressionTestCase(unittest.TestCase):
                     [],
                 )
 
-    def test_named_compromised_hosts_are_still_confirmed_without_host_field(self):
+    def test_uppercase_generic_host_nouns_do_not_create_confirmed_host(self):
         for report in (
-            "FIN-LAPTOP-9 was compromised.",
-            "The attacker compromised FIN-LAPTOP-9.",
-            "The attacker gained access to FIN-LAPTOP-9 during the incident.",
+            "The SERVER was compromised.",
+            "The COMPUTER was compromised.",
+            "The WORKSTATION was compromised.",
+            "The DEVICE was compromised.",
+            "The CLIENT was compromised.",
+            "The NODE was compromised.",
+            "The ASSET was compromised.",
+            "The SERVERS were compromised.",
+            "The WORKSTATIONS were compromised.",
         ):
             with self.subTest(report=report):
                 extraction = self.extractor_module.run_deterministic_ioc_extraction(report)
                 self.assertEqual(
                     extraction['extraction_summary'].get('confirmed_compromised_hosts'),
-                    ['FIN-LAPTOP-9'],
+                    [],
+                )
+
+    def test_named_compromised_hosts_are_still_confirmed_without_host_field(self):
+        cases = (
+            ("FIN-LAPTOP-9 was compromised.", ["FIN-LAPTOP-9"]),
+            ("DC01 was compromised.", ["DC01"]),
+            ("FILESRV was compromised.", ["FILESRV"]),
+            ("ATN86573 was compromised.", ["ATN86573"]),
+            ("host01.example.local was compromised.", ["host01.example.local"]),
+            ("The attacker compromised FIN-LAPTOP-9.", ["FIN-LAPTOP-9"]),
+            ("The attacker compromised DC01.", ["DC01"]),
+            ("The attacker gained access to FIN-LAPTOP-9 during the incident.", ["FIN-LAPTOP-9"]),
+            ("The attacker gained access to FILESRV.", ["FILESRV"]),
+        )
+        for report, expected in cases:
+            with self.subTest(report=report):
+                extraction = self.extractor_module.run_deterministic_ioc_extraction(report)
+                self.assertEqual(
+                    extraction['extraction_summary'].get('confirmed_compromised_hosts'),
+                    expected,
+                )
+
+    def test_deterministic_and_normalizer_share_confirmed_host_semantics(self):
+        normalizer = self.extractor_module._ioc_normalizer
+
+        def normalize_with_ai_claim(report, claimed_host):
+            return normalizer._normalize_ai_extraction(
+                {
+                    'network_iocs': {'ipv4': [], 'ipv6': [], 'domains': [], 'urls': [], 'cloudflare_tunnels': []},
+                    'file_iocs': {'hashes': [], 'file_paths': [], 'file_names': []},
+                    'process_iocs': {'commands': [], 'services': [], 'scheduled_tasks': []},
+                    'persistence_iocs': {'registry': [], 'credential_theft_indicators': []},
+                    'authentication_iocs': {'compromised_users': [], 'created_users': [], 'passwords_observed': []},
+                    'vulnerability_iocs': {'cves': [], 'webshells': []},
+                    'raw_artifacts': {},
+                    'iocs': {'hostnames': [{'value': claimed_host}]},
+                    'extraction_summary': {
+                        'affected_hosts': [claimed_host],
+                        'confirmed_compromised_hosts': [claimed_host],
+                    },
+                },
+                report_text=report,
+            )
+
+        for report, claimed_host in (
+            ("The SERVER was compromised.", "SERVER"),
+            ("The COMPUTER was compromised.", "COMPUTER"),
+            ("FILESRV was compromised.", "FILESRV"),
+            ("DC01 was compromised.", "DC01"),
+            ("host01.example.local was compromised.", "host01.example.local"),
+            ("Host: FIN-LAPTOP-9\nThe host was compromised.", "FIN-LAPTOP-9"),
+        ):
+            with self.subTest(report=report):
+                deterministic = self.extractor_module.run_deterministic_ioc_extraction(report)
+                normalized = normalize_with_ai_claim(report, claimed_host)
+                self.assertEqual(
+                    normalized['extraction_summary'].get('confirmed_compromised_hosts'),
+                    deterministic['extraction_summary'].get('confirmed_compromised_hosts'),
                 )
 
     def test_structured_host_plus_generic_compromise_does_not_infer_confirmation(self):

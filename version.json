@@ -1,6 +1,14 @@
 {
-  "version": "4.12.2",
+  "version": "4.12.3",
   "changelog": [
+    {
+      "version": "4.12.3",
+      "date": "2026-08-10",
+      "changes": [
+        "Confirmed-host IOC detection now rejects generic uppercase infrastructure nouns while preserving explicit hostname evidence",
+        "Regex extraction and AI normalizer guardrails now share one confirmed-host evidence helper to prevent drift"
+      ]
+    },
     {
       "version": "4.12.2",
       "date": "2026-08-10",
