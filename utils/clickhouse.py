@@ -46,9 +46,16 @@ def _get_config_attr(name, default):
 
 def _destructive_rewrite_lock_ttl_seconds():
     return max(
-        int(_get_config_attr('CLICKHOUSE_DESTRUCTIVE_REWRITE_LOCK_TTL_SECONDS', 21600) or 0),
+        int(os.environ.get('CLICKHOUSE_DESTRUCTIVE_REWRITE_LOCK_TTL_SECONDS', 21600) or 0),
         300,
     )
+
+
+def _destructive_rewrite_lock_renew_interval(ttl_seconds):
+    configured = os.environ.get('CLICKHOUSE_DESTRUCTIVE_REWRITE_LOCK_RENEW_INTERVAL_SECONDS')
+    if configured:
+        return max(int(configured), 5)
+    return max(min(int(ttl_seconds) // 3, 300), 5)
 
 
 def _clickhouse_connection_config():
@@ -107,13 +114,29 @@ class ClickHouseMutationGuardActive(RuntimeError):
         )
 
 
-def _get_destructive_rewrite_redis_client():
+def _get_destructive_rewrite_redis_client(*, required=False):
     """Get the Redis client used for destructive rewrite admission control."""
     try:
-        from utils.progress import get_redis_client
+        import redis
 
-        return get_redis_client()
-    except Exception:
+        client = redis.Redis(
+            host=os.environ.get('REDIS_HOST') or 'localhost',
+            port=int(os.environ.get('REDIS_PORT', 6379)),
+            db=int(os.environ.get('REDIS_DB', 0)),
+            password=os.environ.get('REDIS_PASSWORD') or None,
+            socket_connect_timeout=float(
+                os.environ.get('REDIS_CONNECT_TIMEOUT_SECONDS', 5)
+            ),
+            socket_timeout=float(os.environ.get('REDIS_SOCKET_TIMEOUT_SECONDS', 5)),
+        )
+        client.ping()
+        return client
+    except Exception as exc:
+        if required:
+            raise RuntimeError(
+                "Unable to acquire Redis-backed destructive rewrite lock; "
+                f"refusing to run unlocked ({exc})"
+            ) from exc
         return None
 
 
@@ -143,9 +166,9 @@ def get_active_destructive_event_rewrite():
 
 
 @contextmanager
-def destructive_event_rewrite_guard(operation, *, case_id=None, ttl_seconds=None):
+def destructive_event_rewrite_guard(operation, *, case_id=None, ttl_seconds=None, require_lock=False):
     """Serialize explicit destructive rewrites against the `events` table."""
-    client = _get_destructive_rewrite_redis_client()
+    client = _get_destructive_rewrite_redis_client(required=require_lock)
     if client is None:
         yield None
         return
@@ -158,18 +181,77 @@ def destructive_event_rewrite_guard(operation, *, case_id=None, ttl_seconds=None
         'started_at': time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime()),
     }
     serialized = json.dumps(payload)
+    stop_renewal = threading.Event()
+    renewal_error = {'message': None}
 
     try:
         acquired = client.set(_DESTRUCTIVE_REWRITE_LOCK_KEY, serialized, nx=True, ex=ttl)
-    except Exception:
-        acquired = True
+    except Exception as exc:
+        if require_lock:
+            raise RuntimeError(
+                "Unable to acquire Redis-backed destructive rewrite lock; "
+                f"refusing to run unlocked ({exc})"
+            ) from exc
+        yield None
+        return
 
     if not acquired:
         raise ClickHouseMutationGuardActive(get_active_destructive_event_rewrite())
 
+    def assert_active():
+        if renewal_error['message']:
+            raise RuntimeError(renewal_error['message'])
+
+    def renew_loop():
+        renew_interval = _destructive_rewrite_lock_renew_interval(ttl)
+        renew_script = """
+        local key = KEYS[1]
+        local expected = ARGV[1]
+        local ttl = tonumber(ARGV[2])
+        local current = redis.call('GET', key)
+        if current == expected then
+            return redis.call('EXPIRE', key, ttl)
+        end
+        return 0
+        """
+        while not stop_renewal.wait(renew_interval):
+            try:
+                renewed = client.eval(
+                    renew_script,
+                    1,
+                    _DESTRUCTIVE_REWRITE_LOCK_KEY,
+                    serialized,
+                    int(ttl),
+                )
+                if int(renewed or 0) != 1:
+                    renewal_error['message'] = (
+                        "Lost Redis-backed destructive rewrite lock; refusing to continue"
+                    )
+                    stop_renewal.set()
+                    return
+            except Exception as exc:
+                renewal_error['message'] = (
+                    "Unable to renew Redis-backed destructive rewrite lock; "
+                    f"refusing to continue ({exc})"
+                )
+                stop_renewal.set()
+                return
+
+    renewal_thread = threading.Thread(
+        target=renew_loop,
+        name='clickhouse-destructive-rewrite-lock-renewer',
+        daemon=True,
+    )
+    renewal_thread.start()
+    payload['assert_active'] = assert_active
+
     try:
+        assert_active()
         yield payload
+        assert_active()
     finally:
+        stop_renewal.set()
+        renewal_thread.join(timeout=5)
         try:
             release_script = """
             local key = KEYS[1]

@@ -9,7 +9,9 @@
         "Evidence Identity administrative migration now uses a migration-specific ClickHouse client without requiring Flask SECRET_KEY",
         "Evidence Identity migration now converges missing or partial identity schema with post-DDL metadata verification",
         "Evidence Identity shadow rewrites now process case partitions with bounded source stream settings and no OFFSET pagination",
-        "Interrupted Evidence Identity shadows are discarded and rebuilt while events_buffer remains fenced until successful swap"
+        "Interrupted Evidence Identity shadows are discarded and rebuilt while events_buffer remains fenced until successful swap",
+        "Evidence Identity migration now repairs unknown or malformed keys and repopulates missing v2 metadata without changing the v2 algorithm",
+        "Evidence Identity destructive rewrites now require an admin-safe renewable Redis lock and enforce final scoped identity validation before completion"
       ]
     },
     {

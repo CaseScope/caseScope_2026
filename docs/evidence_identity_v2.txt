@@ -116,6 +116,12 @@ identity-column ADD the migration re-queries `system.columns`; after index ADD i
 re-queries `system.data_skipping_indices`. It aborts before destructive rewrite
 if required schema/index postconditions are not true.
 
+Partial schema convergence includes data repair, not only DDL repair. If
+`evidence_record_key` already contains valid v2 keys but
+`evidence_identity_version` or `evidence_identity_quality` was added later, the
+migration performs a shadow rewrite to repopulate the missing metadata while
+preserving the existing valid v2 key.
+
 The canonical index DDL is:
 `ALTER TABLE events ADD INDEX IF NOT EXISTS idx_evidence_record_key evidence_record_key TYPE bloom_filter(0.01) GRANULARITY 4`
 
@@ -127,7 +133,13 @@ Handling:
 - Missing keys are generated as v2.
 - Existing `erk:v1:` keys are treated as obsolete Phase 0A identities and are
   upgraded to v2 during the dedicated migration.
-- Existing v2 keys are preserved unless `--recompute-existing` is supplied.
+- Existing valid v2 keys are preserved unless `--recompute-existing` is
+  supplied.
+- Unknown or malformed keys, including non-v2 prefixes and malformed
+  `erk:v2:` values that do not match `erk:v2:<64 lowercase hex chars>`, are
+  deterministically repaired to v2.
+- Valid v2 keys with empty or invalid version/quality metadata keep their key
+  and have metadata repopulated from retained evidence.
 - `--recompute-existing` recalculates targeted rows from retained evidence and
   writes v2, covering missing, v1, malformed, and incorrect v2 keys.
 - `--case-id` limits identity mutation to that case. The current migration still
@@ -200,6 +212,25 @@ ingestion target has been removed, not by `OPTIMIZE TABLE` alone. If pending
 Buffer rows cannot be proven zero, the migration fails closed before the shadow
 rewrite. If `events_buffer` exists with an unexpected non-Buffer engine, the
 migration aborts without dropping, detaching, recreating, or modifying it.
+
+The destructive rewrite guard uses Redis directly from administrative
+environment settings (`REDIS_HOST`, `REDIS_PORT`, `REDIS_DB`, and
+`REDIS_PASSWORD` when used). It does not import Flask `Config` and does not
+require `SECRET_KEY`. Destructive Evidence Identity rewrites require the Redis
+lock, renew the lock lease while running, renew only when the stored token still
+matches the holder, and release only the matching token on exit.
+
+Final validation
+----------------
+Before declaring completion, the migration enforces these scoped postconditions:
+- `empty evidence_record_key rows = 0`
+- `erk:v1 evidence_record_key rows = 0`
+- `unknown/malformed evidence_record_key rows = 0`
+- `invalid v2 identity metadata rows = 0`
+- `valid erk:v2 rows = expected scoped row count`
+
+With `--case-id`, these validation counts apply to the targeted case. Other
+cases are still copied into the shadow unchanged.
 
 Previous and shadow tables
 --------------------------

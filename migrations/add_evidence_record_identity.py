@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import os
+import re
 import sys
 import time
 from typing import Any, Dict, Iterable, List, Optional
@@ -26,7 +27,9 @@ from utils.clickhouse import (  # noqa: E402
     migration_source_query_settings,
 )
 from utils.evidence_identity import (  # noqa: E402
+    EVIDENCE_IDENTITY_VERSION,
     EVIDENCE_RECORD_KEY_PREFIX,
+    EvidenceIdentityQuality,
     build_identity_from_clickhouse_row,
 )
 
@@ -42,6 +45,8 @@ IDENTITY_INDEX_DEFINITION = f"{IDENTITY_INDEX_NAME} {IDENTITY_INDEX_EXPRESSION}"
 SHADOW_TABLE = "events_evidence_identity_backfill"
 OLD_TABLE = "events_evidence_identity_previous"
 LEGACY_V1_PREFIX = "erk:v1:"
+VALID_V2_KEY_PATTERN = rf"^{re.escape(EVIDENCE_RECORD_KEY_PREFIX)}[0-9a-f]{{64}}$"
+VALID_QUALITY_VALUES = tuple(quality.value for quality in EvidenceIdentityQuality)
 DEFAULT_PROGRESS_INTERVAL_ROWS = int(
     os.environ.get("EVIDENCE_IDENTITY_PROGRESS_INTERVAL_ROWS", 1_000_000)
 )
@@ -273,6 +278,21 @@ def _count_identity_prefix(
     return int(result.result_rows[0][0]) if result.result_rows else 0
 
 
+def _count_valid_v2_identity(
+    client,
+    *,
+    table_name: str = "events",
+    case_id: Optional[int] = None,
+) -> int:
+    where = "WHERE match(evidence_record_key, {v2_pattern:String})"
+    parameters: Dict[str, Any] = {"v2_pattern": VALID_V2_KEY_PATTERN}
+    if case_id is not None:
+        where += " AND case_id = {case_id:UInt32}"
+        parameters["case_id"] = int(case_id)
+    result = client.query(f"SELECT count() FROM {table_name} {where}", parameters=parameters)
+    return int(result.result_rows[0][0]) if result.result_rows else 0
+
+
 def _count_unknown_identity(
     client,
     *,
@@ -282,11 +302,39 @@ def _count_unknown_identity(
     where = (
         "WHERE evidence_record_key != '' "
         "AND NOT startsWith(evidence_record_key, {v1_prefix:String}) "
-        "AND NOT startsWith(evidence_record_key, {v2_prefix:String})"
+        "AND NOT match(evidence_record_key, {v2_pattern:String})"
     )
     parameters: Dict[str, Any] = {
         "v1_prefix": LEGACY_V1_PREFIX,
-        "v2_prefix": EVIDENCE_RECORD_KEY_PREFIX,
+        "v2_pattern": VALID_V2_KEY_PATTERN,
+    }
+    if case_id is not None:
+        where += " AND case_id = {case_id:UInt32}"
+        parameters["case_id"] = int(case_id)
+    result = client.query(f"SELECT count() FROM {table_name} {where}", parameters=parameters)
+    return int(result.result_rows[0][0]) if result.result_rows else 0
+
+
+def _count_invalid_identity_metadata(
+    client,
+    *,
+    table_name: str = "events",
+    case_id: Optional[int] = None,
+    identity_schema: Optional[Dict[str, Any]] = None,
+) -> Optional[int]:
+    identity_schema = identity_schema or _identity_schema_state(client)
+    required = {"evidence_record_key", "evidence_identity_version", "evidence_identity_quality"}
+    if not required.issubset(identity_schema["events_columns"]):
+        return None
+    quality_sql = ", ".join(f"'{value}'" for value in VALID_QUALITY_VALUES)
+    where = (
+        "WHERE match(evidence_record_key, {v2_pattern:String}) "
+        "AND (evidence_identity_version != {version:String} "
+        f"OR evidence_identity_quality NOT IN ({quality_sql}))"
+    )
+    parameters: Dict[str, Any] = {
+        "v2_pattern": VALID_V2_KEY_PATTERN,
+        "version": EVIDENCE_IDENTITY_VERSION,
     }
     if case_id is not None:
         where += " AND case_id = {case_id:UInt32}"
@@ -364,12 +412,18 @@ def _identity_version_counts(
             "v1": None,
             "v2": None,
             "unknown": None,
+            "metadata_invalid": None,
         }
     return {
         "empty": _count_empty_identity(client, case_id=case_id),
         "v1": _count_identity_prefix(client, LEGACY_V1_PREFIX, case_id=case_id),
-        "v2": _count_identity_prefix(client, EVIDENCE_RECORD_KEY_PREFIX, case_id=case_id),
+        "v2": _count_valid_v2_identity(client, case_id=case_id),
         "unknown": _count_unknown_identity(client, case_id=case_id),
+        "metadata_invalid": _count_invalid_identity_metadata(
+            client,
+            case_id=case_id,
+            identity_schema=identity_schema,
+        ),
     }
 
 
@@ -387,11 +441,16 @@ def _rewrite_required(
     scoped_rows: int,
     recompute_existing: bool,
 ) -> bool:
-    if counts["empty"] is None or counts["v1"] is None:
+    if any(counts.get(name) is None for name in ("empty", "v1", "unknown", "metadata_invalid")):
         return scoped_rows > 0
     if recompute_existing:
         return scoped_rows > 0
-    return counts["empty"] > 0 or counts["v1"] > 0
+    return (
+        counts["empty"] > 0
+        or counts["v1"] > 0
+        or counts["unknown"] > 0
+        or counts["metadata_invalid"] > 0
+    )
 
 
 def _print_preflight(
@@ -430,6 +489,7 @@ def _print_preflight(
     print(f"  erk:v1 keys: {_format_count(counts['v1'])}")
     print(f"  erk:v2 keys: {_format_count(counts['v2'])}")
     print(f"  other/unknown evidence keys: {_format_count(counts['unknown'])}")
+    print(f"  invalid v2 metadata rows: {_format_count(counts['metadata_invalid'])}")
     print(f"  evidence index present: {_format_bool(_has_identity_index(client))}")
     print(
         "  events_buffer: "
@@ -491,6 +551,8 @@ def _print_dry_run_plan(
     print(f"  identity rewrite required: {_format_bool(rewrite_needed)}")
     print(f"  v1 keys to upgrade: {_format_count(counts['v1'])}")
     print(f"  empty keys to generate: {_format_count(counts['empty'])}")
+    print(f"  unknown/malformed keys to repair: {_format_count(counts['unknown'])}")
+    print(f"  v2 metadata rows to repair: {_format_count(counts['metadata_invalid'])}")
     print(f"  full table copy required: {_format_bool(rewrite_needed)}")
     print(f"  previous rollback table: {'present' if previous_exists else 'none'}")
     print(
@@ -516,11 +578,33 @@ def _should_recompute_identity(
 ) -> bool:
     if case_id is not None and int(row_map.get("case_id") or 0) != int(case_id):
         return False
-    if not str(row_map.get("evidence_record_key") or "").strip():
+    key = str(row_map.get("evidence_record_key") or "").strip()
+    if not key:
         return True
-    if str(row_map.get("evidence_record_key") or "").startswith(LEGACY_V1_PREFIX):
+    if key.startswith(LEGACY_V1_PREFIX):
+        return True
+    if not _is_valid_v2_evidence_key(key):
         return True
     return bool(recompute_existing)
+
+
+def _is_valid_v2_evidence_key(value: Any) -> bool:
+    return bool(re.fullmatch(VALID_V2_KEY_PATTERN, str(value or "").strip()))
+
+
+def _has_invalid_identity_metadata(row_map: Dict[str, Any]) -> bool:
+    key = str(row_map.get("evidence_record_key") or "").strip()
+    if not _is_valid_v2_evidence_key(key):
+        return False
+    version = str(row_map.get("evidence_identity_version") or "").strip()
+    quality = str(row_map.get("evidence_identity_quality") or "").strip()
+    return version != EVIDENCE_IDENTITY_VERSION or quality not in VALID_QUALITY_VALUES
+
+
+def _assert_rewrite_lease_active(rewrite_lease: Any) -> None:
+    assert_active = rewrite_lease.get("assert_active") if isinstance(rewrite_lease, dict) else None
+    if callable(assert_active):
+        assert_active()
 
 
 def _rewrite_rows_to_shadow(
@@ -531,6 +615,7 @@ def _rewrite_rows_to_shadow(
     case_id: Optional[int],
     recompute_existing: bool,
     progress_interval: int = DEFAULT_PROGRESS_INTERVAL_ROWS,
+    rewrite_lease: Any = None,
 ) -> int:
     identity_indexes = {name: columns.index(name) for name in IDENTITY_COLUMNS}
     rows_buffer = []
@@ -544,6 +629,7 @@ def _rewrite_rows_to_shadow(
     next_progress = max(int(progress_interval), 1)
     print(f"- Starting bounded case streams for {len(case_ids)} case partitions")
     for current_case_id in case_ids:
+        _assert_rewrite_lease_active(rewrite_lease)
         case_copied = 0
         query = f"SELECT {columns_sql} FROM events WHERE case_id = {{case_id:UInt32}}"
         with client.query_rows_stream(
@@ -564,6 +650,14 @@ def _rewrite_rows_to_shadow(
                     row[identity_indexes["evidence_identity_version"]] = identity.evidence_identity_version
                     row[identity_indexes["evidence_identity_quality"]] = identity.evidence_identity_quality
                     rewritten += 1
+                elif (
+                    (case_id is None or int(row_map.get("case_id") or 0) == int(case_id))
+                    and _has_invalid_identity_metadata(row_map)
+                ):
+                    identity = build_identity_from_clickhouse_row(row_map)
+                    row[identity_indexes["evidence_identity_version"]] = identity.evidence_identity_version
+                    row[identity_indexes["evidence_identity_quality"]] = identity.evidence_identity_quality
+                    rewritten += 1
                 rows_buffer.append(tuple(row))
                 copied += 1
                 case_copied += 1
@@ -571,6 +665,7 @@ def _rewrite_rows_to_shadow(
                     client.insert(SHADOW_TABLE, rows_buffer, column_names=columns)
                     rows_buffer = []
                 if copied >= next_progress:
+                    _assert_rewrite_lease_active(rewrite_lease)
                     elapsed = max(time.monotonic() - started_at, 0.001)
                     percent = (copied / total_rows * 100) if total_rows else 100.0
                     print(
@@ -640,6 +735,35 @@ def _print_failure_recovery_state(client, *, reason: str, swap_completed: bool =
         )
 
 
+def _validate_final_identity_state(
+    client,
+    *,
+    expected_rows: int,
+    case_id: Optional[int],
+) -> Dict[str, Optional[int]]:
+    identity_schema = _identity_schema_state(client)
+    verify_identity_columns(client)
+    counts = _identity_version_counts(client, case_id=case_id, identity_schema=identity_schema)
+    failures = []
+    if counts["empty"] != 0:
+        failures.append(f"empty={_format_count(counts['empty'])}")
+    if counts["v1"] != 0:
+        failures.append(f"v1={_format_count(counts['v1'])}")
+    if counts["unknown"] != 0:
+        failures.append(f"unknown={_format_count(counts['unknown'])}")
+    if counts["metadata_invalid"] != 0:
+        failures.append(f"metadata_invalid={_format_count(counts['metadata_invalid'])}")
+    if counts["v2"] != int(expected_rows):
+        failures.append(f"v2={_format_count(counts['v2'])} expected={int(expected_rows)}")
+    if failures:
+        raise RuntimeError("Final Evidence Identity validation failed: " + ", ".join(failures))
+    print(
+        "- Final validation complete: "
+        f"empty=0 v1=0 unknown=0 metadata_invalid=0 v2={int(expected_rows)}"
+    )
+    return counts
+
+
 def backfill_identity_columns(
     client,
     *,
@@ -670,7 +794,8 @@ def backfill_identity_columns(
     with destructive_event_rewrite_guard(
         "evidence_identity_v2_shadow_backfill",
         case_id=case_id,
-    ):
+        require_lock=True,
+    ) as rewrite_lease:
         total_rows = _count_events(client)
         scoped_rows = _count_events(client, case_id=case_id)
         identity_schema = _identity_schema_state(client)
@@ -689,6 +814,11 @@ def backfill_identity_columns(
             add_identity_columns(client)
             ensure_identity_index(client, materialize=materialize_index)
             ensure_events_buffer_schema(client)
+            _validate_final_identity_state(
+                client,
+                expected_rows=scoped_rows if case_id is not None else total_rows,
+                case_id=case_id,
+            )
             print("- No Evidence Identity migration work required")
             return 0
         if _table_exists(client, OLD_TABLE):
@@ -713,6 +843,11 @@ def backfill_identity_columns(
         )
         if not rewrite_needed:
             ensure_events_buffer_schema(client)
+            _validate_final_identity_state(
+                client,
+                expected_rows=scoped_rows if case_id is not None else total_rows,
+                case_id=case_id,
+            )
             print("- No Evidence Identity migration work required after schema convergence")
             return 0
 
@@ -723,6 +858,7 @@ def backfill_identity_columns(
 
         swap_completed = False
         try:
+            _assert_rewrite_lease_active(rewrite_lease)
             if _table_exists(client, "events_buffer"):
                 fence_events_buffer_ingestion(client, context="evidence identity snapshot")
             else:
@@ -738,6 +874,7 @@ def backfill_identity_columns(
                 batch_size=int(batch_size),
                 case_id=case_id,
                 recompute_existing=bool(recompute_existing),
+                rewrite_lease=rewrite_lease,
             )
 
             shadow_rows = _count_events(client, table_name=SHADOW_TABLE)
@@ -759,13 +896,16 @@ def backfill_identity_columns(
             swap_completed = True
             ensure_identity_index(client, materialize=materialize_index)
             _recreate_and_verify_events_buffer(client)
+            _validate_final_identity_state(
+                client,
+                expected_rows=scoped_rows if case_id is not None else source_count_before_copy,
+                case_id=case_id,
+            )
         except Exception as exc:
             _print_failure_recovery_state(client, reason=str(exc), swap_completed=swap_completed)
             raise
         if not swap_completed:
             raise RuntimeError("Evidence Identity migration ended before swap completed")
-        remaining_empty = _count_empty_identity(client, case_id=case_id)
-        print(f"- Validation complete: {remaining_empty} empty identity keys remain in scope")
         return rewritten
 
 
@@ -785,6 +925,7 @@ def print_status(client, *, case_id: Optional[int] = None) -> None:
     print(f"- erk:v1 evidence_record_key rows: {_format_count(counts['v1'])}")
     print(f"- erk:v2 evidence_record_key rows: {_format_count(counts['v2'])}")
     print(f"- other/unknown evidence_record_key rows: {_format_count(counts['unknown'])}")
+    print(f"- invalid v2 identity metadata rows: {_format_count(counts['metadata_invalid'])}")
     print(f"- shadow table present: {_format_bool(_table_exists(client, SHADOW_TABLE))}")
     print(f"- previous table present: {_format_bool(_table_exists(client, OLD_TABLE))}")
     print(f"- {IDENTITY_INDEX_NAME} present: {_format_bool(_has_identity_index(client))}")

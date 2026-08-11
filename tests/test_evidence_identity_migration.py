@@ -147,6 +147,7 @@ class _RewriteFakeClient:
         self.inserts = []
         self.operations = []
         self.after_fence_source_count_calls = 0
+        self.swapped = False
         self.last_stream_query = None
         self.last_stream_parameters = None
         self.last_stream_settings = None
@@ -171,6 +172,15 @@ class _RewriteFakeClient:
             return SimpleNamespace(result_rows=[(1,)])
         if compact == "SELECT DISTINCT case_id FROM events ORDER BY case_id":
             return SimpleNamespace(result_rows=[(7,)])
+        active_rows = [
+            row
+            for _table, rows, _columns in self.inserts
+            for row in rows
+        ] if self.swapped else []
+        key_index = ParsedEventColumns.index("evidence_record_key")
+        version_index = ParsedEventColumns.index("evidence_identity_version")
+        quality_index = ParsedEventColumns.index("evidence_identity_quality")
+        valid_v2 = lambda value: str(value or "").startswith(EVIDENCE_RECORD_KEY_PREFIX) and len(str(value or "")) == len(EVIDENCE_RECORD_KEY_PREFIX) + 64
         if f"SELECT count() FROM {migration.SHADOW_TABLE}" in compact:
             count = self.shadow_count_override
             if count is None:
@@ -188,7 +198,26 @@ class _RewriteFakeClient:
                     return SimpleNamespace(result_rows=[(self.final_source_rows,)])
             return SimpleNamespace(result_rows=[(self.source_rows,)])
         if "evidence_record_key = ''" in sql:
-            return SimpleNamespace(result_rows=[(self.source_rows,)])
+            return SimpleNamespace(result_rows=[(
+                sum(1 for row in active_rows if row[key_index] == "") if self.swapped else self.source_rows
+            ,)])
+        if "NOT match(evidence_record_key" in sql:
+            return SimpleNamespace(result_rows=[(0,)])
+        if "match(evidence_record_key" in sql and "evidence_identity_version" in sql:
+            return SimpleNamespace(result_rows=[(
+                sum(
+                    1
+                    for row in active_rows
+                    if valid_v2(row[key_index])
+                    and (row[version_index] != "2" or row[quality_index] == "")
+                )
+                if self.swapped
+                else 0
+            ,)])
+        if "match(evidence_record_key" in sql:
+            return SimpleNamespace(result_rows=[(
+                sum(1 for row in active_rows if valid_v2(row[key_index])) if self.swapped else 0
+            ,)])
         if "startsWith" in sql or "NOT startsWith" in sql:
             return SimpleNamespace(result_rows=[(0,)])
         return SimpleNamespace(result_rows=[(0,)])
@@ -220,6 +249,7 @@ class _RewriteFakeClient:
             self.tables.discard(migration.SHADOW_TABLE)
         elif compact.startswith("RENAME TABLE events TO"):
             self.operations.append("rename_swap")
+            self.swapped = True
             self.tables.add(migration.OLD_TABLE)
             self.tables.discard(migration.SHADOW_TABLE)
         elif "ENGINE = Buffer" in sql:
@@ -609,6 +639,112 @@ class EvidenceIdentityMigrationTestCase(unittest.TestCase):
         self.assertTrue(inserted[columns.index("evidence_record_key")].startswith(EVIDENCE_RECORD_KEY_PREFIX))
         self.assertEqual(inserted[columns.index("evidence_identity_version")], "2")
 
+    def test_unknown_and_malformed_keys_are_recomputed_to_valid_v2(self):
+        columns = [
+            "case_id", "artifact_type", "timestamp", "timestamp_utc", "timestamp_source_tz",
+            "source_file", "source_path", "source_host", "case_file_id", "event_id",
+            "record_id", "raw_json", "search_blob", "extra_fields", "parser_version",
+            "evidence_record_key", "evidence_identity_version", "evidence_identity_quality",
+        ]
+        bad_keys = ["garbage-key", "erk:v3:abc", "erk:v2:garbage"]
+        rows = [
+            list(_event_row(columns, raw_json=f'{{"message": "bad-{index}"}}', evidence_key=bad_key))
+            for index, bad_key in enumerate(bad_keys)
+        ]
+
+        class FakeClient:
+            def __init__(self):
+                self.inserts = []
+
+            def query(self, sql, parameters=None):
+                compact = " ".join(sql.split())
+                if compact == "SELECT DISTINCT case_id FROM events ORDER BY case_id":
+                    return SimpleNamespace(result_rows=[(7,)])
+                if compact == "SELECT count() FROM events":
+                    return SimpleNamespace(result_rows=[(len(rows),)])
+                return SimpleNamespace(result_rows=[(0,)])
+
+            def query_rows_stream(self, query, parameters=None, settings=None):
+                return _Stream([tuple(row) for row in rows])
+
+            def insert(self, table, inserted_rows, column_names=None):
+                self.inserts.extend(inserted_rows)
+
+        client = FakeClient()
+        rewritten = migration._rewrite_rows_to_shadow(
+            client,
+            columns=columns,
+            batch_size=10,
+            case_id=None,
+            recompute_existing=False,
+        )
+
+        self.assertEqual(rewritten, 3)
+        for inserted in client.inserts:
+            key = inserted[columns.index("evidence_record_key")]
+            self.assertRegex(key, r"^erk:v2:[0-9a-f]{64}$")
+            self.assertEqual(inserted[columns.index("evidence_identity_version")], "2")
+            self.assertNotEqual(inserted[columns.index("evidence_identity_quality")], "")
+
+    def test_valid_v2_key_preserved_while_missing_metadata_is_repaired(self):
+        columns = [
+            "case_id", "artifact_type", "timestamp", "timestamp_utc", "timestamp_source_tz",
+            "source_file", "source_path", "source_host", "case_file_id", "event_id",
+            "record_id", "raw_json", "search_blob", "extra_fields", "parser_version",
+            "evidence_record_key", "evidence_identity_version", "evidence_identity_quality",
+        ]
+        valid_existing_key = "erk:v2:" + ("a" * 64)
+        row = list(_event_row(columns, evidence_key=valid_existing_key))
+
+        class FakeClient:
+            def __init__(self):
+                self.inserts = []
+
+            def query(self, sql, parameters=None):
+                compact = " ".join(sql.split())
+                if compact == "SELECT DISTINCT case_id FROM events ORDER BY case_id":
+                    return SimpleNamespace(result_rows=[(7,)])
+                if compact == "SELECT count() FROM events":
+                    return SimpleNamespace(result_rows=[(1,)])
+                return SimpleNamespace(result_rows=[(0,)])
+
+            def query_rows_stream(self, query, parameters=None, settings=None):
+                return _Stream([tuple(row)])
+
+            def insert(self, table, inserted_rows, column_names=None):
+                self.inserts.extend(inserted_rows)
+
+        client = FakeClient()
+        rewritten = migration._rewrite_rows_to_shadow(
+            client,
+            columns=columns,
+            batch_size=10,
+            case_id=None,
+            recompute_existing=False,
+        )
+
+        self.assertEqual(rewritten, 1)
+        inserted = client.inserts[0]
+        self.assertEqual(inserted[columns.index("evidence_record_key")], valid_existing_key)
+        self.assertEqual(inserted[columns.index("evidence_identity_version")], "2")
+        self.assertNotEqual(inserted[columns.index("evidence_identity_quality")], "")
+
+    def test_rewrite_required_for_unknown_and_invalid_metadata(self):
+        self.assertTrue(
+            migration._rewrite_required(
+                {"empty": 0, "v1": 0, "v2": 1, "unknown": 1, "metadata_invalid": 0},
+                scoped_rows=1,
+                recompute_existing=False,
+            )
+        )
+        self.assertTrue(
+            migration._rewrite_required(
+                {"empty": 0, "v1": 0, "v2": 1, "unknown": 0, "metadata_invalid": 1},
+                scoped_rows=1,
+                recompute_existing=False,
+            )
+        )
+
     def test_fully_v2_table_exits_without_shadow_rewrite(self):
         class FakeClient:
             def __init__(self):
@@ -628,11 +764,17 @@ class EvidenceIdentityMigrationTestCase(unittest.TestCase):
                     return SimpleNamespace(result_rows=[(1 if table in {"events_buffer"} else 0,)])
                 if "system.data_skipping_indices" in sql:
                     return SimpleNamespace(result_rows=[(1,)])
+                if "NOT match(evidence_record_key" in sql:
+                    return SimpleNamespace(result_rows=[(0,)])
+                if "match(evidence_record_key" in sql and "evidence_identity_version" in sql:
+                    return SimpleNamespace(result_rows=[(0,)])
+                if "match(evidence_record_key" in sql:
+                    return SimpleNamespace(result_rows=[(2,)])
                 if "NOT startsWith" in sql:
                     return SimpleNamespace(result_rows=[(0,)])
                 if "startsWith" in sql:
                     prefix = (parameters or {}).get("prefix")
-                    return SimpleNamespace(result_rows=[(2 if prefix == EVIDENCE_RECORD_KEY_PREFIX else 0,)])
+                    return SimpleNamespace(result_rows=[(0,)])
                 if "evidence_record_key = ''" in sql:
                     return SimpleNamespace(result_rows=[(0,)])
                 if "SELECT count() FROM events_buffer" in sql:
@@ -811,6 +953,12 @@ class EvidenceIdentityMigrationTestCase(unittest.TestCase):
                     return SimpleNamespace(result_rows=[(1,)])
                 if "system.data_skipping_indices" in sql:
                     return SimpleNamespace(result_rows=[(1,)])
+                if "NOT match(evidence_record_key" in sql:
+                    return SimpleNamespace(result_rows=[(1,)])
+                if "match(evidence_record_key" in sql and "evidence_identity_version" in sql:
+                    return SimpleNamespace(result_rows=[(1,)])
+                if "match(evidence_record_key" in sql:
+                    return SimpleNamespace(result_rows=[(5,)])
                 if "NOT startsWith" in sql:
                     return SimpleNamespace(result_rows=[(1,)])
                 if "startsWith" in sql:
