@@ -105,6 +105,18 @@ class EvidenceIdentityTestCase(unittest.TestCase):
             build_evidence_record_identity(clone).evidence_record_key,
         )
 
+    def test_v2_key_prefix_and_version_are_explicit(self):
+        identity = build_evidence_record_identity(self._event())
+
+        self.assertTrue(identity.evidence_record_key.startswith("erk:v2:"))
+        self.assertEqual(identity.evidence_identity_version, "2")
+        self.assertFalse(identity.evidence_record_key.startswith("erk:v1:"))
+
+    def test_legacy_v1_prefix_is_distinguishable_from_v2(self):
+        identity = build_evidence_record_identity(self._event())
+
+        self.assertNotEqual("erk:v1:" + identity.evidence_record_key.rsplit(":", 1)[-1], identity.evidence_record_key)
+
     def test_native_record_id_is_scoped_to_source_evidence(self):
         first = self._event(artifact_type="evtx", record_id=55, source_file="Security.evtx", case_file_id=101)
         second = self._event(artifact_type="evtx", record_id=55, source_file="Security.evtx", case_file_id=202)
@@ -118,6 +130,30 @@ class EvidenceIdentityTestCase(unittest.TestCase):
     def test_parser_version_change_does_not_change_evidence_key(self):
         first = self._event(parser_version="Parser-1.0")
         second = self._event(parser_version="Parser-2.0")
+
+        self.assertEqual(
+            build_evidence_record_identity(first).evidence_record_key,
+            build_evidence_record_identity(second).evidence_record_key,
+        )
+
+    def test_raw_backed_identity_ignores_parser_interpretation_changes(self):
+        raw = json.dumps({"message": "same", "record": 42})
+        first = self._event(
+            raw_json=raw,
+            source_host="OLDHOST",
+            event_id="1000",
+            timestamp=datetime(2026, 4, 21, 12, 0, 0, 123000),
+            timestamp_utc=datetime(2026, 4, 21, 12, 0, 0, 123000),
+            timestamp_source_tz="UTC",
+        )
+        second = self._event(
+            raw_json=raw,
+            source_host="NEWHOST",
+            event_id="2000",
+            timestamp=datetime(2026, 4, 21, 8, 0, 0, 999000),
+            timestamp_utc=datetime(2026, 4, 21, 12, 0, 1, 124000),
+            timestamp_source_tz="America/New_York",
+        )
 
         self.assertEqual(
             build_evidence_record_identity(first).evidence_record_key,
@@ -139,6 +175,29 @@ class EvidenceIdentityTestCase(unittest.TestCase):
         )
 
         self.assertEqual(identity.evidence_identity_quality, EvidenceIdentityQuality.NATIVE.value)
+
+    def test_evtx_native_identity_ignores_normalized_event_fields(self):
+        first = self._event(
+            artifact_type="evtx",
+            record_id=100,
+            event_id="4624",
+            channel="Security",
+            provider="Microsoft-Windows-Security-Auditing",
+            parser_version="Parser-1",
+        )
+        second = self._event(
+            artifact_type="evtx",
+            record_id=100,
+            event_id="9999",
+            channel="System",
+            provider="Corrected-Provider",
+            parser_version="Parser-2",
+        )
+
+        self.assertEqual(
+            build_evidence_record_identity(first).evidence_record_key,
+            build_evidence_record_identity(second).evidence_record_key,
+        )
 
     def test_positive_non_native_record_id_is_not_native_identity(self):
         identity = build_evidence_record_identity(
@@ -221,6 +280,30 @@ class EvidenceIdentityTestCase(unittest.TestCase):
         self.assertEqual(
             build_evidence_record_identity(baseline).evidence_record_key,
             build_evidence_record_identity(mutated).evidence_record_key,
+        )
+
+    def test_raw_source_fields_named_like_casescope_metadata_are_preserved(self):
+        first = self._event(raw_json=json.dumps({"model_name": "A", "message": "x"}))
+        second = self._event(raw_json=json.dumps({"model_name": "B", "message": "x"}))
+        third = self._event(raw_json=json.dumps({"ioc_types": ["ip"], "message": "x"}))
+        fourth = self._event(raw_json=json.dumps({"ioc_types": ["domain"], "message": "x"}))
+
+        self.assertNotEqual(
+            build_evidence_record_identity(first).evidence_record_key,
+            build_evidence_record_identity(second).evidence_record_key,
+        )
+        self.assertNotEqual(
+            build_evidence_record_identity(third).evidence_record_key,
+            build_evidence_record_identity(fourth).evidence_record_key,
+        )
+
+    def test_normalized_fallback_still_distinguishes_stable_source_data(self):
+        first = self._event(raw_json="{}", event_id="1000")
+        second = self._event(raw_json="{}", event_id="2000")
+
+        self.assertNotEqual(
+            build_evidence_record_identity(first).evidence_record_key,
+            build_evidence_record_identity(second).evidence_record_key,
         )
 
     def test_timestamp_precision_is_millisecond_for_fingerprints(self):
@@ -361,7 +444,7 @@ class EvidenceIdentityTestCase(unittest.TestCase):
                 sys.modules["utils.evidence_identity"] = original_evidence_identity
         columns = {name: index for index, name in enumerate(ParsedEvent.clickhouse_columns())}
 
-        self.assertTrue(row[columns["evidence_record_key"]].startswith("erk:v1:"))
+        self.assertTrue(row[columns["evidence_record_key"]].startswith("erk:v2:"))
         self.assertEqual(row[columns["evidence_identity_version"]], EVIDENCE_IDENTITY_VERSION)
         self.assertEqual(row[columns["evidence_identity_quality"]], EvidenceIdentityQuality.FINGERPRINTED.value)
 

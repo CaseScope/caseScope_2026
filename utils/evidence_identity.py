@@ -1,6 +1,6 @@
 """Forensic-safe evidence record identity helpers.
 
-Evidence Identity v1 is intentionally separate from the operational
+Evidence Identity v2 is intentionally separate from the operational
 ``selector_key`` used by the hunting UI and mutable event state.
 """
 
@@ -15,12 +15,12 @@ from enum import Enum
 from typing import Any, Dict, Mapping, Optional, Tuple
 
 
-EVIDENCE_IDENTITY_VERSION = "1"
+EVIDENCE_IDENTITY_VERSION = "2"
 EVIDENCE_RECORD_KEY_PREFIX = f"erk:v{EVIDENCE_IDENTITY_VERSION}:"
 
 
 class EvidenceIdentityQuality(str, Enum):
-    """How Evidence Identity v1 located the underlying source record."""
+    """How Evidence Identity v2 located the underlying source record."""
 
     NATIVE = "native"
     SOURCE_IDENTIFIER = "source_identifier"
@@ -86,6 +86,9 @@ MUTABLE_OR_DERIVED_KEYS = {
 }
 
 NORMALIZED_FINGERPRINT_FIELDS = (
+    "artifact_type",
+    "timestamp_utc",
+    "timestamp",
     "event_id",
     "channel",
     "provider",
@@ -177,7 +180,7 @@ def canonical_json_dumps(value: Any) -> str:
 
 
 def build_evidence_record_identity(event: Any) -> EvidenceRecordIdentity:
-    """Build Evidence Identity v1 for a ParsedEvent-like object or mapping."""
+    """Build Evidence Identity v2 for a ParsedEvent-like object or mapping."""
 
     event_map = _event_to_mapping(event)
     extra_fields = _parse_jsonish(event_map.get("extra_fields"))
@@ -192,10 +195,8 @@ def build_evidence_record_identity(event: Any) -> EvidenceRecordIdentity:
             "case_scope": _case_scope(event_map),
             "source_scope": _source_scope(event_map),
             "native": {
+                "identity_type": _native_record_identity_type(event_map, extra_fields),
                 "record_id": native_record_id,
-                "event_id": _clean(event_map.get("event_id")),
-                "channel": _clean(event_map.get("channel")),
-                "provider": _clean(event_map.get("provider")),
             },
         }
     elif source_identifier:
@@ -203,33 +204,26 @@ def build_evidence_record_identity(event: Any) -> EvidenceRecordIdentity:
         identity_payload = {
             "case_scope": _case_scope(event_map),
             "source_scope": _source_scope(event_map),
-            "source_identifier": source_identifier,
-            "artifact_type": _clean(event_map.get("artifact_type")),
+            "source_identifier": _identifier_payload(source_identifier),
+        }
+    elif _has_usable_raw_source_record(raw_payload):
+        quality = EvidenceIdentityQuality.FINGERPRINTED.value
+        identity_payload = {
+            "case_scope": _case_scope(event_map),
+            "source_scope": _source_scope(event_map),
+            "raw_source_record": _canonical_raw_source_payload(raw_payload),
         }
     else:
         quality = EvidenceIdentityQuality.FINGERPRINTED.value
         identity_payload = {
             "case_scope": _case_scope(event_map),
             "source_scope": _source_scope(event_map),
-            "record_scope": {
-                "artifact_type": _clean(event_map.get("artifact_type")),
-                "source_host": _clean(event_map.get("source_host")),
-                "event_id": _clean(event_map.get("event_id")),
-                "timestamp": _timestamp_identity_value(event_map.get("timestamp")),
-                "timestamp_utc": _timestamp_identity_value(event_map.get("timestamp_utc")),
-                "timestamp_source_tz": _clean(event_map.get("timestamp_source_tz")),
-            },
-            # Prefer canonical raw source payload when a parser retained it.
-            # Fall back to stable normalized fields so same-second records with
-            # different source content still diverge without using mutable state.
-            "source_record": _clean_identity_payload(raw_payload)
-            if raw_payload not in ({}, "", None)
-            else _normalized_record_payload(event_map),
+            "normalized_source_record": _normalized_record_payload(event_map),
         }
 
     serialized = canonical_json_dumps(
         {
-            "algorithm": "evidence_identity_v1",
+            "algorithm": "evidence_identity_v2",
             "version": EVIDENCE_IDENTITY_VERSION,
             "payload": identity_payload,
         }
@@ -357,6 +351,17 @@ def _record_id_value(value: Any) -> Optional[int]:
         return None
 
 
+def _native_record_identity_type(event_map: Mapping[str, Any], extra_fields: Any) -> str:
+    artifact_type = _clean(event_map.get("artifact_type")).lower()
+    if artifact_type == "evtx":
+        return "evtx_record_id"
+    if isinstance(extra_fields, Mapping):
+        explicit_type = _clean(extra_fields.get("native_record_identity_type"))
+        if explicit_type:
+            return explicit_type
+    return "native_record_id"
+
+
 def _timestamp_identity_value(value: Any) -> str:
     if value in (None, ""):
         return ""
@@ -411,6 +416,13 @@ def _first_source_identifier(extra_fields: Any) -> str:
     return ""
 
 
+def _identifier_payload(identifier: str) -> Dict[str, str]:
+    if ":" not in identifier:
+        return {"identity_type": "source_identifier", "value": _clean(identifier)}
+    identity_type, value = identifier.split(":", 1)
+    return {"identity_type": _clean(identity_type), "value": _clean(value)}
+
+
 def _first_source_scope_identifier(extra_fields: Any) -> str:
     if not isinstance(extra_fields, Mapping):
         return ""
@@ -445,24 +457,41 @@ def _truthy_marker(value: Any) -> bool:
     return _clean(value).lower() in {"1", "true", "yes", "native", "authoritative"}
 
 
-def _clean_identity_payload(value: Any) -> Any:
+def _has_usable_raw_source_record(value: Any) -> bool:
+    return value not in ({}, "", None)
+
+
+def _canonical_raw_source_payload(value: Any) -> Any:
+    """Canonicalize retained source payload without stripping source field names."""
+
+    return _canonicalize(value)
+
+
+def _clean_normalized_identity_payload(value: Any) -> Any:
     if isinstance(value, Mapping):
         return {
-            str(key): _clean_identity_payload(item)
+            str(key): _clean_normalized_identity_payload(item)
             for key, item in value.items()
             if str(key) not in MUTABLE_OR_DERIVED_KEYS and item is not None
         }
     if isinstance(value, list):
-        return [_clean_identity_payload(item) for item in value]
+        return [_clean_normalized_identity_payload(item) for item in value]
+    if isinstance(value, datetime):
+        return _timestamp_identity_value(value)
     return value
 
 
 def _normalized_record_payload(event_map: Mapping[str, Any]) -> Dict[str, Any]:
-    return {
-        field_name: _clean_identity_payload(event_map.get(field_name))
-        for field_name in NORMALIZED_FINGERPRINT_FIELDS
-        if event_map.get(field_name) not in (None, "", [], {})
-    }
+    payload: Dict[str, Any] = {}
+    for field_name in NORMALIZED_FINGERPRINT_FIELDS:
+        value = event_map.get(field_name)
+        if value in (None, "", [], {}):
+            continue
+        if field_name in {"timestamp", "timestamp_utc"}:
+            payload[field_name] = _timestamp_identity_value(value)
+        else:
+            payload[field_name] = _clean_normalized_identity_payload(value)
+    return payload
 
 
 __all__ = [

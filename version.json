@@ -1,6 +1,14 @@
 {
-  "version": "4.12.6",
+  "version": "4.12.7",
   "changelog": [
+    {
+      "version": "4.12.7",
+      "date": "2026-08-11",
+      "changes": [
+        "Evidence Identity v2 now separates raw source fingerprints from parser-normalized interpretation and scopes native EVTX identities to the actual source record ID",
+        "ClickHouse Evidence Identity migration now preflights version distribution, drains events_buffer before snapshots, avoids no-op rewrites, and protects rollback tables"
+      ]
+    },
     {
       "version": "4.12.6",
       "date": "2026-08-10",

@@ -196,6 +196,68 @@ def _table_engine(client, table_name):
     return str(result.result_rows[0][0]) if result.result_rows else ""
 
 
+def _count_table_rows(client, table_name):
+    result = client.query(f"SELECT count() FROM {table_name}")
+    return int(result.result_rows[0][0]) if result.result_rows else 0
+
+
+def _buffer_pending_rows(client):
+    """Best-effort count of rows still resident in the Buffer table.
+
+    ClickHouse Buffer SELECT reads the destination table plus in-memory buffer
+    rows, so the excess over the durable events count is the pending buffer
+    population. This is only used after ingestion has been stopped by the
+    operator/runbook.
+    """
+
+    if not _table_exists(client, "events_buffer"):
+        return 0
+    if _table_engine(client, "events_buffer").lower() != "buffer":
+        return 0
+    events_rows = _count_table_rows(client, "events")
+    buffer_visible_rows = _count_table_rows(client, "events_buffer")
+    return max(int(buffer_visible_rows) - int(events_rows), 0)
+
+
+def get_events_buffer_state(client):
+    exists = _table_exists(client, "events_buffer")
+    engine = _table_engine(client, "events_buffer") if exists else ""
+    pending_rows = _buffer_pending_rows(client) if exists and engine.lower() == "buffer" else 0
+    return {
+        "exists": exists,
+        "engine": engine,
+        "pending_rows": pending_rows,
+    }
+
+
+def safely_drain_events_buffer(client, *, context="events migration"):
+    """Flush and verify the Buffer table before DDL that could discard rows."""
+
+    if not _table_exists(client, "events_buffer"):
+        return {"exists": False, "engine": "", "pending_before": 0, "pending_after": 0}
+
+    engine = _table_engine(client, "events_buffer")
+    if engine.lower() != "buffer":
+        return {"exists": True, "engine": engine, "pending_before": 0, "pending_after": 0}
+
+    pending_before = _buffer_pending_rows(client)
+    print(f"- events_buffer pending rows before {context}: {pending_before}")
+    client.command("OPTIMIZE TABLE events_buffer")
+    pending_after = _buffer_pending_rows(client)
+    print(f"- events_buffer pending rows after drain: {pending_after}")
+    if pending_after != 0:
+        raise RuntimeError(
+            "events_buffer still has pending rows after OPTIMIZE; "
+            "stop event-producing services and retry before rewriting events"
+        )
+    return {
+        "exists": True,
+        "engine": engine,
+        "pending_before": pending_before,
+        "pending_after": pending_after,
+    }
+
+
 def _insertable_columns(client, table_name):
     result = client.query(
         """
@@ -260,6 +322,7 @@ def _ensure_events_buffer_schema(client):
         return
 
     if _table_engine(client, "events_buffer").lower() == "buffer":
+        safely_drain_events_buffer(client, context="events_buffer schema recreation")
         client.command("DROP TABLE IF EXISTS events_buffer")
         client.command(EVENTS_BUFFER_SCHEMA)
         print("- Recreated events_buffer table to match events schema")

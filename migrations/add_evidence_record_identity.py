@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Migration: add and backfill Evidence Identity v1 for ClickHouse events."""
+"""Migration: add and backfill Evidence Identity v2 for ClickHouse events."""
 
 from __future__ import annotations
 
@@ -10,10 +10,18 @@ from typing import Any, Dict, Iterable, List, Optional
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from migrations.add_events_table import EVENTS_BUFFER_SCHEMA, EVENTS_COLUMN_DEFINITIONS  # noqa: E402
+from migrations.add_events_table import (  # noqa: E402
+    EVENTS_BUFFER_SCHEMA,
+    EVENTS_COLUMN_DEFINITIONS,
+    get_events_buffer_state,
+    safely_drain_events_buffer,
+)
 from parsers.base import ParsedEvent  # noqa: E402
 from utils.clickhouse import destructive_event_rewrite_guard, get_fresh_client  # noqa: E402
-from utils.evidence_identity import build_identity_from_clickhouse_row  # noqa: E402
+from utils.evidence_identity import (  # noqa: E402
+    EVIDENCE_RECORD_KEY_PREFIX,
+    build_identity_from_clickhouse_row,
+)
 
 
 IDENTITY_COLUMNS = (
@@ -27,6 +35,7 @@ IDENTITY_INDEX_DEFINITION = (
 )
 SHADOW_TABLE = "events_evidence_identity_backfill"
 OLD_TABLE = "events_evidence_identity_previous"
+LEGACY_V1_PREFIX = "erk:v1:"
 
 
 def _existing_columns(client, table_name: str) -> set:
@@ -142,6 +151,7 @@ def ensure_events_buffer_schema(client) -> None:
         return
 
     if _table_engine(client, "events_buffer").lower() == "buffer":
+        safely_drain_events_buffer(client, context="events_buffer schema recreation")
         client.command("DROP TABLE IF EXISTS events_buffer")
         client.command(EVENTS_BUFFER_SCHEMA)
         print("- Recreated events_buffer to match events schema")
@@ -180,17 +190,154 @@ def _count_empty_identity(client, *, table_name: str = "events", case_id: Option
     return int(result.result_rows[0][0]) if result.result_rows else 0
 
 
+def _count_identity_prefix(
+    client,
+    prefix: str,
+    *,
+    table_name: str = "events",
+    case_id: Optional[int] = None,
+) -> int:
+    where = "WHERE startsWith(evidence_record_key, {prefix:String})"
+    parameters: Dict[str, Any] = {"prefix": prefix}
+    if case_id is not None:
+        where += " AND case_id = {case_id:UInt32}"
+        parameters["case_id"] = int(case_id)
+    result = client.query(f"SELECT count() FROM {table_name} {where}", parameters=parameters)
+    return int(result.result_rows[0][0]) if result.result_rows else 0
+
+
+def _count_unknown_identity(
+    client,
+    *,
+    table_name: str = "events",
+    case_id: Optional[int] = None,
+) -> int:
+    where = (
+        "WHERE evidence_record_key != '' "
+        "AND NOT startsWith(evidence_record_key, {v1_prefix:String}) "
+        "AND NOT startsWith(evidence_record_key, {v2_prefix:String})"
+    )
+    parameters: Dict[str, Any] = {
+        "v1_prefix": LEGACY_V1_PREFIX,
+        "v2_prefix": EVIDENCE_RECORD_KEY_PREFIX,
+    }
+    if case_id is not None:
+        where += " AND case_id = {case_id:UInt32}"
+        parameters["case_id"] = int(case_id)
+    result = client.query(f"SELECT count() FROM {table_name} {where}", parameters=parameters)
+    return int(result.result_rows[0][0]) if result.result_rows else 0
+
+
+def _has_identity_index(client) -> bool:
+    result = client.query(
+        """
+        SELECT count()
+        FROM system.data_skipping_indices
+        WHERE database = currentDatabase()
+          AND table = 'events'
+          AND name = {index_name:String}
+        """,
+        parameters={"index_name": IDENTITY_INDEX_NAME},
+    )
+    return bool(result.result_rows and result.result_rows[0][0])
+
+
+def _table_bytes(client, table_name: str) -> Optional[int]:
+    try:
+        result = client.query(
+            """
+            SELECT total_bytes
+            FROM system.tables
+            WHERE database = currentDatabase()
+              AND table = {table_name:String}
+            """,
+            parameters={"table_name": table_name},
+        )
+    except Exception:
+        return None
+    try:
+        value = result.result_rows[0][0]
+    except (AttributeError, IndexError, TypeError):
+        return None
+    return int(value) if value is not None else None
+
+
+def _identity_version_counts(client, *, case_id: Optional[int] = None) -> Dict[str, int]:
+    return {
+        "empty": _count_empty_identity(client, case_id=case_id),
+        "v1": _count_identity_prefix(client, LEGACY_V1_PREFIX, case_id=case_id),
+        "v2": _count_identity_prefix(client, EVIDENCE_RECORD_KEY_PREFIX, case_id=case_id),
+        "unknown": _count_unknown_identity(client, case_id=case_id),
+    }
+
+
+def _rewrite_required(counts: Dict[str, int], *, scoped_rows: int, recompute_existing: bool) -> bool:
+    if recompute_existing:
+        return scoped_rows > 0
+    return counts["empty"] > 0 or counts["v1"] > 0
+
+
+def _print_preflight(
+    client,
+    *,
+    case_id: Optional[int],
+    recompute_existing: bool,
+    total_rows: int,
+    scoped_rows: int,
+    counts: Dict[str, int],
+) -> bool:
+    buffer_state = get_events_buffer_state(client)
+    previous_exists = _table_exists(client, OLD_TABLE)
+    shadow_exists = _table_exists(client, SHADOW_TABLE)
+    events_bytes = _table_bytes(client, "events")
+    rewrite_needed = _rewrite_required(
+        counts,
+        scoped_rows=scoped_rows,
+        recompute_existing=recompute_existing,
+    )
+
+    print("- Evidence Identity migration preflight:")
+    print(f"  total events rows: {total_rows}")
+    print(f"  target case: {int(case_id) if case_id is not None else 'all cases'}")
+    if case_id is not None:
+        print(f"  scoped rows: {scoped_rows}")
+        print("  rewrite scope: whole events table copy; identity mutation limited to target case")
+    print(f"  empty evidence keys: {counts['empty']}")
+    print(f"  erk:v1 keys: {counts['v1']}")
+    print(f"  erk:v2 keys: {counts['v2']}")
+    print(f"  other/unknown evidence keys: {counts['unknown']}")
+    print(f"  evidence index present: {_has_identity_index(client)}")
+    print(
+        "  events_buffer: "
+        f"exists={buffer_state['exists']} engine={buffer_state['engine'] or 'n/a'} "
+        f"pending_rows={buffer_state['pending_rows']}"
+    )
+    print(f"  previous rollback table present: {previous_exists}")
+    print(f"  stale shadow table present: {shadow_exists}")
+    print(f"  recompute existing requested: {bool(recompute_existing)}")
+    print(f"  rewrite necessary: {rewrite_needed}")
+    print(
+        "  events table disk bytes: "
+        f"{events_bytes if events_bytes is not None else 'unavailable'}"
+    )
+    if previous_exists and rewrite_needed:
+        print("  rollback policy: existing previous table blocks a new rewrite by default")
+    return rewrite_needed
+
+
 def _should_recompute_identity(
     row_map: Dict[str, Any],
     *,
     case_id: Optional[int],
     recompute_existing: bool,
 ) -> bool:
+    if case_id is not None and int(row_map.get("case_id") or 0) != int(case_id):
+        return False
     if not str(row_map.get("evidence_record_key") or "").strip():
         return True
-    if not recompute_existing:
-        return False
-    return case_id is None or int(row_map.get("case_id") or 0) == int(case_id)
+    if str(row_map.get("evidence_record_key") or "").startswith(LEGACY_V1_PREFIX):
+        return True
+    return bool(recompute_existing)
 
 
 def _rewrite_rows_to_shadow(
@@ -243,7 +390,10 @@ def _prepare_shadow_table(client) -> None:
 
 def _swap_shadow_table(client) -> None:
     if _table_exists(client, OLD_TABLE):
-        client.command(f"DROP TABLE {OLD_TABLE}")
+        raise RuntimeError(
+            f"{OLD_TABLE} already exists; validate/remove/archive it before swapping a new events table"
+        )
+    safely_drain_events_buffer(client, context="final events table swap")
     client.command("DROP TABLE IF EXISTS events_buffer")
     client.command(f"RENAME TABLE events TO {OLD_TABLE}, {SHADOW_TABLE} TO events")
     client.command(EVENTS_BUFFER_SCHEMA)
@@ -257,15 +407,20 @@ def backfill_identity_columns(
     case_id: Optional[int] = None,
     dry_run: bool = False,
     recompute_existing: bool = False,
+    replace_previous: bool = False,
 ) -> int:
-    total_rows = _count_events(client)
-    scoped_rows = _count_events(client, case_id=case_id)
-    empty_rows = _count_empty_identity(client, case_id=case_id)
-    print(
-        f"- events rows: {total_rows}; scoped rows: {scoped_rows}; "
-        f"empty identity rows in scope: {empty_rows}"
-    )
     if dry_run:
+        total_rows = _count_events(client)
+        scoped_rows = _count_events(client, case_id=case_id)
+        counts = _identity_version_counts(client, case_id=case_id)
+        _print_preflight(
+            client,
+            case_id=case_id,
+            recompute_existing=recompute_existing,
+            total_rows=total_rows,
+            scoped_rows=scoped_rows,
+            counts=counts,
+        )
         print("- Dry run only; no ClickHouse tables were rewritten")
         return 0
 
@@ -275,9 +430,34 @@ def backfill_identity_columns(
         raise RuntimeError(f"events table is missing parser insert columns: {missing_insert_columns}")
 
     with destructive_event_rewrite_guard(
-        "evidence_identity_v1_shadow_backfill",
+        "evidence_identity_v2_shadow_backfill",
         case_id=case_id,
     ):
+        safely_drain_events_buffer(client, context="evidence identity snapshot")
+        total_rows = _count_events(client)
+        scoped_rows = _count_events(client, case_id=case_id)
+        counts = _identity_version_counts(client, case_id=case_id)
+        rewrite_needed = _print_preflight(
+            client,
+            case_id=case_id,
+            recompute_existing=recompute_existing,
+            total_rows=total_rows,
+            scoped_rows=scoped_rows,
+            counts=counts,
+        )
+        if not rewrite_needed:
+            print("- No Evidence Identity migration work required")
+            return 0
+        if _table_exists(client, OLD_TABLE):
+            if not replace_previous:
+                raise RuntimeError(
+                    f"{OLD_TABLE} already exists. Validate/remove/archive it before "
+                    "running another full rewrite, or rerun with --replace-previous "
+                    "after confirming the rollback copy is no longer needed."
+                )
+            client.command(f"DROP TABLE {OLD_TABLE}")
+            print(f"- Dropped previous rollback table {OLD_TABLE} by explicit request")
+
         _prepare_shadow_table(client)
         rewritten = _rewrite_rows_to_shadow(
             client,
@@ -305,33 +485,42 @@ def print_status(client, *, case_id: Optional[int] = None) -> None:
     print(f"- events rows: {_count_events(client)}")
     if case_id is not None:
         print(f"- events rows for case {int(case_id)}: {_count_events(client, case_id=case_id)}")
-    print(f"- empty evidence_record_key rows: {_count_empty_identity(client, case_id=case_id)}")
+    counts = _identity_version_counts(client, case_id=case_id)
+    print(f"- empty evidence_record_key rows: {counts['empty']}")
+    print(f"- erk:v1 evidence_record_key rows: {counts['v1']}")
+    print(f"- erk:v2 evidence_record_key rows: {counts['v2']}")
+    print(f"- other/unknown evidence_record_key rows: {counts['unknown']}")
     print(f"- shadow table present: {_table_exists(client, SHADOW_TABLE)}")
     print(f"- previous table present: {_table_exists(client, OLD_TABLE)}")
-    result = client.query(
-        """
-        SELECT count()
-        FROM system.data_skipping_indices
-        WHERE database = currentDatabase()
-          AND table = 'events'
-          AND name = {index_name:String}
-        """,
-        parameters={"index_name": IDENTITY_INDEX_NAME},
+    print(f"- {IDENTITY_INDEX_NAME} present: {_has_identity_index(client)}")
+    buffer_state = get_events_buffer_state(client)
+    print(
+        "- events_buffer state: "
+        f"exists={buffer_state['exists']} engine={buffer_state['engine'] or 'n/a'} "
+        f"pending_rows={buffer_state['pending_rows']}"
     )
-    has_index = bool(result.result_rows and result.result_rows[0][0])
-    print(f"- {IDENTITY_INDEX_NAME} present: {has_index}")
 
 
 def _parse_args(argv: Optional[List[str]] = None) -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Add and backfill Evidence Identity v1")
+    parser = argparse.ArgumentParser(description="Add and backfill Evidence Identity v2")
     parser.add_argument("--dry-run", action="store_true", help="show counts without rewriting events")
     parser.add_argument("--status", action="store_true", help="show migration/backfill status only")
-    parser.add_argument("--case-id", type=int, default=None, help="limit identity generation scope to one case")
+    parser.add_argument(
+        "--case-id",
+        type=int,
+        default=None,
+        help="limit identity mutation scope to one case; the current migration still copies the full events table",
+    )
     parser.add_argument("--batch-size", type=int, default=10000, help="rows per shadow-table insert batch")
     parser.add_argument(
         "--recompute-existing",
         action="store_true",
-        help="recompute existing evidence identities in scope, useful for repairing 4.12.5 identities",
+        help="recompute existing evidence identities in scope and write v2 keys",
+    )
+    parser.add_argument(
+        "--replace-previous",
+        action="store_true",
+        help="deliberately drop events_evidence_identity_previous before a new full rewrite",
     )
     parser.add_argument(
         "--materialize-index",
@@ -343,7 +532,7 @@ def _parse_args(argv: Optional[List[str]] = None) -> argparse.Namespace:
 
 def migrate(argv: Optional[List[str]] = None) -> None:
     print("=" * 60)
-    print("Evidence Identity v1 Migration")
+    print("Evidence Identity v2 Migration")
     print("=" * 60)
     args = _parse_args(argv)
     client = get_fresh_client()
@@ -358,6 +547,7 @@ def migrate(argv: Optional[List[str]] = None) -> None:
         case_id=args.case_id,
         dry_run=args.dry_run,
         recompute_existing=args.recompute_existing,
+        replace_previous=args.replace_previous,
     )
     if args.dry_run:
         print("Dry run complete")

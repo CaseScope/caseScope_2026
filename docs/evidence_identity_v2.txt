@@ -1,0 +1,164 @@
+Evidence Identity v2
+====================
+
+Why v2 exists
+-------------
+Phase 0A v1 was introduced before final architecture acceptance and included
+some interpretation-dependent hash inputs. v2 locks the forensic identity
+contract before durable graph provenance depends on these keys. New keys are
+stored as `erk:v2:<sha256>` with `evidence_identity_version = "2"`.
+
+Purpose
+-------
+Evidence Identity v2 identifies the underlying forensic source record within a
+case and stable evidence source. It does not identify today's parser
+interpretation, enrichment, analyst state, model output, processing path, or
+application workflow state.
+
+`selector_key` remains separate. It continues to support existing hunting UI and
+mutable event-state behavior and is not replaced by this work.
+
+Identity algorithm
+------------------
+The key is SHA-256 over canonical JSON with deterministic dictionary ordering,
+the algorithm name, and `version = "2"`. The descriptive quality label is not
+hashed.
+
+Hierarchy:
+
+1. Native identity:
+   `algorithm/version + case_scope + source_scope + native identity type + native record ID`
+
+   Current reviewed native opt-in:
+   - EVTX: `evtx_record_id`, sourced from Windows Event Log `EventRecordId` /
+     EvtxECmd `EventRecordId` or `RecordNumber`.
+
+2. Stable source identifier:
+   `algorithm/version + case_scope + source_scope + explicit source-record identifier type/value`
+
+   Recognized examples include `source_native_id`, `source_record_id`, `row_id`,
+   `sqlite_rowid`, `entry_id`, and `uid`. Numeric zero is valid.
+
+3. Raw-backed fingerprint:
+   `algorithm/version + case_scope + source_scope + canonical retained raw source record`
+
+   Raw source keys and values are preserved. A raw field named `model_name`,
+   `ioc_types`, or any other CaseScope-like metadata name is still part of the
+   original forensic record and remains hash material.
+
+4. Normalized fallback:
+   Used only when no native ID, source identifier, or usable retained raw source
+   payload exists. It uses a conservative allowlist of stable source-derived
+   normalized fields, with timestamps serialized at ClickHouse-retained
+   millisecond precision.
+
+5. Legacy fallback:
+   Used for retained rows without reconstructable source identity material. The
+   quality label documents weakness only and does not affect the digest.
+
+Source scope
+------------
+When `case_file_id` exists, it is the primary within-case evidence-source
+anchor. Physical `source_path` and parser version are not hash material. Without
+a CaseFile anchor, v2 uses the strongest retained stable source-evidence
+identifier, falling back to source filename/host/artifact/path only when no
+stronger scope exists.
+
+What v2 does not hash
+---------------------
+v2 excludes parser version, physical processing path when stable source scope is
+available, search blob, analyst tags/notes, noise state, IOC state,
+MITRE/Sigma/Hayabusa enrichment, AI/model state, parser provenance annotations,
+indexing timestamps, selector keys, and future graph state.
+
+Raw versus normalized behavior
+------------------------------
+When retained `raw_json` contains a usable source payload, parser-derived fields
+such as `source_host`, `event_id`, normalized timestamps, source timezone, and
+parser version do not participate in the fingerprint. If the raw source record
+changes, the key changes. If CaseScope enrichment outside raw source data
+changes, the key does not change.
+
+Migration behavior
+------------------
+The migration adds missing identity columns, ensures `idx_evidence_record_key`,
+preflights table state, drains/verifies `events_buffer`, and then uses a bounded
+batched shadow-table rewrite only when work is required.
+
+Handling:
+- Missing keys are generated as v2.
+- Existing `erk:v1:` keys are treated as obsolete Phase 0A identities and are
+  upgraded to v2 during the dedicated migration.
+- Existing v2 keys are preserved unless `--recompute-existing` is supplied.
+- `--recompute-existing` recalculates targeted rows from retained evidence and
+  writes v2, covering missing, v1, malformed, and incorrect v2 keys.
+- `--case-id` limits identity mutation to that case. The current migration still
+  copies the full `events` table and reports this explicitly.
+- A fully migrated v2 table performs status/preflight checks and exits without
+  shadow creation, row streaming, table rename, or index materialization.
+
+Buffer safety
+-------------
+Before the authoritative `events` source count and before creating the shadow
+snapshot, the migration runs `OPTIMIZE TABLE events_buffer` and verifies the
+Buffer has no pending rows. Operators must still stop event-producing services
+first. If pending rows cannot be proven zero, the migration fails closed before
+the shadow rewrite.
+
+Previous and shadow tables
+--------------------------
+`events_evidence_identity_previous` is a rollback table and is not silently
+dropped. If it exists and a new rewrite is needed, the migration aborts by
+default. Operators may rerun with `--replace-previous` only after validating,
+archiving, or intentionally discarding that rollback copy.
+
+`events_evidence_identity_backfill` is a disposable stale shadow from an
+interrupted pre-swap run. It may be dropped after preflight when a new rewrite
+starts.
+
+Rollback
+--------
+After a successful swap, keep `events_evidence_identity_previous` until
+validation is complete. To roll back, stop services, drop/recreate
+`events_buffer` around a rename that restores the previous table to `events`,
+then recreate `events_buffer`.
+
+Recommended operator flow
+-------------------------
+1. Stop event-producing CaseScope services:
+   `sudo -n /usr/bin/systemctl stop casescope-web`
+   `sudo -n /usr/bin/systemctl stop casescope-workers`
+   Stop any separate scheduler/beat unit if the installation has one.
+
+2. Back up ClickHouse.
+
+3. Run the normal event schema migration:
+   `cd /opt/casescope`
+   `python3 migrations/add_events_table.py`
+
+4. Check Evidence Identity status:
+   `python3 migrations/add_evidence_record_identity.py --status`
+
+5. Inspect row counts, v1/v2 distribution, previous/shadow table state, Buffer
+   pending rows, and index state.
+
+6. Dry-run:
+   `python3 migrations/add_evidence_record_identity.py --dry-run`
+
+7. Run the migration:
+   `python3 migrations/add_evidence_record_identity.py --batch-size 10000`
+
+   To intentionally recompute all targeted existing keys:
+   `python3 migrations/add_evidence_record_identity.py --batch-size 10000 --recompute-existing`
+
+8. Check status again:
+   `python3 migrations/add_evidence_record_identity.py --status`
+
+9. Verify row count unchanged, no unexplained empty keys, expected v2 count, no
+   unintended v1 keys, Buffer recreated, and evidence index present.
+
+10. Retain `events_evidence_identity_previous` until validation is complete.
+
+11. Restart services:
+   `sudo -n /usr/bin/systemctl start casescope-workers`
+   `sudo -n /usr/bin/systemctl start casescope-web`
