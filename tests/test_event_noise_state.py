@@ -65,9 +65,18 @@ class EventNoiseStateTestCase(unittest.TestCase):
     def test_upsert_manual_noise_state_rows_prunes_by_artifact_type(self):
         commands = []
 
+        class QueryResult:
+            def __init__(self, rows):
+                self.result_rows = rows
+
         class FakeClient:
             def command(self, sql):
                 commands.append(sql)
+
+            def query(self, sql):
+                if "SELECT count()" in sql:
+                    return QueryResult([(1,)])
+                return QueryResult([("event_id:4624", False, [], "Security.evtx")])
 
         client = FakeClient()
         with _load_module_under_test() as event_noise_state:
@@ -91,14 +100,34 @@ class EventNoiseStateTestCase(unittest.TestCase):
             self.assertIn("case_id = 7", commands[0])
             self.assertIn("artifact_type = 'evtx'", commands[0])
             self.assertIn("selector_key", commands[0])
-            self.assertNotIn("mutations_sync", commands[0])
+            self.assertIn("mutations_sync", commands[0])
 
     def test_upsert_manual_noise_state_rows_groups_by_artifact_type(self):
         commands = []
 
+        class QueryResult:
+            def __init__(self, rows):
+                self.result_rows = rows
+
         class FakeClient:
             def command(self, sql):
                 commands.append(sql)
+
+            def query(self, sql):
+                if "SELECT count()" in sql:
+                    return QueryResult([(1,)])
+                if "event_id:4624" in sql:
+                    return QueryResult([("event_id:4624", False, [], "Security.evtx")])
+                return QueryResult(
+                    [
+                        (
+                            "ts:2026-04-21 12:00:00|host:HOST2|artifact:registry|event:|file:SOFTWARE",
+                            False,
+                            [],
+                            "SOFTWARE",
+                        )
+                    ]
+                )
 
         client = FakeClient()
         with _load_module_under_test() as event_noise_state:
@@ -126,6 +155,41 @@ class EventNoiseStateTestCase(unittest.TestCase):
             self.assertEqual(len(commands), 2)
             self.assertTrue(any("artifact_type = 'evtx'" in command for command in commands))
             self.assertTrue(any("artifact_type = 'registry'" in command for command in commands))
+
+    def test_upsert_manual_noise_state_rows_does_not_claim_unmatched_updates(self):
+        commands = []
+
+        class QueryResult:
+            def __init__(self, rows):
+                self.result_rows = rows
+
+        class FakeClient:
+            def command(self, sql):
+                commands.append(sql)
+
+            def query(self, sql):
+                if "SELECT count()" in sql:
+                    return QueryResult([(0,)])
+                return QueryResult([])
+
+        client = FakeClient()
+        with _load_module_under_test() as event_noise_state:
+            updated = event_noise_state.upsert_manual_noise_state_rows(
+                7,
+                [
+                    {
+                        "selector_key": "missing-selector",
+                        "artifact_type": "evtx",
+                        "noise_matched": True,
+                        "noise_rules": [],
+                    }
+                ],
+                updated_by="tester",
+                client=client,
+            )
+
+            self.assertEqual(updated, 0)
+            self.assertEqual(commands, [])
 
 
 if __name__ == "__main__":

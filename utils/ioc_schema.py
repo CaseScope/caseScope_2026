@@ -25,6 +25,11 @@ def build_ioc_record(
     evidence_origin: str = "",
     extraction_method: str = "",
     semantic_route: str = "",
+    evidence_source_type: str = "",
+    evidence_source_product: str = "",
+    evidence_source_report_id: str = "",
+    evidence_source_section: str = "",
+    canonical_section: str = "",
 ) -> Dict[str, Any]:
     """Build a normalized internal IOC record."""
     normalized = (normalized_value or value or "").strip()
@@ -54,11 +59,21 @@ def build_ioc_record(
         "evidence_origin": evidence_origin or "",
         "extraction_method": extraction_method or source,
         "semantic_route": semantic_route or "",
+        "evidence_source_type": evidence_source_type or "",
+        "evidence_source_product": evidence_source_product or "",
+        "evidence_source_report_id": evidence_source_report_id or "",
+        "evidence_source_section": evidence_source_section or section or "",
+        "canonical_section": canonical_section or "",
         "evidence_refs": [
             {
                 "candidate_id": record_id,
                 "source": source,
                 "section": section or "",
+                "source_type": evidence_source_type or "",
+                "source_product": evidence_source_product or "",
+                "source_report_id": evidence_source_report_id or "",
+                "source_section": evidence_source_section or section or "",
+                "canonical_section": canonical_section or "",
                 "field": field,
                 "raw_value": raw,
                 "normalized_value": normalized,
@@ -89,6 +104,17 @@ def records_from_extraction(
     summary = extraction.get("extraction_summary", {}) or {}
     section = ", ".join(summary.get("semantic_sections", []) or [])
     semantic_route = str(summary.get("semantic_task") or "")
+    source_provenance = summary.get("source_provenance") if isinstance(summary.get("source_provenance"), dict) else {}
+    evidence_source_type = str(source_provenance.get("source_type") or "")
+    evidence_source_product = str(source_provenance.get("source_product") or "")
+    evidence_source_report_id = str(source_provenance.get("source_report_id") or "")
+    source_sections = source_provenance.get("sections") if isinstance(source_provenance.get("sections"), list) else []
+    evidence_source_section = section
+    canonical_section = ""
+    if source_sections:
+        first_section = source_sections[0] if isinstance(source_sections[0], dict) else {}
+        evidence_source_section = evidence_source_section or str(first_section.get("source_section") or "")
+        canonical_section = str(first_section.get("canonical_section") or "")
 
     def _item_meta(item: Any) -> Dict[str, str]:
         if not isinstance(item, dict):
@@ -129,6 +155,11 @@ def records_from_extraction(
             evidence_origin=item.get("evidence_origin", ""),
             extraction_method=source,
             semantic_route=semantic_route,
+            evidence_source_type=evidence_source_type,
+            evidence_source_product=evidence_source_product,
+            evidence_source_report_id=evidence_source_report_id,
+            evidence_source_section=evidence_source_section,
+            canonical_section=canonical_section,
         )
 
     for item in iocs.get("ip_addresses", []):
@@ -433,6 +464,29 @@ def records_from_extraction(
             raw_value=value,
         )
 
+    for record in records:
+        if not record.get("evidence_source_type"):
+            record["evidence_source_type"] = evidence_source_type
+        if not record.get("evidence_source_product"):
+            record["evidence_source_product"] = evidence_source_product
+        if not record.get("evidence_source_report_id"):
+            record["evidence_source_report_id"] = evidence_source_report_id
+        if not record.get("evidence_source_section"):
+            record["evidence_source_section"] = evidence_source_section
+        if not record.get("canonical_section"):
+            record["canonical_section"] = canonical_section
+        for ref in record.get("evidence_refs") or []:
+            if not ref.get("source_type"):
+                ref["source_type"] = evidence_source_type
+            if not ref.get("source_product"):
+                ref["source_product"] = evidence_source_product
+            if not ref.get("source_report_id"):
+                ref["source_report_id"] = evidence_source_report_id
+            if not ref.get("source_section"):
+                ref["source_section"] = evidence_source_section
+            if not ref.get("canonical_section"):
+                ref["canonical_section"] = canonical_section
+
     return records
 
 
@@ -481,5 +535,10 @@ def annotate_import_entry(
     entry["evidence_origin"] = record.get("evidence_origin", "")
     entry["extraction_method"] = record.get("extraction_method", "")
     entry["semantic_route"] = record.get("semantic_route", "")
+    entry["evidence_source_type"] = record.get("evidence_source_type", "")
+    entry["evidence_source_product"] = record.get("evidence_source_product", "")
+    entry["evidence_source_report_id"] = record.get("evidence_source_report_id", "")
+    entry["evidence_source_section"] = record.get("evidence_source_section", "")
+    entry["canonical_section"] = record.get("canonical_section", "")
     entry["evidence_refs"] = record.get("evidence_refs", [])
     return entry

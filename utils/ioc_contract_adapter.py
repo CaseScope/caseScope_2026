@@ -23,7 +23,6 @@ def _load_local_module(name: str, filename: str):
 
 
 _ioc_contract = _load_local_module("ioc_contract_adapter_shared", "ioc_contract.py")
-_ai_review = _load_local_module("ioc_contract_adapter_review_shared", "ai_review.py")
 _ioc_normalizer = _load_local_module("ioc_contract_adapter_normalizer_shared", "ioc_normalizer.py")
 
 
@@ -33,6 +32,33 @@ def _as_list(value: Any) -> List[Any]:
     if isinstance(value, list):
         return value
     return [value]
+
+
+def _strip_markdown_fences(text: str) -> str:
+    stripped = text.strip()
+    if stripped.startswith("```"):
+        first_newline = stripped.find("\n")
+        if first_newline != -1:
+            stripped = stripped[first_newline + 1:]
+        if stripped.endswith("```"):
+            stripped = stripped[:-3].rstrip()
+    return stripped
+
+
+def _sanitize_review_payload(value: Any) -> Any:
+    """Recursively normalize lightweight formatting artifacts in structured output."""
+    if isinstance(value, dict):
+        return {key: _sanitize_review_payload(item) for key, item in value.items()}
+    if isinstance(value, list):
+        return [_sanitize_review_payload(item) for item in value]
+    if isinstance(value, str):
+        return _strip_markdown_fences(value).strip()
+    return value
+
+
+def _review_structured_output(provider: Any, **kwargs) -> Any:
+    ai_review = _load_local_module("ioc_contract_adapter_review_shared", "ai_review.py")
+    return ai_review.review_structured_output(provider, **kwargs)
 
 
 def coerce_ioc_contract_payload(payload: Any) -> Dict[str, Any]:
@@ -59,7 +85,7 @@ def coerce_ioc_contract_payload(payload: Any) -> Dict[str, Any]:
         else:
             coerced[key] = provided if provided is not None else default_value
 
-    return _ai_review.sanitize_review_payload(coerced)
+    return _sanitize_review_payload(coerced)
 
 
 def ioc_schema_metrics(extraction: Any) -> Dict[str, bool]:
@@ -258,12 +284,12 @@ def _has_repetitive_long_substring(text: str, *, window: int = 80, min_repeats: 
 def validate_ai_result_metadata(ai_result: Dict[str, Any]) -> Optional[str]:
     """Return a fail-fast error for empty, truncated, or repetitive AI output."""
     raw_text = str(ai_result.get('raw_response') or ai_result.get('response') or '')
-    if not raw_text.strip():
-        return 'empty content from provider'
-
     finish_reason = str(ai_result.get('finish_reason') or '').strip().lower()
     if finish_reason and finish_reason != 'stop':
         return f"finish_reason was '{finish_reason}'"
+
+    if not raw_text.strip():
+        return 'empty content from provider'
 
     if _has_repetitive_long_substring(raw_text):
         return 'repetitive output detected before repair'
@@ -291,7 +317,7 @@ def prepare_ai_extraction_payload(
     review_requested = (not is_valid_ioc_schema(payload)) or bool(semantic_review_reasons)
     review_applied = review_requested and not bool(task_name)
     candidate = coerce_ioc_contract_payload(payload)
-    review_callable = review_structured_output or _ai_review.review_structured_output
+    review_callable = review_structured_output or _review_structured_output
 
     if review_applied:
         candidate = review_callable(

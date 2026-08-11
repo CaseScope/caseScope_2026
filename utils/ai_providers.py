@@ -425,38 +425,71 @@ class BaseLLMProvider(ABC):
     @staticmethod
     def _extract_json_object(text: str) -> str:
         """Best-effort extraction of the first balanced JSON object in text."""
+        objects = BaseLLMProvider._extract_json_objects(text)
+        return objects[0] if objects else ''
+
+    @staticmethod
+    def _extract_json_objects(text: str) -> List[str]:
+        """Return balanced JSON object candidates without inventing structure."""
         if not text:
-            return ''
+            return []
 
+        objects: List[str] = []
         start = text.find('{')
-        if start == -1:
-            return ''
 
-        depth = 0
-        in_string = False
-        escape = False
-        for idx in range(start, len(text)):
-            char = text[idx]
+        while start != -1:
+            depth = 0
+            in_string = False
+            escape = False
+            found_end = None
+            for idx in range(start, len(text)):
+                char = text[idx]
 
-            if in_string:
-                if escape:
-                    escape = False
-                elif char == '\\':
-                    escape = True
-                elif char == '"':
-                    in_string = False
-                continue
+                if in_string:
+                    if escape:
+                        escape = False
+                    elif char == '\\':
+                        escape = True
+                    elif char == '"':
+                        in_string = False
+                    continue
 
-            if char == '"':
-                in_string = True
-            elif char == '{':
-                depth += 1
-            elif char == '}':
-                depth -= 1
-                if depth == 0:
-                    return text[start:idx + 1]
+                if char == '"':
+                    in_string = True
+                elif char == '{':
+                    depth += 1
+                elif char == '}':
+                    depth -= 1
+                    if depth == 0:
+                        found_end = idx
+                        break
 
-        return ''
+            if found_end is None:
+                break
+            objects.append(text[start:found_end + 1])
+            start = text.find('{', found_end + 1)
+
+        return objects
+
+    @staticmethod
+    def _extract_single_json_object(text: str) -> Tuple[str, Optional[str]]:
+        """Recover exactly one JSON object, rejecting ambiguous wrapped output."""
+        objects = BaseLLMProvider._extract_json_objects(text)
+        if len(objects) == 1:
+            return objects[0], None
+        if len(objects) > 1:
+            return '', 'ambiguous_multiple_json_objects'
+        return '', 'no_json_object'
+
+    @staticmethod
+    def _json_repair_reason(source_text: str, candidate: str, fallback: str) -> str:
+        stripped = str(source_text or '').strip()
+        if candidate and stripped != candidate:
+            if stripped.endswith(candidate):
+                return 'provider_prefix'
+            if stripped.startswith(candidate):
+                return 'provider_suffix'
+        return fallback
 
     @staticmethod
     def _is_reasoning_model(model_name: str) -> bool:
@@ -540,34 +573,32 @@ class BaseLLMProvider(ABC):
         raw_text = result['response']
 
         raw_candidate = raw_text.strip()
+        stripped_think = self._strip_think_blocks(raw_text)
+        stripped_markdown = self._strip_markdown_fences(raw_text)
+        stripped_both = self._strip_markdown_fences(stripped_think)
         candidates = [
             (raw_candidate, False, None),
-            (self._strip_think_blocks(raw_text), True, 'stripped_think_blocks'),
-            (self._strip_markdown_fences(raw_text), True, 'stripped_markdown_fences'),
-            (
-                self._strip_markdown_fences(self._strip_think_blocks(raw_text)),
-                True,
-                'stripped_think_blocks_and_markdown_fences',
-            ),
-            (self._extract_json_object(raw_text), True, 'extracted_balanced_json_object'),
-            (
-                self._extract_json_object(self._strip_think_blocks(raw_text)),
-                True,
-                'stripped_think_blocks_and_extracted_balanced_json_object',
-            ),
-            (
-                self._extract_json_object(self._strip_markdown_fences(raw_text)),
-                True,
-                'stripped_markdown_fences_and_extracted_balanced_json_object',
-            ),
-            (
-                self._extract_json_object(self._strip_markdown_fences(self._strip_think_blocks(raw_text))),
-                True,
-                'stripped_think_blocks_markdown_fences_and_extracted_balanced_json_object',
-            ),
+            (stripped_think, True, 'stripped_think_blocks'),
+            (stripped_markdown, True, 'stripped_markdown_fences'),
+            (stripped_both, True, 'stripped_think_blocks_and_markdown_fences'),
         ]
+        repair_failures: List[str] = []
+        for source_text, base_reason in (
+            (raw_text, 'extracted_balanced_json_object'),
+            (stripped_think, 'stripped_think_blocks_and_extracted_balanced_json_object'),
+            (stripped_markdown, 'stripped_markdown_fences_and_extracted_balanced_json_object'),
+            (stripped_both, 'stripped_think_blocks_markdown_fences_and_extracted_balanced_json_object'),
+        ):
+            candidate, repair_error = self._extract_single_json_object(source_text)
+            if repair_error == 'ambiguous_multiple_json_objects':
+                repair_failures.append(repair_error)
+                continue
+            candidates.append((
+                candidate,
+                True,
+                self._json_repair_reason(source_text, candidate, base_reason),
+            ))
 
-        reasoning_text = result.get('reasoning') if os.getenv('CASESCOPE_CAPTURE_LLM_REASONING') == '1' else None
         for candidate, repaired, repair_reason in candidates:
             candidate = str(candidate or '').strip()
             if not candidate:
@@ -580,23 +611,27 @@ class BaseLLMProvider(ABC):
                     'data': parsed,
                     'model': result.get('model'),
                     'raw_response': raw_text,
+                    'json_valid_initially': not response_repaired,
                     'response_repaired': response_repaired,
+                    'json_repair_applied': response_repaired,
                     'repair_reason': repair_reason if response_repaired else None,
+                    'json_repair_reason': repair_reason if response_repaired else None,
                     'finish_reason': result.get('finish_reason'),
-                    'reasoning': reasoning_text,
                     'reasoning_present': bool(result.get('reasoning')),
                     'usage': result.get('usage'),
                 }
             except json.JSONDecodeError:
                 continue
 
-        logger.warning(f"[LLM] Failed to parse JSON from response ({len(raw_text)} chars)")
+        logger.warning("[LLM] Failed to parse JSON from response (%s chars)", len(raw_text))
         return {
             'success': False,
             'error': 'Failed to parse JSON response',
             'raw_response': raw_text[:500],
+            'json_valid_initially': False,
+            'json_repair_applied': False,
+            'json_repair_error': repair_failures[0] if repair_failures else None,
             'finish_reason': result.get('finish_reason'),
-            'reasoning': reasoning_text,
             'reasoning_present': bool(result.get('reasoning')),
             'usage': result.get('usage'),
         }

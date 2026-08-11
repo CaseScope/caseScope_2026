@@ -69,6 +69,21 @@ def _coerce_event_export_value(col_name, value):
     return value
 
 
+def _selector_key_from_event_payload(event_data):
+    selector_key = str(event_data.get("selector_key") or "").strip()
+    if selector_key:
+        return selector_key
+
+    return build_event_selector_key(
+        event_id=event_data.get("event_id", "").strip() if event_data.get("event_id") else "",
+        record_id=event_data.get("record_id", ""),
+        source_file=event_data.get("source_file", "").strip() if event_data.get("source_file") else "",
+        source_host=event_data.get("source_host", "").strip() if event_data.get("source_host") else "",
+        timestamp=event_data.get("timestamp", "").strip() if event_data.get("timestamp") else "",
+        artifact_type=event_data.get("artifact_type", "").strip() if event_data.get("artifact_type") else "",
+    )
+
+
 def _event_row_to_export_dict(row, column_names):
     event_data = {
         col_name: _coerce_event_export_value(col_name, row[i])
@@ -1323,11 +1338,6 @@ def update_analyst_tag(case_id):
         if not data:
             return jsonify({"success": False, "error": "No data provided"}), 400
 
-        event_id = data.get("event_id", "").strip() if data.get("event_id") else ""
-        record_id = data.get("record_id", "")
-        source_file = data.get("source_file", "").strip() if data.get("source_file") else ""
-        timestamp = data.get("timestamp", "").strip()
-        source_host = data.get("source_host", "").strip()
         artifact_type = data.get("artifact_type", "").strip()
         analyst_tagged = data.get("analyst_tagged", False)
         analyst_tags = data.get("analyst_tags", [])
@@ -1337,14 +1347,7 @@ def update_analyst_tag(case_id):
         ensure_event_analyst_state_table(client)
 
         try:
-            selector_key = build_event_selector_key(
-                event_id=event_id,
-                record_id=record_id,
-                source_file=source_file,
-                source_host=source_host,
-                timestamp=timestamp,
-                artifact_type=artifact_type,
-            )
+            selector_key = _selector_key_from_event_payload(data)
         except ValueError as exc:
             return jsonify({"success": False, "error": str(exc)}), 400
 
@@ -1365,8 +1368,8 @@ def update_analyst_tag(case_id):
             client=client,
             remote_ip=request_remote_ip(),
         )
-        if updated != 1:
-            return jsonify({"success": False, "error": "No valid event identifier provided"}), 400
+        if updated < 1:
+            return jsonify({"success": False, "error": "No matching event found for tag update"}), 404
 
         _refresh_analyst_tag_vectors(case_id)
 
@@ -1418,21 +1421,9 @@ def bulk_analyst_tag(case_id):
         updates = []
 
         for event in events:
-            event_id = event.get("event_id", "").strip() if event.get("event_id") else ""
-            record_id = event.get("record_id", "")
-            source_file = event.get("source_file", "").strip() if event.get("source_file") else ""
-            source_host = event.get("source_host", "").strip() if event.get("source_host") else ""
-            timestamp = event.get("timestamp", "").strip() if event.get("timestamp") else ""
             artifact_type = event.get("artifact_type", "").strip() if event.get("artifact_type") else ""
             try:
-                selector_key = build_event_selector_key(
-                    event_id=event_id,
-                    record_id=record_id,
-                    source_file=source_file,
-                    source_host=source_host,
-                    timestamp=timestamp,
-                    artifact_type=artifact_type,
-                )
+                selector_key = _selector_key_from_event_payload(event)
             except ValueError:
                 continue
             updates.append(
@@ -1456,6 +1447,19 @@ def bulk_analyst_tag(case_id):
         except Exception as e:
             logger.warning("Failed to update analyst state rows: %s", e)
 
+        if updated_count <= 0:
+            return (
+                jsonify(
+                    {
+                        "success": False,
+                        "updated": 0,
+                        "total": len(events),
+                        "error": "No matching events found for tag update",
+                    }
+                ),
+                404,
+            )
+
         if updated_count:
             _refresh_analyst_tag_vectors(case_id)
 
@@ -1478,8 +1482,6 @@ def bulk_analyst_tag(case_id):
 def bulk_noise_tag(case_id):
     """Bulk mark events as noise."""
     try:
-        from datetime import datetime, timedelta, timezone
-
         from utils.clickhouse import get_client
 
         if current_user.permission_level == "viewer":
@@ -1503,14 +1505,7 @@ def bulk_noise_tag(case_id):
         updates = []
         for event in events:
             try:
-                selector_key = build_event_selector_key(
-                    event_id=event.get("event_id", "").strip() if event.get("event_id") else "",
-                    record_id=event.get("record_id", ""),
-                    source_file=event.get("source_file", "").strip() if event.get("source_file") else "",
-                    source_host=event.get("source_host", "").strip() if event.get("source_host") else "",
-                    timestamp=event.get("timestamp", "").strip() if event.get("timestamp") else "",
-                    artifact_type=event.get("artifact_type", "").strip() if event.get("artifact_type") else "",
-                )
+                selector_key = _selector_key_from_event_payload(event)
             except ValueError:
                 continue
             artifact_type = event.get("artifact_type", "").strip() if event.get("artifact_type") else ""
@@ -1530,6 +1525,18 @@ def bulk_noise_tag(case_id):
             client=client,
             remote_ip=request_remote_ip(),
         )
+        if updated_count <= 0:
+            return (
+                jsonify(
+                    {
+                        "success": False,
+                        "updated": 0,
+                        "total": len(events),
+                        "error": "No matching events found for noise update",
+                    }
+                ),
+                404,
+            )
 
         return jsonify(
             {

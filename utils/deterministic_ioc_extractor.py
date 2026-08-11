@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import importlib.util
 import os
-from typing import Any, Dict, Type
+from typing import Any, Dict, Optional, Type
 
 
 def _load_local_module(name: str, filename: str):
@@ -21,10 +21,18 @@ def _load_local_module(name: str, filename: str):
 _ioc_schema = _load_local_module("deterministic_ioc_schema_shared", "ioc_schema.py")
 
 
-def run_deterministic_stage(report_text: str, extractor_cls: Type[Any]) -> Dict[str, Any]:
+def run_deterministic_stage(
+    report_text: str,
+    extractor_cls: Type[Any],
+    *,
+    source_provenance: Optional[Dict[str, Any]] = None,
+) -> Dict[str, Any]:
     """Run the deterministic extraction stage and attach internal records."""
     extractor = extractor_cls()
     extraction = extractor.extract(report_text)
+    if source_provenance:
+        extraction.setdefault("extraction_summary", {})
+        extraction["extraction_summary"]["source_provenance"] = source_provenance
     extraction["_ioc_records"] = _ioc_schema.records_from_extraction(
         extraction,
         source="regex",

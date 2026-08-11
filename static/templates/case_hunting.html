@@ -3888,6 +3888,7 @@ function toggleAnalystTag(index, isTagged) {
             'Content-Type': 'application/json'
         },
         body: JSON.stringify({
+            selector_key: event.selector_key || '',
             timestamp: event.timestamp_utc_raw || event.timestamp,
             source_host: event.source_host,
             source_file: event.source_file,
@@ -4031,6 +4032,7 @@ function getSelectedEventsForBulkAction() {
 
 function buildBulkEventPayload(events) {
     return events.map(e => ({
+        selector_key: e.selector_key || '',
         timestamp: e.timestamp_utc_raw || e.timestamp,
         source_host: e.source_host,
         source_file: e.source_file,
@@ -4094,7 +4096,7 @@ async function bulkSetAnalystTag(isTagged) {
             
             // Show success message
             showToast(
-                `Successfully ${isTagged ? 'tagged' : 'untagged'} ${data.updated || selectedEvents.length} event(s) for analyst review`,
+                `Successfully ${isTagged ? 'tagged' : 'untagged'} ${data.updated ?? selectedEvents.length} event(s) for analyst review`,
                 'success'
             );
         } else {
@@ -4261,6 +4263,7 @@ function updateModalAnalystTag() {
                 'Content-Type': 'application/json'
             },
             body: JSON.stringify({
+                selector_key: currentModalEvent.selector_key || '',
                 timestamp: currentModalEvent.timestamp_utc_raw || currentModalEvent.timestamp,
                 source_host: currentModalEvent.source_host,
                 source_file: currentModalEvent.source_file,

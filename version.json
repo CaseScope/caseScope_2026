@@ -1,6 +1,15 @@
 {
-  "version": "4.11.4",
+  "version": "4.12.0",
   "changelog": [
+    {
+      "version": "4.12.0",
+      "date": "2026-08-10",
+      "changes": [
+        "IOC report ingestion now normalizes raw source material through a source-adapter boundary before deterministic and semantic extraction, with canonical report sections preserving source type, product, report id, raw section names and evidence text",
+        "Generic and Huntress report adapters allow unknown analyst narratives and Huntress reports to share the same canonical IOC extraction model while keeping Huntress-specific formatting such as portal links and scheduled-task Service Path labels at the ingestion boundary",
+        "Semantic IOC task routing now favors canonical section types and deterministic evidence classes so scheduled-task evidence routes to process relationship extraction while generic persistence prose alone no longer triggers registry, credential-theft or web-shell extraction"
+      ]
+    },
     {
       "version": "4.11.4",
       "date": "2026-08-10",

@@ -86,6 +86,58 @@ class AIProviderCompatRegressionTestCase(unittest.TestCase):
             '{"ok": true, "items": [1, 2, 3]}',
         )
 
+    def test_generate_json_recovers_provider_prefix_contamination(self):
+        class PrefixProvider(DummyFallbackProvider):
+            def __init__(self, response):
+                super().__init__()
+                self.response = response
+
+            def generate_json(self, *args, **kwargs):
+                return BaseLLMProvider.generate_json(self, *args, **kwargs)
+
+            def generate(self, *args, **kwargs):
+                return {
+                    'success': True,
+                    'response': self.response,
+                    'finish_reason': 'stop',
+                    'model': 'prefix-model',
+                }
+
+        for response in (
+            'to=user<|message|>{"registry":[],"credential_theft_indicators":[],"webshells":[]}',
+            'registry to=user<|message|>{"registry":[],"credential_theft_indicators":[],"webshells":[]}',
+        ):
+            with self.subTest(response=response):
+                parsed = PrefixProvider(response).generate_json(prompt='x')
+
+                self.assertTrue(parsed['success'])
+                self.assertFalse(parsed['json_valid_initially'])
+                self.assertTrue(parsed['json_repair_applied'])
+                self.assertEqual(parsed['json_repair_reason'], 'provider_prefix')
+                self.assertEqual(parsed['data']['registry'], [])
+                self.assertEqual(parsed['data']['credential_theft_indicators'], [])
+                self.assertEqual(parsed['data']['webshells'], [])
+                self.assertNotIn('reasoning', parsed)
+
+    def test_generate_json_rejects_ambiguous_multiple_objects(self):
+        class AmbiguousProvider(DummyFallbackProvider):
+            def generate_json(self, *args, **kwargs):
+                return BaseLLMProvider.generate_json(self, *args, **kwargs)
+
+            def generate(self, *args, **kwargs):
+                return {
+                    'success': True,
+                    'response': '{"registry":[]}{"registry":[{"key":"HKCU\\\\Bad"}]}',
+                    'finish_reason': 'stop',
+                    'model': 'ambiguous-model',
+                }
+
+        parsed = AmbiguousProvider().generate_json(prompt='x')
+
+        self.assertFalse(parsed['success'])
+        self.assertEqual(parsed['json_repair_error'], 'ambiguous_multiple_json_objects')
+        self.assertNotIn('reasoning', parsed)
+
     def test_provider_stream_error_message_hides_raw_http_details(self):
         class FakeResponse:
             status_code = 400
@@ -319,7 +371,7 @@ class AIProviderCompatRegressionTestCase(unittest.TestCase):
         self.assertTrue(result['success'])
         self.assertEqual(result['data'], {'ok': True})
         self.assertEqual(result['finish_reason'], 'length')
-        self.assertIsNone(result['reasoning'])
+        self.assertNotIn('reasoning', result)
         self.assertTrue(result['reasoning_present'])
         self.assertEqual(result['usage']['completion_tokens'], 20)
         self.assertEqual(result['raw_response'], '{"ok": true}')
@@ -366,7 +418,7 @@ class AIProviderCompatRegressionTestCase(unittest.TestCase):
         self.assertTrue(result['success'])
         self.assertEqual(result['data'], {'scheduled_tasks': []})
         self.assertTrue(result['response_repaired'])
-        self.assertEqual(result['repair_reason'], 'extracted_balanced_json_object')
+        self.assertEqual(result['repair_reason'], 'provider_prefix')
         self.assertEqual(result['raw_response'], 'to=user<|message|>{"scheduled_tasks":[]}')
 
     def test_claude_stream_chat_sends_tools_and_parses_tool_use(self):

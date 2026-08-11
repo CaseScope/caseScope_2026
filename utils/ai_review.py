@@ -6,13 +6,26 @@ import json
 from typing import Any
 
 from utils.ai.router import invoke_json, invoke_text
-from utils.privacy_aliases import AIPrivacyContext, rehydrate_for_display
 
 try:
     from utils.ai_training import build_role_system_prompt
 except Exception:
     def build_role_system_prompt(_route_name: str, extra_instructions: str = "") -> str:
         return extra_instructions
+
+
+def _case_privacy_context(case_id: int | None):
+    if not case_id:
+        return None
+    from utils.privacy_aliases import AIPrivacyContext
+    return AIPrivacyContext.case_content(case_id)
+
+
+def _rehydrate_for_display(case_id: int | None, value: Any) -> Any:
+    if not case_id:
+        return value
+    from utils.privacy_aliases import rehydrate_for_display
+    return rehydrate_for_display(case_id, value)
 
 
 def _invoke_text_with_optional_router(
@@ -126,7 +139,7 @@ def review_text_output(
             system=system_prompt,
             temperature=0.0,
             max_tokens=max_tokens,
-            privacy_context=AIPrivacyContext.case_content(case_id) if case_id else None,
+            privacy_context=_case_privacy_context(case_id),
         )
     except Exception:
         return draft
@@ -137,7 +150,7 @@ def review_text_output(
     reviewed = (result.get("response") or "").strip()
     if not reviewed:
         return draft
-    return rehydrate_for_display(case_id, reviewed) if case_id else reviewed
+    return _rehydrate_for_display(case_id, reviewed)
 
 
 def review_structured_output(
@@ -172,7 +185,7 @@ def review_structured_output(
             system=system_prompt,
             temperature=0.0,
             max_tokens=max_tokens,
-            privacy_context=AIPrivacyContext.case_content(case_id) if case_id else None,
+            privacy_context=_case_privacy_context(case_id),
         )
     except Exception:
         return sanitize_review_payload(payload)
@@ -180,4 +193,4 @@ def review_structured_output(
     if not result.get("success") or not result.get("data"):
         return sanitize_review_payload(payload)
     reviewed_data = sanitize_review_payload(result["data"])
-    return rehydrate_for_display(case_id, reviewed_data) if case_id else reviewed_data
+    return _rehydrate_for_display(case_id, reviewed_data)

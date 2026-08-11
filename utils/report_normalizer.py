@@ -2,16 +2,62 @@
 
 from __future__ import annotations
 
+import importlib.util
+import os
 import re
-from typing import Any, Dict, List, Tuple
+import sys
+from typing import Any, Dict, List, Optional, Tuple
 
 SECTION_HEADER_PATTERN = re.compile(r"^[A-Za-z0-9 /()\[\]_-]+:?$")
 DEFAULT_CHUNK_OVERLAP_CHARS = 400
 
 
-def prepare_ioc_report_text(report_text: str) -> str:
+def _load_source_module(name: str, filename: str):
+    spec = importlib.util.spec_from_file_location(
+        name,
+        os.path.join(os.path.dirname(__file__), "ioc_sources", filename),
+    )
+    module = importlib.util.module_from_spec(spec)
+    assert spec.loader is not None
+    sys.modules[name] = module
+    spec.loader.exec_module(module)
+    return module
+
+
+_ioc_sources_base = _load_source_module("ioc_sources_base_shared", "base.py")
+_ioc_sources_generic = _load_source_module("ioc_sources_generic_shared", "generic.py")
+_ioc_sources_huntress = _load_source_module("ioc_sources_huntress_shared", "huntress.py")
+
+CanonicalReport = _ioc_sources_base.CanonicalReport
+CanonicalReportSection = _ioc_sources_base.CanonicalReportSection
+GenericReportAdapter = _ioc_sources_generic.GenericReportAdapter
+HuntressReportAdapter = _ioc_sources_huntress.HuntressReportAdapter
+
+
+def _source_adapters() -> List[Any]:
+    return [HuntressReportAdapter(), GenericReportAdapter()]
+
+
+def normalize_report_source(report_input: Any, metadata: Optional[Dict[str, Any]] = None) -> Any:
+    """Normalize raw or structured source data to a canonical report."""
+    metadata = dict(metadata or {})
+    for adapter in _source_adapters():
+        if adapter.matches(report_input, metadata):
+            return adapter.normalize(report_input, metadata)
+    return GenericReportAdapter().normalize(report_input, metadata)
+
+
+def render_canonical_report_text(canonical_report: Any) -> str:
+    """Render canonical sections into the existing text-based extraction boundary."""
+    if hasattr(canonical_report, "text_for_extraction"):
+        return canonical_report.text_for_extraction()
+    return str(canonical_report or "")
+
+
+def prepare_ioc_report_text(report_text: Any, metadata: Optional[Dict[str, Any]] = None) -> str:
     """Trim pathological report fragments that are expensive and low-value."""
-    prepared_text = report_text or ""
+    canonical_report = normalize_report_source(report_text, metadata=metadata)
+    prepared_text = render_canonical_report_text(canonical_report)
     if '-filemask="' in prepared_text:
         idx = prepared_text.find('-filemask="')
         end = prepared_text.find('"', idx + 100)
@@ -24,38 +70,36 @@ def prepare_ioc_report_text(report_text: str) -> str:
     return prepared_text
 
 
-def split_report_sections(report_text: str) -> List[Tuple[str, str]]:
-    """Split a Huntress-style report into section title and body pairs."""
-    lines = (report_text or "").splitlines()
-    sections: List[Tuple[str, str]] = []
-    current_name = "Full Report"
-    current_body: List[str] = []
-    idx = 0
+def split_report_sections(report_text: Any, metadata: Optional[Dict[str, Any]] = None) -> List[Tuple[str, str]]:
+    """Split a report into canonicalized section title and body pairs."""
+    canonical_report = normalize_report_source(report_text, metadata=metadata)
+    return [
+        (section.source_section_name or "Full Report", section.text_for_extraction())
+        for section in canonical_report.sections
+        if section.text_for_extraction()
+    ]
 
-    while idx < len(lines):
-        line = lines[idx].rstrip()
-        next_line = lines[idx + 1].rstrip() if idx + 1 < len(lines) else ""
-        if (
-            line
-            and SECTION_HEADER_PATTERN.match(line)
-            and next_line
-            and set(next_line) <= {"-"}
-            and len(next_line) >= 3
-        ):
-            body = "\n".join(current_body).strip()
-            if body:
-                sections.append((current_name, body))
-            current_name = line.strip().rstrip(":").strip()
-            current_body = []
-            idx += 2
-            continue
-        current_body.append(lines[idx])
-        idx += 1
 
-    body = "\n".join(current_body).strip()
-    if body:
-        sections.append((current_name, body))
-    return sections
+def canonical_sections_for_report(
+    report_text: Any,
+    metadata: Optional[Dict[str, Any]] = None,
+) -> List[Dict[str, Any]]:
+    """Return canonical section dictionaries for callers that need provenance."""
+    canonical_report = normalize_report_source(report_text, metadata=metadata)
+    return [
+        {
+            "name": section.source_section_name or "Full Report",
+            "body": section.text_for_extraction(),
+            "canonical_type": section.canonical_type,
+            "source_section_name": section.source_section_name,
+            "raw_text": section.raw_text,
+            "source_type": canonical_report.source_type,
+            "source_product": canonical_report.source_product,
+            "source_report_id": canonical_report.source_report_id,
+        }
+        for section in canonical_report.sections
+        if section.text_for_extraction()
+    ]
 
 
 def split_large_section_blocks(
@@ -119,30 +163,50 @@ def split_large_section_blocks(
     return blocks
 
 
-def chunk_report_for_ai_with_metadata(report_text: str, max_chars: int) -> List[Dict[str, Any]]:
+def chunk_report_for_ai_with_metadata(report_text: Any, max_chars: int) -> List[Dict[str, Any]]:
     """Chunk a report for AI extraction and preserve section provenance."""
-    text = (report_text or "").strip()
+    canonical_report = normalize_report_source(report_text)
+    text = render_canonical_report_text(canonical_report).strip()
     if not text:
         return []
     if len(text) <= max_chars:
         return [
             {
                 "text": text,
-                "sections": ["Full Report"],
+                "sections": [
+                    section.source_section_name or "Full Report"
+                    for section in canonical_report.sections
+                ] or ["Full Report"],
+                "canonical_sections": [
+                    section.canonical_type
+                    for section in canonical_report.sections
+                ],
+                "source_type": canonical_report.source_type,
+                "source_product": canonical_report.source_product,
+                "source_report_id": canonical_report.source_report_id,
                 "overlap_applied": False,
                 "chunk_index": 1,
                 "chunk_count": 1,
             }
         ]
 
-    sections = split_report_sections(text) or [("Full Report", text)]
+    sections = [
+        (
+            section.source_section_name or "Full Report",
+            section.text_for_extraction(),
+            section.canonical_type,
+        )
+        for section in canonical_report.sections
+        if section.text_for_extraction()
+    ] or [("Full Report", text, "raw")]
     chunks: List[Dict[str, Any]] = []
     current_parts: List[str] = []
     current_sections: List[str] = []
+    current_canonical_sections: List[str] = []
     current_len = 0
     current_overlap = False
 
-    for section_name, section_text in sections:
+    for section_name, section_text, canonical_type in sections:
         section_block = (
             f"{section_name}\n{'-' * min(max(len(section_name), 3), 32)}\n{section_text}"
         ).strip()
@@ -151,6 +215,7 @@ def chunk_report_for_ai_with_metadata(report_text: str, max_chars: int) -> List[
                 {
                     "text": section_block,
                     "section_name": section_name,
+                        "canonical_type": canonical_type,
                     "overlap_applied": False,
                 }
             ]
@@ -166,17 +231,24 @@ def chunk_report_for_ai_with_metadata(report_text: str, max_chars: int) -> List[
                     {
                         "text": "\n\n".join(current_parts),
                         "sections": list(current_sections),
+                        "canonical_sections": list(current_canonical_sections),
+                        "source_type": canonical_report.source_type,
+                        "source_product": canonical_report.source_product,
+                        "source_report_id": canonical_report.source_report_id,
                         "overlap_applied": current_overlap,
                     }
                 )
                 current_parts = [block_text]
                 current_sections = [section_name]
+                current_canonical_sections = [canonical_type]
                 current_len = len(block_text)
                 current_overlap = bool(block.get("overlap_applied"))
             else:
                 current_parts.append(block_text)
                 if section_name not in current_sections:
                     current_sections.append(section_name)
+                if canonical_type not in current_canonical_sections:
+                    current_canonical_sections.append(canonical_type)
                 current_len = projected_len if current_parts[:-1] else len(block_text)
                 current_overlap = current_overlap or bool(block.get("overlap_applied"))
 
@@ -185,6 +257,10 @@ def chunk_report_for_ai_with_metadata(report_text: str, max_chars: int) -> List[
             {
                 "text": "\n\n".join(current_parts),
                 "sections": list(current_sections),
+                "canonical_sections": list(current_canonical_sections),
+                "source_type": canonical_report.source_type,
+                "source_product": canonical_report.source_product,
+                "source_report_id": canonical_report.source_report_id,
                 "overlap_applied": current_overlap,
             }
         )
@@ -197,6 +273,10 @@ def chunk_report_for_ai_with_metadata(report_text: str, max_chars: int) -> List[
         {
             "text": text[:max_chars],
             "sections": ["Full Report"],
+            "canonical_sections": ["raw"],
+            "source_type": canonical_report.source_type,
+            "source_product": canonical_report.source_product,
+            "source_report_id": canonical_report.source_report_id,
             "overlap_applied": False,
             "chunk_index": 1,
             "chunk_count": 1,

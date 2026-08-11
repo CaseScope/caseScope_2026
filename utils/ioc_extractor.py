@@ -192,9 +192,12 @@ def extract_derived_indicator_candidates(
 
 def run_deterministic_ioc_extraction(report_text: str) -> Dict[str, Any]:
     """Run the canonical deterministic IOC extraction stage."""
+    canonical_report = _report_normalizer.normalize_report_source(report_text)
+    prepared_text = _report_normalizer.prepare_ioc_report_text(report_text)
     return _deterministic_stage.run_deterministic_stage(
-        report_text,
+        prepared_text,
         RegexIOCExtractor,
+        source_provenance=canonical_report.provenance_summary(),
     )
 
 
@@ -367,6 +370,9 @@ def _prepare_ai_extraction_payload(
     task_name: Optional[str] = None,
 ) -> Tuple[Dict[str, Any], Dict[str, Any]]:
     """Validate and lightly repair AI JSON before normalization."""
+    review_structured_output = None
+    if task_name is None:
+        review_structured_output = _ai_review.review_structured_output
     return _ioc_contract_adapter.prepare_ai_extraction_payload(
         provider,
         payload,
@@ -374,7 +380,7 @@ def _prepare_ai_extraction_payload(
         ai_review_max_tokens=AI_REVIEW_MAX_TOKENS,
         task_name=task_name,
         semantic_task_allowed_fields=SEMANTIC_TASK_ALLOWED_FIELDS,
-        review_structured_output=_ai_review.review_structured_output,
+        review_structured_output=review_structured_output,
     )
 
 
@@ -474,8 +480,9 @@ def run_ioc_pipeline_with_provider(
     case_id: Optional[int] = None,
 ) -> Tuple[Dict[str, Any], bool]:
     """Run the configured IOC pipeline using an already resolved provider."""
+    canonical_report = _report_normalizer.normalize_report_source(report_text)
     deterministic_extraction = run_deterministic_ioc_extraction(report_text)
-    prepared_text = _report_normalizer.prepare_ioc_report_text(report_text)
+    prepared_text = _report_normalizer.render_canonical_report_text(canonical_report)
     batch_config = provider.get_batch_config()
     chunk_config = _resolve_ai_chunk_config(batch_config)
     max_chunk_chars = chunk_config['max_chunk_chars']
@@ -553,6 +560,7 @@ def run_ioc_pipeline_with_provider(
         filter_payload_for_task=_filter_semantic_payload_for_task,
         normalize_extraction=_normalize_ai_extraction,
         privacy_context=privacy_context,
+        canonical_report=canonical_report,
     )
     normalized_chunks = semantic_stage.get('normalized_results', [])
     ai_extraction = deterministic_extraction
@@ -564,6 +572,13 @@ def run_ioc_pipeline_with_provider(
         ai_extraction['extraction_summary']['semantic_task_failures'] = []
         ai_extraction['extraction_summary']['semantic_schema_reviews'] = 0
         ai_extraction['extraction_summary']['semantic_task_provenance'] = []
+    elif not normalized_chunks:
+        ai_extraction.setdefault('extraction_summary', {})
+        ai_extraction['extraction_summary']['semantic_task_count'] = len(semantic_stage.get('planned_tasks', []))
+        ai_extraction['extraction_summary']['semantic_task_successes'] = 0
+        ai_extraction['extraction_summary']['semantic_task_failures'] = semantic_stage.get('task_failures', [])
+        ai_extraction['extraction_summary']['semantic_schema_reviews'] = semantic_stage.get('schema_reviews', 0)
+        ai_extraction['extraction_summary']['semantic_task_provenance'] = semantic_stage.get('task_provenance', [])
 
     if normalized_chunks:
         ai_extraction = _ioc_merge.merge_semantic_results(
@@ -626,10 +641,7 @@ def extract_iocs_with_ai(report_text: str, model: str = None, case_id: int | Non
     """
     from utils.feature_availability import FeatureAvailability
 
-    deterministic_extraction = _deterministic_stage.run_deterministic_stage(
-        report_text,
-        RegexIOCExtractor,
-    )
+    deterministic_extraction = run_deterministic_ioc_extraction(report_text)
 
     if not FeatureAvailability.is_ai_enabled():
         logger.info("AI extraction disabled, using regex only")

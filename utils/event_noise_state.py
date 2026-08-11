@@ -199,6 +199,7 @@ def upsert_manual_noise_state_rows(
 
     operation_id = operation_id or new_operation_id()
     actor = _normalized_username(updated_by)
+    matched_total = 0
 
     for (artifact_type, noise_matched, noise_rules), selector_keys in grouped_updates.items():
         assignments_sql = ", ".join(
@@ -217,9 +218,19 @@ def upsert_manual_noise_state_rows(
             f"{artifact_filter_sql}"
             f"AND has({clickhouse_string_array_literal(selector_keys)}, selector_key)"
         )
+        matched_count = _count_matching(client, where_sql)
+        if matched_count <= 0:
+            logger.warning(
+                "Manual noise tag update matched no events for case %s and %s selector(s)",
+                case_id,
+                len(selector_keys),
+            )
+            continue
+        matched_total += matched_count
 
         prior = _fetch_prior_noise_state(client, case_id, selector_keys)
-        run_events_update(assignments_sql, where_sql, client=client, wait=False)
+        matched_selector_keys = [key for key in selector_keys if key in prior] or selector_keys
+        run_events_update(assignments_sql, where_sql, client=client)
 
         new_state = {"noise_matched": bool(noise_matched), "noise_rules": list(noise_rules)}
         record_event_changes(
@@ -233,7 +244,7 @@ def upsert_manual_noise_state_rows(
                 ),
                 new_value=new_state,
                 predicate=where_sql,
-                affected_count=len(selector_keys),
+                affected_count=matched_count,
                 username=actor,
                 remote_ip=remote_ip,
                 operation_id=operation_id,
@@ -247,10 +258,10 @@ def upsert_manual_noise_state_rows(
                     source_file=prior.get(selector_key, {}).get("source_file"),
                     artifact_type=artifact_type,
                 )
-                for selector_key in selector_keys
+                for selector_key in matched_selector_keys
             ],
         )
-    return len(prepared_rows)
+    return matched_total
 
 
 def build_noise_projection(alias: str = "events", case_id_filter_sql: Optional[str] = None) -> Dict[str, str]:
