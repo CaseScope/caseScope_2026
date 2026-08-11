@@ -367,8 +367,14 @@ class EvidenceIdentityMigrationTestCase(unittest.TestCase):
         client = FakeClient()
 
         self.assertTrue(migration.ensure_identity_index(client))
-        self.assertTrue(any("ADD INDEX IF NOT EXISTS" in command for command in client.commands))
-        self.assertTrue(any("idx_evidence_record_key" in command for command in client.commands))
+        self.assertEqual(
+            client.commands,
+            [
+                "ALTER TABLE events ADD INDEX IF NOT EXISTS "
+                "idx_evidence_record_key evidence_record_key TYPE bloom_filter(0.01) GRANULARITY 4"
+            ],
+        )
+        self.assertFalse(any("IF NOT EXISTS INDEX" in command for command in client.commands))
 
     def test_buffer_table_is_recreated_when_buffer_schema_diverges(self):
         class FakeClient:

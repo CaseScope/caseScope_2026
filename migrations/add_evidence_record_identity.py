@@ -32,7 +32,7 @@ IDENTITY_COLUMNS = (
 )
 IDENTITY_INDEX_NAME = "idx_evidence_record_key"
 IDENTITY_INDEX_DEFINITION = (
-    "INDEX idx_evidence_record_key evidence_record_key TYPE bloom_filter(0.01) GRANULARITY 4"
+    "idx_evidence_record_key evidence_record_key TYPE bloom_filter(0.01) GRANULARITY 4"
 )
 SHADOW_TABLE = "events_evidence_identity_backfill"
 OLD_TABLE = "events_evidence_identity_previous"
