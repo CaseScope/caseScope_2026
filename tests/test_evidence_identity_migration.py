@@ -72,6 +72,118 @@ class _Stream:
         return False
 
 
+def _event_row(columns, *, case_id=7, raw_json='{"message": "alpha"}', evidence_key=""):
+    defaults = {
+        "case_id": case_id,
+        "artifact_type": "custom_log",
+        "timestamp": datetime(2026, 4, 21, 12),
+        "timestamp_utc": datetime(2026, 4, 21, 12),
+        "timestamp_source_tz": "UTC",
+        "source_file": "source.log",
+        "source_path": "/archive/source.log",
+        "source_host": "HOST1",
+        "case_file_id": 99,
+        "event_id": "1000",
+        "record_id": None,
+        "raw_json": raw_json,
+        "search_blob": "",
+        "extra_fields": "{}",
+        "parser_version": "Parser-1",
+        "evidence_record_key": evidence_key,
+        "evidence_identity_version": "",
+        "evidence_identity_quality": "",
+    }
+    return tuple(defaults.get(column, None) for column in columns)
+
+
+class _RewriteFakeClient:
+    def __init__(
+        self,
+        *,
+        source_rows=100,
+        final_source_rows=None,
+        shadow_count_override=None,
+    ):
+        self.source_rows = source_rows
+        self.final_source_rows = final_source_rows
+        self.shadow_count_override = shadow_count_override
+        self.tables = {"events", "events_buffer"}
+        self.commands = []
+        self.inserts = []
+        self.operations = []
+        self.after_fence_source_count_calls = 0
+        self.stream_rows = [
+            _event_row(ParsedEventColumns, raw_json=f'{{"message": "row-{index}"}}')
+            for index in range(source_rows)
+        ]
+
+    def query(self, sql, parameters=None):
+        parameters = parameters or {}
+        compact = " ".join(sql.split())
+        table = parameters.get("table_name")
+        if "FROM system.columns" in sql:
+            return SimpleNamespace(result_rows=[(name, "") for name in ParsedEventColumns])
+        if "SELECT engine" in sql:
+            return SimpleNamespace(result_rows=[("Buffer",)] if table in self.tables else [])
+        if "FROM system.tables" in sql and "total_bytes" in sql:
+            return SimpleNamespace(result_rows=[(1234,)])
+        if "FROM system.tables" in sql:
+            return SimpleNamespace(result_rows=[(1 if table in self.tables else 0,)])
+        if "system.data_skipping_indices" in sql:
+            return SimpleNamespace(result_rows=[(1,)])
+        if f"SELECT count() FROM {migration.SHADOW_TABLE}" in compact:
+            count = self.shadow_count_override
+            if count is None:
+                count = sum(len(rows) for _table, rows, _columns in self.inserts)
+            self.operations.append("count_shadow")
+            return SimpleNamespace(result_rows=[(count,)])
+        if "SELECT count() FROM events_buffer" in compact:
+            self.operations.append("count_buffer")
+            return SimpleNamespace(result_rows=[(self.source_rows,)])
+        if compact == "SELECT count() FROM events":
+            self.operations.append("count_events")
+            if "events_buffer" not in self.tables:
+                self.after_fence_source_count_calls += 1
+                if self.after_fence_source_count_calls >= 2 and self.final_source_rows is not None:
+                    return SimpleNamespace(result_rows=[(self.final_source_rows,)])
+            return SimpleNamespace(result_rows=[(self.source_rows,)])
+        if "evidence_record_key = ''" in sql:
+            return SimpleNamespace(result_rows=[(self.source_rows,)])
+        if "startsWith" in sql or "NOT startsWith" in sql:
+            return SimpleNamespace(result_rows=[(0,)])
+        return SimpleNamespace(result_rows=[(0,)])
+
+    def query_rows_stream(self, query):
+        self.operations.append("shadow_copy")
+        return _Stream(self.stream_rows)
+
+    def insert(self, table, rows, column_names=None):
+        self.operations.append(f"insert:{table}")
+        self.inserts.append((table, rows, column_names))
+
+    def command(self, sql):
+        self.commands.append(sql)
+        compact = " ".join(sql.split())
+        if compact == "OPTIMIZE TABLE events_buffer":
+            self.operations.append("drain_buffer")
+        elif compact == "DROP TABLE IF EXISTS events_buffer":
+            self.operations.append("drop_buffer")
+            self.tables.discard("events_buffer")
+        elif compact == f"CREATE TABLE {migration.SHADOW_TABLE} AS events":
+            self.operations.append("create_shadow")
+            self.tables.add(migration.SHADOW_TABLE)
+        elif compact == f"DROP TABLE IF EXISTS {migration.SHADOW_TABLE}":
+            self.operations.append("drop_shadow")
+            self.tables.discard(migration.SHADOW_TABLE)
+        elif compact.startswith("RENAME TABLE events TO"):
+            self.operations.append("rename_swap")
+            self.tables.add(migration.OLD_TABLE)
+            self.tables.discard(migration.SHADOW_TABLE)
+        elif "ENGINE = Buffer" in sql:
+            self.operations.append("create_buffer")
+            self.tables.add("events_buffer")
+
+
 class EvidenceIdentityMigrationTestCase(unittest.TestCase):
     def test_backfill_strategy_does_not_contain_per_event_alter_update(self):
         source = inspect.getsource(migration.backfill_identity_columns)
@@ -173,6 +285,7 @@ class EvidenceIdentityMigrationTestCase(unittest.TestCase):
         class FakeClient:
             def __init__(self):
                 self.commands = []
+                self.events_buffer_exists = True
 
             def query(self, sql, parameters=None):
                 table = (parameters or {}).get("table_name")
@@ -181,6 +294,8 @@ class EvidenceIdentityMigrationTestCase(unittest.TestCase):
                 if "SELECT count() FROM events" in sql:
                     return SimpleNamespace(result_rows=[(10,)])
                 if "FROM system.tables" in sql and "engine" not in sql.lower():
+                    if table == "events_buffer":
+                        return SimpleNamespace(result_rows=[(1 if self.events_buffer_exists else 0,)])
                     return SimpleNamespace(result_rows=[(1,)])
                 if "SELECT engine" in sql:
                     return SimpleNamespace(result_rows=[("Buffer",)])
@@ -201,6 +316,10 @@ class EvidenceIdentityMigrationTestCase(unittest.TestCase):
 
             def command(self, sql):
                 self.commands.append(sql)
+                if "DROP TABLE IF EXISTS events_buffer" in sql:
+                    self.events_buffer_exists = False
+                if "ENGINE = Buffer" in sql:
+                    self.events_buffer_exists = True
 
         client = FakeClient()
         migration.ensure_events_buffer_schema(client)
@@ -326,7 +445,7 @@ class EvidenceIdentityMigrationTestCase(unittest.TestCase):
         rewritten = migration.backfill_identity_columns(client)
 
         self.assertEqual(rewritten, 0)
-        self.assertIn("OPTIMIZE TABLE events_buffer", client.commands)
+        self.assertNotIn("OPTIMIZE TABLE events_buffer", client.commands)
         self.assertFalse(any("CREATE TABLE events_evidence_identity_backfill" in command for command in client.commands))
         self.assertFalse(any("RENAME TABLE events TO" in command for command in client.commands))
 
@@ -393,6 +512,88 @@ class EvidenceIdentityMigrationTestCase(unittest.TestCase):
 
         self.assertIn("OPTIMIZE TABLE events_buffer", client.commands)
         self.assertFalse(any("CREATE TABLE events_evidence_identity_backfill" in command for command in client.commands))
+
+    def test_buffer_is_removed_before_authoritative_source_snapshot(self):
+        client = _RewriteFakeClient(source_rows=100)
+
+        migration.backfill_identity_columns(client, batch_size=200)
+
+        drop_index = client.operations.index("drop_buffer")
+        post_fence_count_index = next(
+            index for index, operation in enumerate(client.operations)
+            if operation == "count_events" and index > drop_index
+        )
+        create_shadow_index = client.operations.index("create_shadow")
+        shadow_copy_index = client.operations.index("shadow_copy")
+
+        self.assertLess(client.operations.index("drain_buffer"), drop_index)
+        self.assertLess(drop_index, post_fence_count_index)
+        self.assertLess(post_fence_count_index, create_shadow_index)
+        self.assertLess(create_shadow_index, shadow_copy_index)
+
+    def test_source_count_change_during_copy_aborts_before_swap(self):
+        client = _RewriteFakeClient(source_rows=100, final_source_rows=101)
+
+        with self.assertRaisesRegex(RuntimeError, "Source events row count changed"):
+            migration.backfill_identity_columns(client, batch_size=200)
+
+        self.assertIn("drop_shadow", client.operations)
+        self.assertNotIn("rename_swap", client.operations)
+        self.assertNotIn("create_buffer", client.operations)
+        self.assertIn("events", client.tables)
+        self.assertNotIn(migration.OLD_TABLE, client.tables)
+
+    def test_shadow_validation_failure_does_not_recreate_buffer_before_swap(self):
+        client = _RewriteFakeClient(source_rows=100, shadow_count_override=99)
+
+        with self.assertRaisesRegex(RuntimeError, "Shadow row count mismatch"):
+            migration.backfill_identity_columns(client, batch_size=200)
+
+        self.assertIn("drop_shadow", client.operations)
+        self.assertNotIn("rename_swap", client.operations)
+        self.assertNotIn("create_buffer", client.operations)
+        self.assertNotIn("events_buffer", client.tables)
+
+    def test_rogue_late_ingestion_cannot_use_removed_buffer_target(self):
+        client = _RewriteFakeClient(source_rows=100)
+
+        migration.fence_events_buffer_ingestion(client, context="test fence")
+
+        self.assertNotIn("events_buffer", client.tables)
+        self.assertIn("drop_buffer", client.operations)
+
+    def test_successful_rewrite_recreates_buffer_only_after_swap(self):
+        client = _RewriteFakeClient(source_rows=100)
+
+        migration.backfill_identity_columns(client, batch_size=200)
+
+        self.assertLess(client.operations.index("rename_swap"), client.operations.index("create_buffer"))
+        self.assertIn("events_buffer", client.tables)
+
+    def test_dry_run_and_status_are_write_free(self):
+        forbidden = (
+            "ALTER", "CREATE", "DROP", "DETACH", "ATTACH", "RENAME", "OPTIMIZE",
+            "INSERT", "UPDATE", "DELETE", "MATERIALIZE",
+        )
+
+        for args in (["--dry-run"], ["--status"]):
+            client = _RewriteFakeClient(source_rows=100)
+            original_get_client = migration.get_fresh_client
+            migration.get_fresh_client = lambda: client
+            try:
+                from io import StringIO
+                from contextlib import redirect_stdout
+
+                with redirect_stdout(StringIO()):
+                    migration.migrate(args)
+            finally:
+                migration.get_fresh_client = original_get_client
+
+            self.assertEqual(client.inserts, [])
+            self.assertEqual(client.commands, [])
+            self.assertFalse(
+                any(token in command.upper() for command in client.commands for token in forbidden)
+            )
 
     def test_status_reports_version_distribution_and_buffer_state(self):
         class FakeClient:

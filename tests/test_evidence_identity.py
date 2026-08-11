@@ -349,6 +349,36 @@ class EvidenceIdentityTestCase(unittest.TestCase):
             build_evidence_record_identity(second).evidence_record_key,
         )
 
+    def test_raw_missing_and_null_are_distinct(self):
+        self.assertNotEqual(
+            build_evidence_record_identity(self._event(raw_json="{}")).evidence_record_key,
+            build_evidence_record_identity(self._event(raw_json='{"a": null}')).evidence_record_key,
+        )
+
+    def test_raw_null_and_empty_string_are_distinct(self):
+        self.assertNotEqual(
+            build_evidence_record_identity(self._event(raw_json='{"a": null}')).evidence_record_key,
+            build_evidence_record_identity(self._event(raw_json='{"a": ""}')).evidence_record_key,
+        )
+
+    def test_raw_zero_is_preserved(self):
+        self.assertNotEqual(
+            build_evidence_record_identity(self._event(raw_json='{"a": 0}')).evidence_record_key,
+            build_evidence_record_identity(self._event(raw_json="{}")).evidence_record_key,
+        )
+
+    def test_raw_false_is_preserved(self):
+        self.assertNotEqual(
+            build_evidence_record_identity(self._event(raw_json='{"a": false}')).evidence_record_key,
+            build_evidence_record_identity(self._event(raw_json="{}")).evidence_record_key,
+        )
+
+    def test_raw_dict_ordering_with_null_is_stable(self):
+        self.assertEqual(
+            build_evidence_record_identity(self._event(raw_json='{"a": null, "b": 1}')).evidence_record_key,
+            build_evidence_record_identity(self._event(raw_json='{"b": 1, "a": null}')).evidence_record_key,
+        )
+
     def test_meaningful_source_record_difference_changes_fingerprint(self):
         first = self._event(raw_json=json.dumps({"message": "alpha", "code": 1}))
         second = self._event(raw_json=json.dumps({"message": "alpha", "code": 2}))
@@ -358,7 +388,7 @@ class EvidenceIdentityTestCase(unittest.TestCase):
             build_evidence_record_identity(second).evidence_record_key,
         )
 
-    def test_zero_valued_source_identifier_is_not_erased(self):
+    def test_zero_valued_discovered_source_identifier_is_locator_metadata_only(self):
         identity = build_evidence_record_identity(
             self._event(raw_json="{}", extra_fields=json.dumps({"row_id": 0}))
         )
@@ -367,8 +397,154 @@ class EvidenceIdentityTestCase(unittest.TestCase):
             evidence_record_key=identity.evidence_record_key,
         )
 
-        self.assertEqual(identity.evidence_identity_quality, EvidenceIdentityQuality.SOURCE_IDENTIFIER.value)
+        self.assertEqual(identity.evidence_identity_quality, EvidenceIdentityQuality.FINGERPRINTED.value)
         self.assertEqual(locator.source_native_identifier, "row_id:0")
+
+    def test_newly_extracted_unapproved_row_id_does_not_rename_raw_backed_identity(self):
+        first = self._event(raw_json=json.dumps({"message": "same"}), extra_fields="{}")
+        second = self._event(
+            raw_json=json.dumps({"message": "same"}),
+            extra_fields=json.dumps({"row_id": 123}),
+        )
+
+        self.assertEqual(
+            build_evidence_record_identity(first).evidence_record_key,
+            build_evidence_record_identity(second).evidence_record_key,
+        )
+
+    def test_explicit_source_identifier_opt_in_uses_source_identifier_quality(self):
+        identity = build_evidence_record_identity(
+            self._event(
+                raw_json=json.dumps({"message": "same"}),
+                extra_fields=json.dumps({
+                    "source_record_identifier_authoritative": True,
+                    "source_record_identifier_type": "sqlite_rowid",
+                    "source_record_identifier_value": 123,
+                }),
+            )
+        )
+
+        self.assertEqual(identity.evidence_identity_quality, EvidenceIdentityQuality.SOURCE_IDENTIFIER.value)
+
+    def test_authoritative_source_identifier_is_source_scoped(self):
+        first = self._event(
+            case_file_id=99,
+            extra_fields=json.dumps({
+                "source_record_identifier_authoritative": True,
+                "source_record_identifier_type": "sqlite_rowid",
+                "source_record_identifier_value": 123,
+            }),
+        )
+        second = self._event(
+            case_file_id=100,
+            extra_fields=json.dumps({
+                "source_record_identifier_authoritative": True,
+                "source_record_identifier_type": "sqlite_rowid",
+                "source_record_identifier_value": 123,
+            }),
+        )
+
+        self.assertNotEqual(
+            build_evidence_record_identity(first).evidence_record_key,
+            build_evidence_record_identity(second).evidence_record_key,
+        )
+
+    def test_different_authoritative_source_identifier_changes_key(self):
+        first = self._event(
+            extra_fields=json.dumps({
+                "source_record_identifier_authoritative": True,
+                "source_record_identifier_type": "sqlite_rowid",
+                "source_record_identifier_value": 123,
+            }),
+        )
+        second = self._event(
+            extra_fields=json.dumps({
+                "source_record_identifier_authoritative": True,
+                "source_record_identifier_type": "sqlite_rowid",
+                "source_record_identifier_value": 124,
+            }),
+        )
+
+        self.assertNotEqual(
+            build_evidence_record_identity(first).evidence_record_key,
+            build_evidence_record_identity(second).evidence_record_key,
+        )
+
+    def test_fake_uid_without_authority_does_not_outrank_raw_source(self):
+        first = self._event(raw_json=json.dumps({"message": "same"}), extra_fields=json.dumps({"uid": "derived-a"}))
+        second = self._event(raw_json=json.dumps({"message": "same"}), extra_fields=json.dumps({"uid": "derived-b"}))
+
+        self.assertEqual(
+            build_evidence_record_identity(first).evidence_record_key,
+            build_evidence_record_identity(second).evidence_record_key,
+        )
+
+    def test_identity_hierarchy_order_is_explicit(self):
+        source_authority = {
+            "source_record_identifier_authoritative": True,
+            "source_record_identifier_type": "sqlite_rowid",
+            "source_record_identifier_value": 123,
+        }
+
+        native = build_evidence_record_identity(
+            self._event(
+                artifact_type="evtx",
+                record_id=44,
+                raw_json=json.dumps({"message": "raw"}),
+                extra_fields=json.dumps(source_authority),
+            )
+        )
+        source_identifier = build_evidence_record_identity(
+            self._event(
+                raw_json=json.dumps({"message": "raw-a"}),
+                extra_fields=json.dumps(source_authority),
+            )
+        )
+        same_source_identifier_changed_raw = build_evidence_record_identity(
+            self._event(
+                raw_json=json.dumps({"message": "raw-b"}),
+                extra_fields=json.dumps(source_authority),
+            )
+        )
+        raw_backed = build_evidence_record_identity(
+            self._event(
+                raw_json=json.dumps({"message": "raw"}),
+                extra_fields=json.dumps({"row_id": 123}),
+                event_id="1000",
+            )
+        )
+        same_raw_changed_normalized = build_evidence_record_identity(
+            self._event(
+                raw_json=json.dumps({"message": "raw"}),
+                extra_fields=json.dumps({"row_id": 456}),
+                event_id="2000",
+            )
+        )
+        normalized = build_evidence_record_identity(self._event(raw_json="{}", event_id="1000"))
+        legacy = build_identity_from_clickhouse_row({
+            "case_id": 7,
+            "artifact_type": "",
+            "timestamp": "",
+            "timestamp_utc": "",
+            "source_file": "",
+            "source_path": "",
+            "source_host": "",
+            "case_file_id": None,
+            "event_id": "",
+            "record_id": None,
+            "raw_json": "{}",
+            "search_blob": "",
+            "extra_fields": "{}",
+            "parser_version": "old-parser",
+        })
+
+        self.assertEqual(native.evidence_identity_quality, EvidenceIdentityQuality.NATIVE.value)
+        self.assertEqual(source_identifier.evidence_identity_quality, EvidenceIdentityQuality.SOURCE_IDENTIFIER.value)
+        self.assertEqual(source_identifier.evidence_record_key, same_source_identifier_changed_raw.evidence_record_key)
+        self.assertEqual(raw_backed.evidence_identity_quality, EvidenceIdentityQuality.FINGERPRINTED.value)
+        self.assertEqual(raw_backed.evidence_record_key, same_raw_changed_normalized.evidence_record_key)
+        self.assertEqual(normalized.evidence_identity_quality, EvidenceIdentityQuality.FINGERPRINTED.value)
+        self.assertEqual(legacy.evidence_identity_quality, EvidenceIdentityQuality.LEGACY_FALLBACK.value)
 
     def test_legacy_fallback_quality_does_not_change_key_material(self):
         row = {

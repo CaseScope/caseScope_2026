@@ -36,8 +36,16 @@ Hierarchy:
 2. Stable source identifier:
    `algorithm/version + case_scope + source_scope + explicit source-record identifier type/value`
 
-   Recognized examples include `source_native_id`, `source_record_id`, `row_id`,
-   `sqlite_rowid`, `entry_id`, and `uid`. Numeric zero is valid.
+   Recognized metadata names alone are not authoritative. A parser or producer
+   must explicitly opt in with:
+   - `source_record_identifier_authoritative = true`
+   - `source_record_identifier_type = "<stable source-scoped semantic type>"`
+   - `source_record_identifier_value = "<stable source-scoped value>"`
+
+   Discovered metadata such as `source_native_id`, `source_record_id`, `row_id`,
+   `sqlite_rowid`, `entry_id`, and `uid` may be exposed in locators/details, but
+   they do not outrank raw source evidence unless the explicit authority
+   contract above is present. Numeric zero is valid when explicitly authorized.
 
 3. Raw-backed fingerprint:
    `algorithm/version + case_scope + source_scope + canonical retained raw source record`
@@ -79,11 +87,23 @@ parser version do not participate in the fingerprint. If the raw source record
 changes, the key changes. If CaseScope enrichment outside raw source data
 changes, the key does not change.
 
+Raw canonicalization is separate from normalized fallback cleanup. Raw JSON
+preserves source keys and source values including JSON null, false, zero, empty
+strings, empty arrays, and empty objects. Original list order is preserved.
+Deterministic serialization only sorts dictionary keys and normalizes supported
+non-JSON scalar objects, such as datetime/date and Decimal, if they appear before
+JSON conversion. These raw payloads remain distinct:
+- `{}`
+- `{"a": null}`
+- `{"a": ""}`
+- `{"a": 0}`
+- `{"a": false}`
+
 Migration behavior
 ------------------
 The migration adds missing identity columns, ensures `idx_evidence_record_key`,
-preflights table state, drains/verifies `events_buffer`, and then uses a bounded
-batched shadow-table rewrite only when work is required.
+preflights table state, fences `events_buffer`, and then uses a bounded batched
+shadow-table rewrite only when work is required.
 
 Handling:
 - Missing keys are generated as v2.
@@ -96,13 +116,33 @@ Handling:
   copies the full `events` table and reports this explicitly.
 - A fully migrated v2 table performs status/preflight checks and exits without
   shadow creation, row streaming, table rename, or index materialization.
+- `--dry-run` is read-only. It performs no DDL, no Buffer drains/fences, no
+  inserts, no mutations, and no index creation or materialization.
+- `--status` is read-only.
 
 Buffer safety
 -------------
-Before the authoritative `events` source count and before creating the shadow
-snapshot, the migration runs `OPTIMIZE TABLE events_buffer` and verifies the
-Buffer has no pending rows. Operators must still stop event-producing services
-first. If pending rows cannot be proven zero, the migration fails closed before
+Operators must stop event-producing services first. The migration cannot prove
+systemd state, so it also removes the writable Buffer target before the
+authoritative source snapshot. The sequence is:
+
+1. Acquire the destructive rewrite guard.
+2. Drain `events_buffer` with `OPTIMIZE TABLE events_buffer`, which ClickHouse
+   supports for Buffer-engine tables as an immediate flush.
+3. Drop `events_buffer`. ClickHouse documents Buffer DROP/DETACH as flushing
+   buffered rows to the destination table; after the drop, late writers to the
+   Buffer target fail instead of silently entering the old table.
+4. Verify `events_buffer` no longer exists.
+5. Count authoritative source rows in `events`.
+6. Create and fill `events_evidence_identity_backfill`.
+7. Validate `shadow_row_count == source_count_before_copy`.
+8. Recount original `events` and validate
+   `source_count_before_swap == source_count_before_copy`.
+9. Rename `events` to `events_evidence_identity_previous` and the shadow table
+   to `events`.
+10. Recreate `events_buffer` against the final active table.
+
+If pending Buffer rows cannot be proven zero, the migration fails closed before
 the shadow rewrite.
 
 Previous and shadow tables
@@ -115,6 +155,25 @@ archiving, or intentionally discarding that rollback copy.
 `events_evidence_identity_backfill` is a disposable stale shadow from an
 interrupted pre-swap run. It may be dropped after preflight when a new rewrite
 starts.
+
+Failure handling
+----------------
+If the Buffer cannot be safely fenced, no snapshot is taken and no shadow table
+is created.
+
+If the source row count changes during the copy, the migration drops the
+unfinished shadow table, does not rename tables, and leaves the original
+`events` table active.
+
+If shadow validation fails, the migration drops the unfinished shadow table and
+does not recreate a writable Buffer target before a successful swap. The
+operator output reports the active `events` table, Buffer state, shadow state,
+rollback table state, and the next recovery action.
+
+If `events_evidence_identity_previous` already exists and a rewrite is required,
+the migration aborts by default before fencing Buffer ingestion. Operators may
+rerun with `--replace-previous` only after validating, archiving, or
+intentionally discarding that rollback copy.
 
 Rollback
 --------
@@ -144,6 +203,8 @@ Recommended operator flow
 
 6. Dry-run:
    `python3 migrations/add_evidence_record_identity.py --dry-run`
+
+   This performs no DDL or data writes.
 
 7. Run the migration:
    `python3 migrations/add_evidence_record_identity.py --batch-size 10000`

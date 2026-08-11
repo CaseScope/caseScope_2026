@@ -56,6 +56,21 @@ NATIVE_RECORD_ID_MARKERS = (
     "record_id_is_native",
 )
 
+SOURCE_RECORD_IDENTIFIER_MARKERS = (
+    "source_record_identifier_authoritative",
+    "source_identifier_authoritative",
+)
+
+SOURCE_RECORD_IDENTIFIER_TYPE_KEYS = (
+    "source_record_identifier_type",
+    "source_identifier_type",
+)
+
+SOURCE_RECORD_IDENTIFIER_VALUE_KEYS = (
+    "source_record_identifier_value",
+    "source_identifier_value",
+)
+
 MUTABLE_OR_DERIVED_KEYS = {
     "analyst_tagged",
     "analyst_tags",
@@ -179,6 +194,15 @@ def canonical_json_dumps(value: Any) -> str:
     )
 
 
+def _identity_json_dumps(value: Any) -> str:
+    return json.dumps(
+        value,
+        sort_keys=True,
+        separators=(",", ":"),
+        ensure_ascii=True,
+    )
+
+
 def build_evidence_record_identity(event: Any) -> EvidenceRecordIdentity:
     """Build Evidence Identity v2 for a ParsedEvent-like object or mapping."""
 
@@ -187,7 +211,7 @@ def build_evidence_record_identity(event: Any) -> EvidenceRecordIdentity:
     raw_payload = _parse_jsonish(event_map.get("raw_json"))
 
     native_record_id = _record_id_value(event_map.get("record_id"))
-    source_identifier = _first_source_identifier(extra_fields)
+    source_identifier = _authoritative_source_identifier(event_map, extra_fields)
 
     if native_record_id is not None and _has_authoritative_native_record_id(event_map, extra_fields):
         quality = EvidenceIdentityQuality.NATIVE.value
@@ -221,7 +245,7 @@ def build_evidence_record_identity(event: Any) -> EvidenceRecordIdentity:
             "normalized_source_record": _normalized_record_payload(event_map),
         }
 
-    serialized = canonical_json_dumps(
+    serialized = _identity_json_dumps(
         {
             "algorithm": "evidence_identity_v2",
             "version": EVIDENCE_IDENTITY_VERSION,
@@ -274,7 +298,7 @@ def build_identity_from_clickhouse_row(row: Mapping[str, Any]) -> EvidenceRecord
     extra_fields = _parse_jsonish(row.get("extra_fields"))
     if (
         not _has_authoritative_native_record_id(row, extra_fields)
-        and not _first_source_identifier(extra_fields)
+        and not _authoritative_source_identifier(row, extra_fields)
     ):
         raw_payload = _parse_jsonish(row.get("raw_json"))
         if raw_payload in ({}, "", None) and not _normalized_record_payload(row):
@@ -320,6 +344,25 @@ def _canonicalize(value: Any) -> Any:
         return [_canonicalize(item) for item in value]
     if isinstance(value, set):
         return sorted(_canonicalize(item) for item in value)
+    if isinstance(value, datetime):
+        return _timestamp_identity_value(value)
+    if isinstance(value, date):
+        return value.isoformat()
+    if isinstance(value, Decimal):
+        return str(value)
+    return value
+
+
+def _canonicalize_raw_source(value: Any) -> Any:
+    if isinstance(value, Mapping):
+        return {
+            str(key): _canonicalize_raw_source(value[key])
+            for key in sorted(value.keys(), key=lambda item: str(item))
+        }
+    if isinstance(value, (list, tuple)):
+        return [_canonicalize_raw_source(item) for item in value]
+    if isinstance(value, set):
+        return sorted(_canonicalize_raw_source(item) for item in value)
     if isinstance(value, datetime):
         return _timestamp_identity_value(value)
     if isinstance(value, date):
@@ -423,6 +466,49 @@ def _identifier_payload(identifier: str) -> Dict[str, str]:
     return {"identity_type": _clean(identity_type), "value": _clean(value)}
 
 
+def _authoritative_source_identifier(event_map: Mapping[str, Any], extra_fields: Any) -> str:
+    """Return explicitly authorized source-record identity material.
+
+    Discovered fields such as row_id or uid remain useful locator metadata, but
+    they are not stable hash material unless a parser/producer opts in with an
+    explicit semantic type and value.
+    """
+
+    candidates = []
+    if isinstance(extra_fields, Mapping):
+        candidates.append(extra_fields)
+    candidates.append(event_map)
+    authoritative = any(
+        _truthy_marker(candidate.get(marker))
+        for candidate in candidates
+        for marker in SOURCE_RECORD_IDENTIFIER_MARKERS
+    )
+    if not authoritative:
+        return ""
+
+    identity_type = ""
+    identity_value: Any = None
+    value_present = False
+    for candidate in candidates:
+        for key in SOURCE_RECORD_IDENTIFIER_TYPE_KEYS:
+            identity_type = _clean(candidate.get(key))
+            if identity_type:
+                break
+        if identity_type:
+            break
+    for candidate in candidates:
+        for key in SOURCE_RECORD_IDENTIFIER_VALUE_KEYS:
+            if key in candidate:
+                identity_value = candidate.get(key)
+                value_present = True
+                break
+        if value_present:
+            break
+    if not identity_type or not value_present or identity_value in (None, "", "-", []):
+        return ""
+    return f"{identity_type}:{_clean(identity_value)}"
+
+
 def _first_source_scope_identifier(extra_fields: Any) -> str:
     if not isinstance(extra_fields, Mapping):
         return ""
@@ -464,7 +550,7 @@ def _has_usable_raw_source_record(value: Any) -> bool:
 def _canonical_raw_source_payload(value: Any) -> Any:
     """Canonicalize retained source payload without stripping source field names."""
 
-    return _canonicalize(value)
+    return _canonicalize_raw_source(value)
 
 
 def _clean_normalized_identity_payload(value: Any) -> Any:

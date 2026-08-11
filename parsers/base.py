@@ -205,6 +205,9 @@ class ParsedEvent:
     evidence_identity_version: str = ''
     evidence_identity_quality: str = ''
     native_record_id_authoritative: bool = False
+    source_record_identifier_authoritative: bool = False
+    source_record_identifier_type: str = ''
+    source_record_identifier_value: str = ''
 
     _PROVENANCE_SKIP_FIELDS = {
         'case_id',
@@ -321,6 +324,10 @@ class ParsedEvent:
         if self.native_record_id_authoritative:
             payload['native_record_id_authoritative'] = True
             payload.setdefault('record_identity_kind', 'native')
+        if self.source_record_identifier_authoritative:
+            payload['source_record_identifier_authoritative'] = True
+            payload['source_record_identifier_type'] = self.source_record_identifier_type
+            payload['source_record_identifier_value'] = self.source_record_identifier_value
         payload['field_provenance'] = {
             **parser_provenance.get('field_provenance', {}),
             **existing_field_provenance,

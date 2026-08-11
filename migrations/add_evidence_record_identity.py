@@ -11,10 +11,10 @@ from typing import Any, Dict, Iterable, List, Optional
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from migrations.add_events_table import (  # noqa: E402
-    EVENTS_BUFFER_SCHEMA,
     EVENTS_COLUMN_DEFINITIONS,
+    fence_events_buffer_ingestion,
     get_events_buffer_state,
-    safely_drain_events_buffer,
+    recreate_events_buffer,
 )
 from parsers.base import ParsedEvent  # noqa: E402
 from utils.clickhouse import destructive_event_rewrite_guard, get_fresh_client  # noqa: E402
@@ -141,8 +141,7 @@ def ensure_events_buffer_schema(client) -> None:
     if not _table_exists(client, "events"):
         return
     if not _table_exists(client, "events_buffer"):
-        client.command(EVENTS_BUFFER_SCHEMA)
-        print("- Created events_buffer table")
+        recreate_events_buffer(client)
         return
 
     events_columns = set(_insertable_columns(client, "events"))
@@ -151,9 +150,8 @@ def ensure_events_buffer_schema(client) -> None:
         return
 
     if _table_engine(client, "events_buffer").lower() == "buffer":
-        safely_drain_events_buffer(client, context="events_buffer schema recreation")
-        client.command("DROP TABLE IF EXISTS events_buffer")
-        client.command(EVENTS_BUFFER_SCHEMA)
+        fence_events_buffer_ingestion(client, context="events_buffer schema recreation")
+        recreate_events_buffer(client)
         print("- Recreated events_buffer to match events schema")
         return
 
@@ -325,6 +323,47 @@ def _print_preflight(
     return rewrite_needed
 
 
+def _print_dry_run_plan(
+    client,
+    *,
+    case_id: Optional[int],
+    recompute_existing: bool,
+    total_rows: int,
+    scoped_rows: int,
+    counts: Dict[str, int],
+) -> bool:
+    events_columns = _existing_columns(client, "events")
+    schema_change_required = any(column not in events_columns for column in IDENTITY_COLUMNS)
+    index_required = not _has_identity_index(client)
+    buffer_state = get_events_buffer_state(client)
+    previous_exists = _table_exists(client, OLD_TABLE)
+    rewrite_needed = _rewrite_required(
+        counts,
+        scoped_rows=scoped_rows,
+        recompute_existing=recompute_existing,
+    )
+
+    _print_preflight(
+        client,
+        case_id=case_id,
+        recompute_existing=recompute_existing,
+        total_rows=total_rows,
+        scoped_rows=scoped_rows,
+        counts=counts,
+    )
+    print("- Dry-run plan:")
+    print(f"  schema change required: {schema_change_required}")
+    print(f"  evidence index required: {index_required}")
+    print(f"  buffer fencing required: {rewrite_needed and buffer_state['exists']}")
+    print(f"  identity rewrite required: {rewrite_needed}")
+    print(f"  v1 keys to upgrade: {counts['v1']}")
+    print(f"  empty keys to generate: {counts['empty']}")
+    print(f"  full table copy required: {rewrite_needed}")
+    print(f"  previous rollback table: {'present' if previous_exists else 'none'}")
+    print("- Dry run only; no ClickHouse DDL or data writes were executed")
+    return rewrite_needed
+
+
 def _should_recompute_identity(
     row_map: Dict[str, Any],
     *,
@@ -393,11 +432,27 @@ def _swap_shadow_table(client) -> None:
         raise RuntimeError(
             f"{OLD_TABLE} already exists; validate/remove/archive it before swapping a new events table"
         )
-    safely_drain_events_buffer(client, context="final events table swap")
-    client.command("DROP TABLE IF EXISTS events_buffer")
     client.command(f"RENAME TABLE events TO {OLD_TABLE}, {SHADOW_TABLE} TO events")
-    client.command(EVENTS_BUFFER_SCHEMA)
+    recreate_events_buffer(client)
     print(f"- Swapped {SHADOW_TABLE} into events and recreated events_buffer")
+
+
+def _print_failure_recovery_state(client, *, reason: str) -> None:
+    print(f"- Evidence Identity migration aborted: {reason}")
+    print("- Recovery state:")
+    for table_name in ("events", "events_buffer", SHADOW_TABLE, OLD_TABLE):
+        try:
+            exists = _table_exists(client, table_name)
+            engine = _table_engine(client, table_name) if exists else "n/a"
+        except Exception as exc:
+            exists = f"unknown ({exc})"
+            engine = "unknown"
+        print(f"  {table_name}: exists={exists} engine={engine}")
+    print(
+        "- Next operator action: keep event-producing services stopped, validate "
+        "the table state above, then rerun the migration or recreate events_buffer "
+        "only after confirming events is the intended active table."
+    )
 
 
 def backfill_identity_columns(
@@ -413,7 +468,7 @@ def backfill_identity_columns(
         total_rows = _count_events(client)
         scoped_rows = _count_events(client, case_id=case_id)
         counts = _identity_version_counts(client, case_id=case_id)
-        _print_preflight(
+        _print_dry_run_plan(
             client,
             case_id=case_id,
             recompute_existing=recompute_existing,
@@ -421,7 +476,6 @@ def backfill_identity_columns(
             scoped_rows=scoped_rows,
             counts=counts,
         )
-        print("- Dry run only; no ClickHouse tables were rewritten")
         return 0
 
     columns = _insertable_columns(client, "events")
@@ -433,7 +487,6 @@ def backfill_identity_columns(
         "evidence_identity_v2_shadow_backfill",
         case_id=case_id,
     ):
-        safely_drain_events_buffer(client, context="evidence identity snapshot")
         total_rows = _count_events(client)
         scoped_rows = _count_events(client, case_id=case_id)
         counts = _identity_version_counts(client, case_id=case_id)
@@ -458,23 +511,41 @@ def backfill_identity_columns(
             client.command(f"DROP TABLE {OLD_TABLE}")
             print(f"- Dropped previous rollback table {OLD_TABLE} by explicit request")
 
-        _prepare_shadow_table(client)
-        rewritten = _rewrite_rows_to_shadow(
-            client,
-            columns=columns,
-            batch_size=int(batch_size),
-            case_id=case_id,
-            recompute_existing=bool(recompute_existing),
-        )
+        try:
+            fence_events_buffer_ingestion(client, context="evidence identity snapshot")
+            source_count_before_copy = _count_events(client)
+            print(f"- Authoritative events source count after Buffer fence: {source_count_before_copy}")
 
-        shadow_rows = _count_events(client, table_name=SHADOW_TABLE)
-        if shadow_rows != total_rows:
-            client.command(f"DROP TABLE IF EXISTS {SHADOW_TABLE}")
-            raise RuntimeError(
-                f"Shadow row count mismatch: events={total_rows}, {SHADOW_TABLE}={shadow_rows}"
+            _prepare_shadow_table(client)
+            rewritten = _rewrite_rows_to_shadow(
+                client,
+                columns=columns,
+                batch_size=int(batch_size),
+                case_id=case_id,
+                recompute_existing=bool(recompute_existing),
             )
 
-        _swap_shadow_table(client)
+            shadow_rows = _count_events(client, table_name=SHADOW_TABLE)
+            current_original_source_count = _count_events(client)
+            if shadow_rows != source_count_before_copy:
+                client.command(f"DROP TABLE IF EXISTS {SHADOW_TABLE}")
+                raise RuntimeError(
+                    "Shadow row count mismatch: "
+                    f"events_before_copy={source_count_before_copy}, "
+                    f"{SHADOW_TABLE}={shadow_rows}"
+                )
+            if current_original_source_count != source_count_before_copy:
+                client.command(f"DROP TABLE IF EXISTS {SHADOW_TABLE}")
+                raise RuntimeError(
+                    "Source events row count changed during shadow rewrite: "
+                    f"before_copy={source_count_before_copy}, "
+                    f"before_swap={current_original_source_count}"
+                )
+
+            _swap_shadow_table(client)
+        except Exception as exc:
+            _print_failure_recovery_state(client, reason=str(exc))
+            raise
         ensure_identity_index(client, materialize=True)
         remaining_empty = _count_empty_identity(client, case_id=case_id)
         print(f"- Validation complete: {remaining_empty} empty identity keys remain in scope")
@@ -538,6 +609,17 @@ def migrate(argv: Optional[List[str]] = None) -> None:
     client = get_fresh_client()
     if args.status:
         print_status(client, case_id=args.case_id)
+        return
+    if args.dry_run:
+        backfill_identity_columns(
+            client,
+            batch_size=args.batch_size,
+            case_id=args.case_id,
+            dry_run=True,
+            recompute_existing=args.recompute_existing,
+            replace_previous=args.replace_previous,
+        )
+        print("Dry run complete")
         return
     add_identity_columns(client)
     ensure_identity_index(client, materialize=args.materialize_index)

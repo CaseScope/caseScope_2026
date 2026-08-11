@@ -231,7 +231,12 @@ def get_events_buffer_state(client):
 
 
 def safely_drain_events_buffer(client, *, context="events migration"):
-    """Flush and verify the Buffer table before DDL that could discard rows."""
+    """Flush and verify the Buffer table before DDL that could discard rows.
+
+    ClickHouse documents OPTIMIZE for Buffer-engine tables as an immediate
+    flush, and DROP/DETACH as flushing buffered rows to the destination table.
+    The explicit OPTIMIZE keeps pending-row diagnostics visible before fencing.
+    """
 
     if not _table_exists(client, "events_buffer"):
         return {"exists": False, "engine": "", "pending_before": 0, "pending_after": 0}
@@ -256,6 +261,29 @@ def safely_drain_events_buffer(client, *, context="events migration"):
         "pending_before": pending_before,
         "pending_after": pending_after,
     }
+
+
+def fence_events_buffer_ingestion(client, *, context="events migration"):
+    """Drain and remove the Buffer ingestion table so late writers fail closed."""
+
+    state = safely_drain_events_buffer(client, context=context)
+    if not _table_exists(client, "events_buffer"):
+        print("- events_buffer ingestion target is absent")
+        return {**state, "fenced": True}
+    if _table_engine(client, "events_buffer").lower() == "buffer":
+        client.command("DROP TABLE IF EXISTS events_buffer")
+        print("- Dropped events_buffer to fence event ingestion")
+    else:
+        client.command("DROP TABLE IF EXISTS events_buffer")
+        print("- Dropped non-Buffer events_buffer replacement to fence event ingestion")
+    if _table_exists(client, "events_buffer"):
+        raise RuntimeError("events_buffer still exists after fence; aborting migration")
+    return {**state, "fenced": True}
+
+
+def recreate_events_buffer(client):
+    client.command(EVENTS_BUFFER_SCHEMA)
+    print("- Created or verified events_buffer table")
 
 
 def _insertable_columns(client, table_name):
@@ -311,8 +339,7 @@ def _ensure_evidence_record_key_index(client):
 
 def _ensure_events_buffer_schema(client):
     if not _table_exists(client, "events_buffer"):
-        client.command(EVENTS_BUFFER_SCHEMA)
-        print("- Created or verified events_buffer table")
+        recreate_events_buffer(client)
         return
 
     events_columns = set(_insertable_columns(client, "events"))
@@ -322,9 +349,8 @@ def _ensure_events_buffer_schema(client):
         return
 
     if _table_engine(client, "events_buffer").lower() == "buffer":
-        safely_drain_events_buffer(client, context="events_buffer schema recreation")
-        client.command("DROP TABLE IF EXISTS events_buffer")
-        client.command(EVENTS_BUFFER_SCHEMA)
+        fence_events_buffer_ingestion(client, context="events_buffer schema recreation")
+        recreate_events_buffer(client)
         print("- Recreated events_buffer table to match events schema")
         return
 
