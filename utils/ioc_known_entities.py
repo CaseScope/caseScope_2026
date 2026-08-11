@@ -9,6 +9,7 @@ def process_known_system(
     hostname: str,
     case_id: int,
     username: str,
+    compromised: bool = True,
 ) -> Optional[Dict[str, Any]]:
     """Return the case-scoped known-system action implied by one hostname."""
     from models.known_system import KnownSystem
@@ -22,13 +23,16 @@ def process_known_system(
         "action": None,
         "system_id": None,
         "was_compromised": False,
-        "now_compromised": True,
+        "now_compromised": bool(compromised),
     }
 
     if system:
         result["system_id"] = system.id
         result["was_compromised"] = system.compromised
-        result["action"] = "mark_compromised" if not system.compromised else "already_compromised"
+        if compromised:
+            result["action"] = "mark_compromised" if not system.compromised else "already_compromised"
+        else:
+            result["action"] = "link_existing"
         system.link_to_case(case_id)
     else:
         result["action"] = "create_new"

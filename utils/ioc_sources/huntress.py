@@ -10,7 +10,7 @@ from typing import Any, Dict, Optional
 
 try:
     from .base import CanonicalReport, CanonicalReportSection, ReportSourceAdapter
-    from .generic import classify_section, source_text, split_underlined_sections
+    from .generic import classify_evidence_classes, classify_section, source_text, split_underlined_sections
 except ImportError:
     _base_path = os.path.join(os.path.dirname(__file__), "base.py")
     _base_spec = importlib.util.spec_from_file_location("ioc_sources_base_fallback", _base_path)
@@ -29,6 +29,7 @@ except ImportError:
     sys.modules["ioc_sources_generic_fallback"] = _generic
     _generic_spec.loader.exec_module(_generic)
     classify_section = _generic.classify_section
+    classify_evidence_classes = _generic.classify_evidence_classes
     source_text = _generic.source_text
     split_underlined_sections = _generic.split_underlined_sections
 
@@ -92,6 +93,7 @@ class HuntressReportAdapter(ReportSourceAdapter):
                     source_section_name=source_name,
                     raw_text=body,
                     normalized_text=normalized_text,
+                    evidence_classes=classify_evidence_classes(source_name, normalized_text),
                     metadata={"adapter": self.__class__.__name__},
                 )
             )
@@ -107,8 +109,6 @@ class HuntressReportAdapter(ReportSourceAdapter):
 
     def _canonical_type(self, section_name: str, section_text: str) -> str:
         lowered = (section_name or "").strip().lower()
-        if "scheduled task" in f"{lowered}\n{section_text.lower()}":
-            return "process"
         if lowered in HUNTRESS_SECTION_TYPES:
             return HUNTRESS_SECTION_TYPES[lowered]
         return classify_section(section_name, section_text)
@@ -122,7 +122,7 @@ class HuntressReportAdapter(ReportSourceAdapter):
 
     def _normalize_section_text(self, canonical_type: str, section_text: str) -> str:
         lines = []
-        scheduled_task_context = canonical_type == "process" and "scheduled task" in (section_text or "").lower()
+        scheduled_task_context = "scheduled task" in (section_text or "").lower()
         for line in (section_text or "").splitlines():
             stripped = line.strip()
             if not stripped:

@@ -24,6 +24,7 @@ def _load_local_module(name: str, filename: str):
 
 _ioc_contract = _load_local_module("ioc_contract_adapter_shared", "ioc_contract.py")
 _ioc_normalizer = _load_local_module("ioc_contract_adapter_normalizer_shared", "ioc_normalizer.py")
+_ai_review = _load_local_module("ioc_contract_adapter_review_shared", "ai_review.py")
 
 
 def _as_list(value: Any) -> List[Any]:
@@ -57,8 +58,7 @@ def _sanitize_review_payload(value: Any) -> Any:
 
 
 def _review_structured_output(provider: Any, **kwargs) -> Any:
-    ai_review = _load_local_module("ioc_contract_adapter_review_shared", "ai_review.py")
-    return ai_review.review_structured_output(provider, **kwargs)
+    return _ai_review.review_structured_output(provider, **kwargs)
 
 
 def coerce_ioc_contract_payload(payload: Any) -> Dict[str, Any]:

@@ -57,6 +57,7 @@ def _build_source_contribution(
         "evidence_source_report_id": ioc_entry.get("evidence_source_report_id"),
         "evidence_source_section": ioc_entry.get("evidence_source_section"),
         "canonical_section": ioc_entry.get("canonical_section"),
+        "evidence_classes": ioc_entry.get("evidence_classes") or [],
         "evidence_refs": ioc_entry.get("evidence_refs") or [],
         "contribution_type": contribution_type,
         "review_result": ioc_entry.get("review_result") or "accepted",
@@ -204,13 +205,14 @@ def save_extracted_iocs(
                 if action == "create_new":
                     netbios, fqdn = KnownSystem.extract_netbios_name(hostname)
                     target_hostname = netbios or hostname
+                    now_compromised = bool(sys_result.get("now_compromised"))
 
                     existing_system, _ = KnownSystem.find_by_hostname_or_alias(
                         target_hostname,
                         case_id=case_id,
                     )
                     if existing_system:
-                        if not existing_system.compromised:
+                        if now_compromised and not existing_system.compromised:
                             existing_system.compromised = True
                             systems_updated += 1
                         create_hostname_ioc(target_hostname)
@@ -220,8 +222,12 @@ def save_extracted_iocs(
                         new_system = KnownSystem(
                             case_id=case_id,
                             hostname=target_hostname,
-                            compromised=True,
-                            notes=f"Created from EDR report extraction by {username}",
+                            compromised=now_compromised,
+                            notes=(
+                                f"Created from confirmed compromised host extraction by {username}"
+                                if now_compromised
+                                else f"Created as relevant host from report extraction by {username}"
+                            ),
                         )
                         db.session.add(new_system)
                         db.session.flush()
@@ -249,6 +255,11 @@ def save_extracted_iocs(
                         new_value=f"{target_hostname} (from EDR extraction)",
                     )
                     systems_created += 1
+
+                elif action == "link_existing":
+                    system = KnownSystem.query.get(sys_result.get("system_id"))
+                    if system:
+                        create_hostname_ioc(system.hostname)
 
                 elif action == "mark_compromised":
                     system = KnownSystem.query.get(sys_result.get("system_id"))

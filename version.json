@@ -1,6 +1,16 @@
 {
-  "version": "4.12.0",
+  "version": "4.12.1",
   "changelog": [
+    {
+      "version": "4.12.1",
+      "date": "2026-08-10",
+      "changes": [
+        "IOC ingestion now preserves CanonicalReport boundaries through deterministic and semantic extraction so source adapters are not reapplied to already-normalized report sections",
+        "Host IOC import now separates observed or affected hosts from explicitly confirmed compromised hosts, preventing generic host and endpoint references from automatically marking KnownSystem records compromised",
+        "IOC provenance now keeps exact deterministic and semantic source-section evidence where available, preserves multiple evidence refs through import and persistence, and exposes bounded source metadata for analyst detail views",
+        "Semantic IOC task validation now enforces item-level evidence, field types, actions and evidence origins before normalization, while provider completion metadata is normalized across OpenAI-compatible, native Ollama, OpenAI and Claude paths"
+      ]
+    },
     {
       "version": "4.12.0",
       "date": "2026-08-10",

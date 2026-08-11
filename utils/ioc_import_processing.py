@@ -77,11 +77,13 @@ def _process_known_system(
     hostname: str,
     case_id: int,
     username: str,
+    compromised: bool = True,
 ) -> Optional[Dict[str, Any]]:
     return _ioc_known_entities.process_known_system(
         hostname=hostname,
         case_id=case_id,
         username=username,
+        compromised=compromised,
     )
 
 
@@ -107,14 +109,19 @@ def _dedupe_known_results(
     key_builder: Callable[[Dict[str, Any]], Any],
 ) -> List[Dict[str, Any]]:
     deduped: List[Dict[str, Any]] = []
-    seen = set()
+    seen: Dict[Any, int] = {}
     for result in results:
         if not isinstance(result, dict):
             continue
         key = key_builder(result)
-        if not key or key in seen:
+        if not key:
             continue
-        seen.add(key)
+        if key in seen:
+            existing = deduped[seen[key]]
+            if result.get("now_compromised") and not existing.get("now_compromised"):
+                deduped[seen[key]] = result
+            continue
+        seen[key] = len(deduped)
         deduped.append(result)
     return deduped
 
@@ -657,13 +664,19 @@ def process_extraction_for_import(
         if ioc_entry:
             iocs_to_import.append(_annotate_entry(ioc_entry, "Hostname", hostname_val))
 
-        system_result = _process_known_system(hostname_val, case_id, username)
+        system_result = _process_known_system(hostname_val, case_id, username, compromised=False)
         if system_result:
             known_systems_results.append(system_result)
 
     for host in summary.get("affected_hosts", []):
         if host and host.strip():
-            system_result = _process_known_system(host.strip(), case_id, username)
+            system_result = _process_known_system(host.strip(), case_id, username, compromised=False)
+            if system_result:
+                known_systems_results.append(system_result)
+
+    for host in summary.get("confirmed_compromised_hosts", []):
+        if host and str(host).strip():
+            system_result = _process_known_system(str(host).strip(), case_id, username, compromised=True)
             if system_result:
                 known_systems_results.append(system_result)
 

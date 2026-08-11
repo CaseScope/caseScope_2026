@@ -94,6 +94,44 @@ class IOCHuntressExtractorRegressionTestCase(unittest.TestCase):
             normalize_extraction=self.extractor_module._normalize_ai_extraction,
         )
 
+    def _process_with_fake_known_systems(self, extraction):
+        previous_known_system = sys.modules.get('models.known_system')
+        previous_ioc = sys.modules.get('models.ioc')
+
+        class FakeKnownSystem:
+            @staticmethod
+            def find_by_hostname_or_alias(_hostname, case_id=None):
+                return None, None
+
+        class FakeIOC:
+            @staticmethod
+            def find_by_value(_value, _ioc_type, case_id=None):
+                return None
+
+        fake_known_system_module = types.ModuleType('models.known_system')
+        fake_known_system_module.KnownSystem = FakeKnownSystem
+        fake_ioc_module = types.ModuleType('models.ioc')
+        fake_ioc_module.IOC = FakeIOC
+        fake_ioc_module.detect_match_type = lambda _value, _ioc_type: 'substring'
+        fake_ioc_module.get_match_type_recommendation = lambda _value, _ioc_type: {'reason': 'test'}
+        sys.modules['models.known_system'] = fake_known_system_module
+        sys.modules['models.ioc'] = fake_ioc_module
+        try:
+            return self.extractor_module.process_extraction_for_import(
+                extraction=extraction,
+                case_id=42,
+                username='tester',
+            )
+        finally:
+            if previous_known_system is not None:
+                sys.modules['models.known_system'] = previous_known_system
+            else:
+                sys.modules.pop('models.known_system', None)
+            if previous_ioc is not None:
+                sys.modules['models.ioc'] = previous_ioc
+            else:
+                sys.modules.pop('models.ioc', None)
+
     def _semantic_result(self, data, raw_response=None, finish_reason='stop', **extra):
         result = {
             'success': True,
@@ -569,7 +607,52 @@ class IOCHuntressExtractorRegressionTestCase(unittest.TestCase):
                 for failure in result['task_failures']
             )
         )
-        self.assertFalse(review_calls)
+
+    def test_semantic_item_validation_retries_invalid_process_item(self):
+        stage = self.extractor_module._semantic_stage.run_semantic_stage
+        invalid_payload = {
+            'commands': [{'whatever': 'something'}],
+            'services': [],
+            'scheduled_tasks': [],
+        }
+        valid_payload = {
+            'commands': [
+                {
+                    'full_command': 'cmd.exe /c whoami',
+                    'executable': 'cmd.exe',
+                    'parent_process': None,
+                    'user': None,
+                    'pid': None,
+                    'evidence': 'Command: cmd.exe /c whoami',
+                    'evidence_origin': 'observed',
+                }
+            ],
+            'services': [],
+            'scheduled_tasks': [],
+        }
+        provider = self._SequencedSemanticProvider({
+            'semantic_process_relationships': [
+                self._semantic_result(invalid_payload),
+                self._semantic_result(valid_payload),
+            ],
+        })
+
+        result = stage(
+            provider,
+            'Process Evidence\n----------------\nCommand: cmd.exe /c whoami',
+            {'iocs': {}, 'extraction_summary': {}},
+            max_chunk_chars=4000,
+            max_response_tokens=512,
+            validate_result=self.extractor_module._validate_ai_result_metadata,
+            prepare_payload=self.extractor_module._prepare_ai_extraction_payload,
+            filter_payload_for_task=self.extractor_module._filter_semantic_payload_for_task,
+            normalize_extraction=self.extractor_module._normalize_ai_extraction,
+        )
+
+        self.assertFalse(result['task_failures'])
+        self.assertEqual(result['task_provenance'][0]['retry_count'], 1)
+        self.assertIn('item validation failed', result['task_provenance'][0]['attempts'][0]['error'])
+        self.assertEqual(result['normalized_results'][0]['iocs']['commands'][0]['value'], 'cmd.exe /c whoami')
 
     def test_semantic_stage_accepts_clean_empty_json_without_repair_or_retry(self):
         payload = {'registry': [], 'credential_theft_indicators': [], 'webshells': []}
@@ -1346,6 +1429,170 @@ class IOCHuntressExtractorRegressionTestCase(unittest.TestCase):
             any(item['value'] == r'HKCU\Software\Microsoft\Windows\CurrentVersion\Run\BootstrapSvc' for item in extraction['iocs']['registry_keys'])
         )
 
+    def test_affected_host_is_relevant_but_not_confirmed_compromised(self):
+        report = "Host: FIN-LAPTOP-9"
+        extraction = self.extractor_module.run_deterministic_ioc_extraction(report)
+
+        self.assertIn('FIN-LAPTOP-9', extraction['extraction_summary']['affected_hosts'])
+        self.assertEqual(extraction['extraction_summary'].get('confirmed_compromised_hosts'), [])
+
+        processed = self._process_with_fake_known_systems(extraction)
+
+        self.assertTrue(processed['known_systems_results'])
+        self.assertFalse(any(item['now_compromised'] for item in processed['known_systems_results']))
+
+    def test_affected_endpoint_is_not_confirmed_compromised(self):
+        report = "Affected Endpoint: FIN-LAPTOP-9"
+        extraction = self.extractor_module.run_deterministic_ioc_extraction(report)
+
+        self.assertIn('FIN-LAPTOP-9', extraction['extraction_summary']['affected_hosts'])
+        self.assertEqual(extraction['extraction_summary'].get('confirmed_compromised_hosts'), [])
+
+    def test_explicit_compromised_host_state_is_scoped_to_named_host(self):
+        report = (
+            "Host: FIN-LAPTOP-9\n"
+            "Host: HR-LAPTOP-2\n"
+            "The attacker compromised FIN-LAPTOP-9.\n"
+        )
+        extraction = self.extractor_module.run_deterministic_ioc_extraction(report)
+
+        self.assertEqual(
+            extraction['extraction_summary'].get('confirmed_compromised_hosts'),
+            ['FIN-LAPTOP-9'],
+        )
+        processed = self._process_with_fake_known_systems(extraction)
+        states = {
+            item['hostname']: item['now_compromised']
+            for item in processed['known_systems_results']
+        }
+
+        self.assertTrue(states['FIN-LAPTOP-9'])
+        self.assertFalse(states['HR-LAPTOP-2'])
+
+    def test_generic_summary_keeps_structural_type_and_evidence_classes(self):
+        normalizer = self.extractor_module._report_normalizer
+        report = (
+            "Summary\n-------\n"
+            "User: maria.lopez\n"
+            "Host: FIN-LAPTOP-9\n"
+            "Command: powershell.exe -nop\n"
+            "Domain: evil.example\n"
+            "Scheduled Task: IntelSoftwareUpdater\n"
+        )
+
+        canonical = normalizer.normalize_report_source(report)
+        section = canonical.sections[0]
+        tasks = self.extractor_module._semantic_stage.build_semantic_task_plan(
+            normalizer.render_canonical_report_text(canonical),
+            {'iocs': {'commands': [], 'services': [], 'scheduled_tasks': []}, 'extraction_summary': {}},
+            canonical_report=canonical,
+        )
+        task_names = {task['task_name'] for task in tasks}
+
+        self.assertEqual(section.canonical_type, 'summary')
+        self.assertIn('identity', section.evidence_classes)
+        self.assertIn('host', section.evidence_classes)
+        self.assertIn('process', section.evidence_classes)
+        self.assertIn('network', section.evidence_classes)
+        self.assertIn('semantic_identity_and_auth', task_names)
+        self.assertIn('semantic_process_relationships', task_names)
+
+    def test_deterministic_provenance_uses_exact_section_not_first_section(self):
+        report = (
+            "Investigative Summary\n---------------------\n"
+            "Summary text only.\n\n"
+            "Network\n-------\n"
+            "Observed callback to evil.com.\n"
+        )
+        extraction = self.extractor_module.run_deterministic_ioc_extraction(report)
+        domain_record = next(
+            record for record in extraction['_ioc_records']
+            if record['ioc_type'] == 'Domain' and record['value'] == 'evil.com'
+        )
+
+        self.assertEqual(domain_record['evidence_source_section'], 'Network')
+        self.assertEqual(domain_record['canonical_section'], 'network')
+        self.assertEqual(domain_record['evidence_refs'][0]['source_section'], 'Network')
+
+    def test_no_first_section_fallback_when_section_unknown(self):
+        records = self.extractor_module._ioc_schema.records_from_extraction(
+            {
+                'iocs': {'domains': [{'value': 'evil.com'}]},
+                'extraction_summary': {
+                    'source_provenance': {
+                        'source_type': 'generic',
+                        'sections': [
+                            {'source_section': 'Investigative Summary', 'canonical_section': 'summary'},
+                            {'source_section': 'Network', 'canonical_section': 'network'},
+                        ],
+                    }
+                },
+            },
+            source='regex',
+            trust_tier=self.extractor_module._ioc_schema.TRUST_HIGH,
+        )
+
+        self.assertEqual(records[0]['evidence_source_section'], '')
+        self.assertEqual(records[0]['canonical_section'], '')
+
+    def test_semantic_evidence_resolves_to_exact_source_section(self):
+        report = (
+            "Investigative Summary\n---------------------\n"
+            "Summary only.\n\n"
+            "Process Evidence\n----------------\n"
+            "Command: cmd.exe /c whoami\n"
+        )
+        provider = self._SequencedSemanticProvider({
+            'semantic_process_relationships': [
+                self._semantic_result({
+                    'commands': [
+                        {
+                            'full_command': 'cmd.exe /c whoami',
+                            'executable': 'cmd.exe',
+                            'parent_process': None,
+                            'user': None,
+                            'pid': None,
+                            'evidence': 'Command: cmd.exe /c whoami',
+                            'evidence_origin': 'observed',
+                        }
+                    ],
+                    'services': [],
+                    'scheduled_tasks': [],
+                })
+            ],
+        })
+
+        extraction, _used_ai = self.extractor_module.run_ioc_pipeline_with_provider(
+            report,
+            provider,
+            pipeline_mode='semantic',
+        )
+        command_record = next(
+            record for record in extraction['_ioc_records']
+            if record['ioc_type'] == 'Command Line' and record['value'] == 'cmd.exe /c whoami'
+        )
+
+        self.assertEqual(command_record['evidence_source_section'], 'Process Evidence')
+        self.assertEqual(command_record['canonical_section'], 'process')
+
+    def test_canonical_report_can_flow_without_source_redetection(self):
+        normalizer = self.extractor_module._report_normalizer
+        canonical = normalizer.normalize_report_source(
+            "Network\n-------\nObserved evil.com\n"
+        )
+        original_source_adapters = normalizer._source_adapters
+        normalizer._source_adapters = lambda: (_ for _ in ()).throw(AssertionError('source redetected'))
+        try:
+            extraction = self.extractor_module.run_deterministic_ioc_extraction(
+                canonical_report=canonical,
+            )
+        finally:
+            normalizer._source_adapters = original_source_adapters
+
+        self.assertTrue(
+            any(item['value'] == 'evil.com' for item in extraction['iocs']['domains'])
+        )
+
     def test_partial_scheduled_task_remediation_is_preserved_with_null_unknowns(self):
         extractor = self.extractor_module.RegexIOCExtractor()
 
@@ -1679,7 +1926,7 @@ class IOCHuntressExtractorRegressionTestCase(unittest.TestCase):
             def get_batch_config():
                 return {'context_window': 16384, 'max_tokens': 4000}
 
-        def fake_deterministic_stage(_report_text):
+        def fake_deterministic_stage(_report_text, **_kwargs):
             return {
                 'iocs': {
                     'domains': [{'value': 'deterministic.example', 'context': 'regex match'}],

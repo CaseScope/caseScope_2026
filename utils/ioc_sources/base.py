@@ -14,6 +14,7 @@ class CanonicalReportSection:
     source_section_name: str
     raw_text: str
     normalized_text: str = ""
+    evidence_classes: List[str] = field(default_factory=list)
     metadata: Dict[str, Any] = field(default_factory=dict)
 
     def text_for_extraction(self) -> str:
@@ -54,6 +55,7 @@ class CanonicalReport:
                 {
                     "source_section": section.source_section_name,
                     "canonical_section": section.canonical_type,
+                    "evidence_classes": list(section.evidence_classes or []),
                 }
                 for section in self.sections
             ],

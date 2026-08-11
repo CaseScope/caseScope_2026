@@ -102,6 +102,24 @@ class IOCModelCaseScopeTestCase(unittest.TestCase):
             ['deterministic_regex', 'ai_semantic'],
         )
 
+    def test_source_metadata_helper_returns_bounded_detail_payload(self):
+        ioc_module = self._load_ioc_model_with_fake_db()
+        ioc = ioc_module.IOC()
+        ioc.id = 10
+        ioc.uuid = 'ioc-uuid'
+        ioc.case_id = 7
+        ioc.ioc_type = 'Domain'
+        ioc.value = 'evil.example'
+        ioc.source_metadata = [
+            {'source_engine': 'deterministic_regex', 'evidence': 'one'},
+            {'source_engine': 'ai_semantic', 'evidence': 'two'},
+        ]
+
+        payload = ioc.to_source_metadata_dict(limit=1)
+
+        self.assertEqual(payload['uuid'], 'ioc-uuid')
+        self.assertEqual(payload['source_metadata'], [{'source_engine': 'ai_semantic', 'evidence': 'two'}])
+
     def test_normalize_value_lowercases_file_names(self):
         database_module = types.ModuleType('models.database')
         database_module.db = _FakeDB()
@@ -454,6 +472,20 @@ class IOCExtractorCaseScopeTestCase(unittest.TestCase):
                     'source_engine': 'deterministic_regex',
                     'source_route': 'report_extraction',
                     'source_report_index': 0,
+                    'extraction_method': 'regex',
+                    'evidence_source_type': 'generic',
+                    'evidence_source_report_id': 'RPT-1',
+                    'evidence_source_section': 'Network',
+                    'canonical_section': 'network',
+                    'evidence_classes': ['network'],
+                    'evidence_origin': 'observed',
+                    'evidence_refs': [
+                        {
+                            'source_section': 'Network',
+                            'canonical_section': 'network',
+                            'evidence': 'seen in DNS logs',
+                        }
+                    ],
                 }
             ],
             case_id=42,
@@ -471,6 +503,11 @@ class IOCExtractorCaseScopeTestCase(unittest.TestCase):
         self.assertNotEqual(created_iocs[0][7], 'ai_extraction')
         self.assertEqual(created_iocs[0][8]['source_engine'], 'deterministic_regex')
         self.assertEqual(created_iocs[0][8]['source_route'], 'report_extraction')
+        self.assertEqual(created_iocs[0][8]['extraction_method'], 'regex')
+        self.assertEqual(created_iocs[0][8]['evidence_source_section'], 'Network')
+        self.assertEqual(created_iocs[0][8]['canonical_section'], 'network')
+        self.assertEqual(created_iocs[0][8]['evidence_classes'], ['network'])
+        self.assertEqual(created_iocs[0][8]['evidence_refs'][0]['source_section'], 'Network')
 
 
 class IOCTimelineBuilderContractTestCase(unittest.TestCase):

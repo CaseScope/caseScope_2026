@@ -663,6 +663,28 @@ class IOC(db.Model):
         existing = self.source_metadata or []
         self.source_metadata = [*existing, contribution]
         return True
+
+    def get_source_metadata(self, limit=50):
+        """Return bounded structured source contribution history for detail views."""
+        try:
+            limit_value = max(1, int(limit or 50))
+        except (TypeError, ValueError):
+            limit_value = 50
+        metadata = self.source_metadata or []
+        if not isinstance(metadata, list):
+            return []
+        return metadata[-limit_value:]
+
+    def to_source_metadata_dict(self, limit=50):
+        """Return source contribution metadata without bloating normal IOC list payloads."""
+        return {
+            'id': self.id,
+            'uuid': self.uuid,
+            'case_id': self.case_id,
+            'ioc_type': self.ioc_type,
+            'value': self.value,
+            'source_metadata': self.get_source_metadata(limit=limit),
+        }
     
     def update_artifact_stats(self, seen_at=None):
         """Update artifact sighting timestamps and count"""

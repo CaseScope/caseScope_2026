@@ -73,6 +73,13 @@ WEAK_COMPROMISE_CONTEXT_HINTS = (
     'affected user',
 )
 
+HOST_COMPROMISE_PATTERNS = (
+    r'\bhost\s+(?P<host>[A-Za-z0-9][A-Za-z0-9._-]{1,254})\s+(?:was\s+|is\s+)?(?:confirmed\s+)?compromised\b',
+    r'\b(?P<host>[A-Za-z0-9][A-Za-z0-9._-]{1,254})\s+(?:was\s+|is\s+)?(?:confirmed\s+)?compromised\b',
+    r'\battacker\s+compromised\s+(?P<host>[A-Za-z0-9][A-Za-z0-9._-]{1,254})\b',
+    r'\battacker\s+gained\s+access\s+to\s+(?P<host>[A-Za-z0-9][A-Za-z0-9._-]{1,254})\b',
+)
+
 URL_PATTERN = re.compile(
     r'(?:hxxps?|https?)(?:\[?://\]?|://)[\w\-\.]+(?:\[\.\]|\.)[\w\-\.]+[^\s<>"{}|\\^`\[\]]*',
     re.I,
@@ -317,6 +324,45 @@ def _normalize_evidence_text(value: Any) -> str:
     return text.strip().lower()
 
 
+def _extract_confirmed_compromised_hosts(report_text: str, candidate_hosts: Optional[List[Any]] = None) -> List[str]:
+    """Extract explicitly compromised hosts without treating mere affected hosts as compromised."""
+    candidates = {
+        str(host.get('value') if isinstance(host, dict) else host).strip().lower(): str(host.get('value') if isinstance(host, dict) else host).strip()
+        for host in candidate_hosts or []
+        if str(host.get('value') if isinstance(host, dict) else host).strip()
+    }
+    confirmed: List[str] = []
+    seen = set()
+    for pattern in HOST_COMPROMISE_PATTERNS:
+        for match in re.finditer(pattern, report_text or '', re.I):
+            host = (match.groupdict().get('host') or '').strip().strip('.,;:')
+            if not host:
+                continue
+            if candidates and host.lower() not in candidates:
+                continue
+            normalized = host.lower()
+            if normalized in seen:
+                continue
+            seen.add(normalized)
+            confirmed.append(candidates.get(normalized, host))
+    return confirmed
+
+
+def _copy_provenance_fields(source: Dict[str, Any], target: Dict[str, Any]) -> Dict[str, Any]:
+    for key in (
+        'raw_value',
+        'normalized_value',
+        'evidence_source_section',
+        'canonical_section',
+        'evidence_classes',
+        'evidence_refs',
+        'semantic_route',
+    ):
+        if key in source:
+            target[key] = source.get(key)
+    return target
+
+
 def _candidate_supports_compromised_user(user_item: Any, report_text: str) -> bool:
     """Validate a compromised-user claim against candidate-specific evidence."""
     if not isinstance(user_item, dict):
@@ -394,6 +440,15 @@ def _apply_ai_guardrails(normalized: Dict[str, Any], report_text: str) -> Dict[s
         host for host in iocs.get('hostnames', [])
         if not _is_placeholder_value(host)
     ]
+    confirmed_hosts = _extract_confirmed_compromised_hosts(
+        report_text,
+        [*affected_hosts, *iocs.get('hostnames', [])],
+    )
+    if confirmed_hosts:
+        summary['confirmed_compromised_hosts'] = _dedupe_mixed_list(
+            summary.get('confirmed_compromised_hosts', []),
+            confirmed_hosts,
+        )
 
     for user in summary.get('affected_users', []) or []:
         cleaned_user = _normalize_ai_user_item(user, context='Affected user in report')
@@ -612,7 +667,7 @@ def _normalize_ai_extraction(extraction: Dict[str, Any], report_text: str = '') 
     process_iocs = extraction.get('process_iocs', {})
     for cmd in process_iocs.get('commands', []):
         if isinstance(cmd, dict):
-            normalized['iocs']['commands'].append({
+            normalized['iocs']['commands'].append(_copy_provenance_fields(cmd, {
                 'value': cmd.get('full_command', ''),
                 'executable': cmd.get('executable', ''),
                 'context': cmd.get('context', ''),
@@ -621,7 +676,7 @@ def _normalize_ai_extraction(extraction: Dict[str, Any], report_text: str = '') 
                 'pid': cmd.get('pid', ''),
                 'evidence': cmd.get('evidence', ''),
                 'evidence_origin': cmd.get('evidence_origin', ''),
-            })
+            }))
         else:
             normalized['iocs']['commands'].append({'value': cmd})
 
@@ -651,7 +706,7 @@ def _normalize_ai_extraction(extraction: Dict[str, Any], report_text: str = '') 
     persistence = extraction.get('persistence_iocs', {})
     for reg in persistence.get('registry', []):
         if isinstance(reg, dict):
-            normalized['iocs']['registry_keys'].append({
+            normalized['iocs']['registry_keys'].append(_copy_provenance_fields(reg, {
                 'value': reg.get('key', ''),
                 'value_name': reg.get('value_name', ''),
                 'value_data': reg.get('value_data', ''),
@@ -659,18 +714,18 @@ def _normalize_ai_extraction(extraction: Dict[str, Any], report_text: str = '') 
                 'context': reg.get('context', ''),
                 'evidence': reg.get('evidence', ''),
                 'evidence_origin': reg.get('evidence_origin', ''),
-            })
+            }))
 
     for cred_theft in persistence.get('credential_theft_indicators', []):
         if isinstance(cred_theft, dict):
-            normalized['iocs']['registry_keys'].append({
+            normalized['iocs']['registry_keys'].append(_copy_provenance_fields(cred_theft, {
                 'value': cred_theft.get('registry_key', ''),
                 'value_name': cred_theft.get('value', ''),
                 'value_data': cred_theft.get('data', ''),
                 'context': f"Credential theft: {cred_theft.get('context', '')}",
                 'evidence': cred_theft.get('evidence', ''),
                 'evidence_origin': cred_theft.get('evidence_origin', ''),
-            })
+            }))
 
     auth = extraction.get('authentication_iocs', {})
     for user in auth.get('compromised_users', []):
@@ -713,11 +768,13 @@ def _normalize_ai_extraction(extraction: Dict[str, Any], report_text: str = '') 
 
     for webshell in vuln.get('webshells', []):
         if isinstance(webshell, dict):
-            normalized['iocs']['file_paths'].append({
+            normalized['iocs']['file_paths'].append(_copy_provenance_fields(webshell, {
                 'value': webshell.get('path', ''),
                 'context': f"Web shell: {webshell.get('context', '')}",
                 'action': 'malicious',
-            })
+                'evidence': webshell.get('evidence', ''),
+                'evidence_origin': webshell.get('evidence_origin', ''),
+            }))
 
     legacy_iocs = extraction.get('iocs', {})
     if legacy_iocs:

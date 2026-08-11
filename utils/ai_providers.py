@@ -75,6 +75,26 @@ def _format_provider_stream_error(provider_name: str, exc: Exception) -> str:
     return f"{provider_name} chat provider failed. Check server logs for details."
 
 
+def _normalize_finish_reason(raw_reason: Any = None, *, provider: str = "", done: Any = None) -> Optional[str]:
+    """Map provider-specific termination metadata into CaseScope finish reasons."""
+    if raw_reason is None or raw_reason == "":
+        if done is True and str(provider or "").lower() == "ollama":
+            return "stop"
+        return None
+    reason = str(raw_reason).strip().lower()
+    if not reason:
+        return None
+    if reason in {"stop", "end_turn", "complete", "completed"}:
+        return "stop"
+    if reason in {"length", "max_tokens", "max_output_tokens", "limit", "token_limit", "num_predict"}:
+        return "length"
+    if reason in {"tool_calls", "tool_use"}:
+        return "tool_calls"
+    if reason in {"error", "content_filter", "refusal"}:
+        return reason
+    return reason
+
+
 # ---------------------------------------------------------------------------
 # Model Capability Profiles
 # ---------------------------------------------------------------------------
@@ -1053,8 +1073,20 @@ class OllamaProvider(BaseLLMProvider):
                 'success': True,
                 'response': data.get('response', ''),
                 'model': data.get('model'),
+                'finish_reason': _normalize_finish_reason(
+                    data.get('done_reason'),
+                    provider='ollama',
+                    done=data.get('done'),
+                ),
+                'done': data.get('done'),
+                'done_reason': data.get('done_reason'),
                 'total_duration': data.get('total_duration'),
                 'eval_count': data.get('eval_count'),
+                'usage': {
+                    'prompt_tokens': data.get('prompt_eval_count') or 0,
+                    'completion_tokens': data.get('eval_count') or 0,
+                    'total_tokens': (data.get('prompt_eval_count') or 0) + (data.get('eval_count') or 0),
+                },
             }
         except requests.exceptions.Timeout:
             return {'success': False, 'error': 'Request timed out after retries'}
@@ -1234,7 +1266,7 @@ class OpenAICompatibleProvider(BaseLLMProvider):
             'response': content,
             'raw_response': content,
             'model': data.get('model', self.model),
-            'finish_reason': choice.get('finish_reason'),
+            'finish_reason': _normalize_finish_reason(choice.get('finish_reason'), provider='openai_compatible'),
             'reasoning': self._extract_reasoning_text(message),
             'usage': data.get('usage'),
         }
@@ -1540,10 +1572,13 @@ class OpenAIProvider(BaseLLMProvider):
         resp.raise_for_status()
         data = resp.json()
         content = data['choices'][0].get('text', '')
+        choice = data['choices'][0]
         return {
             'success': True,
             'response': content,
+            'raw_response': content,
             'model': data.get('model', self.model),
+            'finish_reason': _normalize_finish_reason(choice.get('finish_reason'), provider='openai'),
             'usage': data.get('usage'),
         }
 
@@ -1617,11 +1652,14 @@ class OpenAIProvider(BaseLLMProvider):
             )
             resp.raise_for_status()
             data = resp.json()
-            content = self._extract_message_text(data['choices'][0]['message'].get('content'))
+            choice = data['choices'][0]
+            content = self._extract_message_text(choice['message'].get('content'))
             return {
                 'success': True,
                 'response': content,
+                'raw_response': content,
                 'model': data.get('model', self.model),
+                'finish_reason': _normalize_finish_reason(choice.get('finish_reason'), provider='openai'),
                 'usage': data.get('usage'),
             }
         except requests.exceptions.HTTPError as e:
@@ -1657,11 +1695,14 @@ class OpenAIProvider(BaseLLMProvider):
                     )
                     resp.raise_for_status()
                     data = resp.json()
-                    content = self._extract_message_text(data['choices'][0]['message'].get('content'))
+                    choice = data['choices'][0]
+                    content = self._extract_message_text(choice['message'].get('content'))
                     return {
                         'success': True,
                         'response': content,
+                        'raw_response': content,
                         'model': data.get('model', self.model),
+                        'finish_reason': _normalize_finish_reason(choice.get('finish_reason'), provider='openai'),
                         'usage': data.get('usage'),
                     }
                 except Exception as retry_err:
@@ -1863,7 +1904,10 @@ class ClaudeProvider(BaseLLMProvider):
             return {
                 'success': True,
                 'response': text,
+                'raw_response': text,
                 'model': data.get('model', self.model),
+                'finish_reason': _normalize_finish_reason(data.get('stop_reason'), provider='claude'),
+                'stop_reason': data.get('stop_reason'),
                 'usage': data.get('usage'),
             }
         except requests.exceptions.HTTPError as e:

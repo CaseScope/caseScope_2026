@@ -37,6 +37,12 @@ class RegexIOCExtractor:
     PATTERNS = _ioc_regex_catalog.REGEX_IOC_PATTERNS
     RMM_TOOLS = _ioc_regex_catalog.REGEX_EXTRACTOR_RMM_TOOLS
     MALWARE_FAMILIES = _ioc_regex_catalog.REGEX_EXTRACTOR_MALWARE_FAMILIES
+    HOST_COMPROMISE_PATTERNS = (
+        re.compile(r"\bhost\s+(?P<host>[A-Za-z0-9][A-Za-z0-9._-]{1,254})\s+(?:was\s+|is\s+)?(?:confirmed\s+)?compromised\b", re.I),
+        re.compile(r"\b(?P<host>[A-Za-z0-9][A-Za-z0-9._-]{1,254})\s+(?:was\s+|is\s+)?(?:confirmed\s+)?compromised\b", re.I),
+        re.compile(r"\battacker\s+compromised\s+(?P<host>[A-Za-z0-9][A-Za-z0-9._-]{1,254})\b", re.I),
+        re.compile(r"\battacker\s+gained\s+access\s+to\s+(?P<host>[A-Za-z0-9][A-Za-z0-9._-]{1,254})\b", re.I),
+    )
 
     def defang(self, text: str) -> str:
         return _ioc_text._defang_text(text)
@@ -73,7 +79,7 @@ class RegexIOCExtractor:
 
     def _extract_structured_entities(self, original_text: str, results: Dict[str, Any]) -> None:
         host_patterns = (
-            re.compile(r"^\s*(?:Host Name|Host|Endpoint|Device)\s*[:=]\s*(.+?)\s*$", re.I),
+            re.compile(r"^\s*(?:Host Name|Host|Endpoint|Affected Endpoint|Device)\s*[:=]\s*(.+?)\s*$", re.I),
         )
         user_patterns = (
             re.compile(r"^\s*(?:User Account|User|Actor User)\s*[:=]\s*(.+?)\s*$", re.I),
@@ -260,6 +266,33 @@ class RegexIOCExtractor:
                     }
                 )
 
+    def _extract_confirmed_compromised_hosts(self, original_text: str, results: Dict[str, Any]) -> None:
+        candidate_hosts = {
+            str(item).strip().lower(): str(item).strip()
+            for item in results["extraction_summary"].get("affected_hosts", [])
+            if str(item).strip()
+        }
+        for item in results["iocs"].get("hostnames", []):
+            value = item.get("value") if isinstance(item, dict) else item
+            if value:
+                candidate_hosts.setdefault(str(value).strip().lower(), str(value).strip())
+        confirmed = []
+        seen = set()
+        for pattern in self.HOST_COMPROMISE_PATTERNS:
+            for match in pattern.finditer(original_text or ""):
+                host = (match.group("host") or "").strip().strip(".,;:")
+                if not host:
+                    continue
+                if candidate_hosts and host.lower() not in candidate_hosts:
+                    continue
+                normalized = host.lower()
+                if normalized in seen:
+                    continue
+                seen.add(normalized)
+                confirmed.append(candidate_hosts.get(normalized, host))
+        if confirmed:
+            results["extraction_summary"]["confirmed_compromised_hosts"].extend(confirmed)
+
     def extract(self, text: str) -> Dict[str, Any]:
         clean_text = self.defang(text)
         original_text = text
@@ -269,6 +302,7 @@ class RegexIOCExtractor:
                 "method": "regex",
                 "report_date": None,
                 "affected_hosts": [],
+                "confirmed_compromised_hosts": [],
                 "affected_users": [],
                 "severity_indicators": [],
                 "threat_families": [],
@@ -493,6 +527,7 @@ class RegexIOCExtractor:
 
         self._extract_structured_entities(original_text, results)
         self._extract_structured_activity(original_text, results)
+        self._extract_confirmed_compromised_hosts(original_text, results)
 
         text_lower = text.lower()
         for family in self.MALWARE_FAMILIES:
@@ -566,6 +601,9 @@ class RegexIOCExtractor:
         )
         results["extraction_summary"]["affected_hosts"] = list(
             dict.fromkeys(results["extraction_summary"]["affected_hosts"])
+        )
+        results["extraction_summary"]["confirmed_compromised_hosts"] = list(
+            dict.fromkeys(results["extraction_summary"]["confirmed_compromised_hosts"])
         )
         seen_users = set()
         deduped_users = []

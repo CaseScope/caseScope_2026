@@ -376,6 +376,123 @@ class AIProviderCompatRegressionTestCase(unittest.TestCase):
         self.assertEqual(result['usage']['completion_tokens'], 20)
         self.assertEqual(result['raw_response'], '{"ok": true}')
 
+    def test_native_ollama_maps_done_reason_to_finish_reason(self):
+        provider = ai_providers.OllamaProvider(
+            host='http://127.0.0.1:11434',
+            model='test-model',
+        )
+
+        class FakeResponse:
+            def raise_for_status(self):
+                return None
+
+            def json(self):
+                return {
+                    'model': 'test-model',
+                    'response': '{"ok": true}',
+                    'done': True,
+                    'done_reason': 'stop',
+                    'prompt_eval_count': 3,
+                    'eval_count': 4,
+                }
+
+        original_post = ai_providers.requests.post
+        ai_providers.requests.post = lambda *args, **kwargs: FakeResponse()
+        try:
+            result = provider.generate_json(prompt='Return JSON')
+        finally:
+            ai_providers.requests.post = original_post
+
+        self.assertTrue(result['success'])
+        self.assertEqual(result['finish_reason'], 'stop')
+        self.assertEqual(result['usage']['completion_tokens'], 4)
+
+    def test_native_ollama_limit_reason_maps_to_length(self):
+        provider = ai_providers.OllamaProvider(
+            host='http://127.0.0.1:11434',
+            model='test-model',
+        )
+
+        class FakeResponse:
+            def raise_for_status(self):
+                return None
+
+            def json(self):
+                return {
+                    'model': 'test-model',
+                    'response': '{"ok": true}',
+                    'done': True,
+                    'done_reason': 'length',
+                }
+
+        original_post = ai_providers.requests.post
+        ai_providers.requests.post = lambda *args, **kwargs: FakeResponse()
+        try:
+            result = provider.generate_json(prompt='Return JSON')
+        finally:
+            ai_providers.requests.post = original_post
+
+        self.assertTrue(result['success'])
+        self.assertEqual(result['finish_reason'], 'length')
+
+    def test_openai_and_claude_surface_normalized_finish_metadata(self):
+        openai = ai_providers.OpenAIProvider(api_key='test-key', model='gpt-4o')
+        claude = ai_providers.ClaudeProvider(api_key='test-key', model='claude-sonnet-4')
+
+        class FakeOpenAIResponse:
+            status_code = 200
+            headers = {}
+
+            def raise_for_status(self):
+                return None
+
+            def json(self):
+                return {
+                    'model': 'gpt-4o',
+                    'choices': [{'finish_reason': 'length', 'message': {'content': '{"ok": true}'}}],
+                    'usage': {'completion_tokens': 2},
+                }
+
+        class FakeClaudeResponse:
+            status_code = 200
+            headers = {}
+
+            def raise_for_status(self):
+                return None
+
+            def json(self):
+                return {
+                    'model': 'claude-sonnet-4',
+                    'content': [{'type': 'text', 'text': '{"ok": true}'}],
+                    'stop_reason': 'max_tokens',
+                    'usage': {'output_tokens': 2},
+                }
+
+        original_post = ai_providers.requests.post
+        try:
+            ai_providers.requests.post = lambda *args, **kwargs: FakeOpenAIResponse()
+            openai_result = openai.generate_json(prompt='Return JSON')
+            ai_providers.requests.post = lambda *args, **kwargs: FakeClaudeResponse()
+            claude_result = claude.generate_json(prompt='Return JSON')
+        finally:
+            ai_providers.requests.post = original_post
+
+        self.assertEqual(openai_result['finish_reason'], 'length')
+        self.assertEqual(claude_result['finish_reason'], 'length')
+
+    def test_provider_without_finish_metadata_remains_unspecified(self):
+        class NoFinishProvider(DummyFallbackProvider):
+            def generate_json(self, *args, **kwargs):
+                return BaseLLMProvider.generate_json(self, *args, **kwargs)
+
+            def generate(self, *args, **kwargs):
+                return {'success': True, 'response': '{"ok": true}', 'model': 'no-finish'}
+
+        result = NoFinishProvider().generate_json(prompt='Return JSON')
+
+        self.assertTrue(result['success'])
+        self.assertIsNone(result['finish_reason'])
+
     def test_generate_json_marks_chat_template_prefix_repair(self):
         provider = ai_providers.OpenAICompatibleProvider(
             api_url='http://127.0.0.1:11434',

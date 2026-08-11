@@ -190,14 +190,15 @@ def extract_derived_indicator_candidates(
     )
 
 
-def run_deterministic_ioc_extraction(report_text: str) -> Dict[str, Any]:
+def run_deterministic_ioc_extraction(report_text: Any = None, *, canonical_report: Any = None) -> Dict[str, Any]:
     """Run the canonical deterministic IOC extraction stage."""
-    canonical_report = _report_normalizer.normalize_report_source(report_text)
-    prepared_text = _report_normalizer.prepare_ioc_report_text(report_text)
+    canonical_report = canonical_report or _report_normalizer.normalize_report_source(report_text)
+    prepared_text = _report_normalizer.prepare_ioc_report_text(canonical_report)
     return _deterministic_stage.run_deterministic_stage(
         prepared_text,
         RegexIOCExtractor,
         source_provenance=canonical_report.provenance_summary(),
+        canonical_report=canonical_report,
     )
 
 
@@ -481,7 +482,10 @@ def run_ioc_pipeline_with_provider(
 ) -> Tuple[Dict[str, Any], bool]:
     """Run the configured IOC pipeline using an already resolved provider."""
     canonical_report = _report_normalizer.normalize_report_source(report_text)
-    deterministic_extraction = run_deterministic_ioc_extraction(report_text)
+    deterministic_extraction = run_deterministic_ioc_extraction(
+        report_text,
+        canonical_report=canonical_report,
+    )
     prepared_text = _report_normalizer.render_canonical_report_text(canonical_report)
     batch_config = provider.get_batch_config()
     chunk_config = _resolve_ai_chunk_config(batch_config)
