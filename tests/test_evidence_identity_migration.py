@@ -1269,6 +1269,53 @@ class EvidenceIdentityMigrationTestCase(unittest.TestCase):
         finally:
             manager.shutdown()
 
+    def test_parallel_copy_workers_reuse_client_per_process(self):
+        class CoordinatorClient(_RewriteFakeClient):
+            def query(self, sql, parameters=None):
+                if "toStartOfInterval(timestamp_utc" in sql:
+                    return SimpleNamespace(result_rows=[(0,), (900000,), (1800000,), (2700000,)])
+                return super().query(sql, parameters=parameters)
+
+        manager = Manager()
+        client_creations = manager.list()
+        seen_windows = manager.list()
+
+        class WorkerClient:
+            def __init__(self):
+                client_creations.append(os.getpid())
+
+            def query_rows_stream(self, query, parameters=None, settings=None):
+                seen_windows.append(parameters["window_start_ms"])
+                return _Stream([_event_row(ParsedEventColumns)])
+
+            def insert(self, table, rows, column_names=None):
+                pass
+
+        original_get_client = migration.get_migration_client
+        original_worker_client = migration._WORKER_MIGRATION_CLIENT
+        migration.get_migration_client = WorkerClient
+        migration._WORKER_MIGRATION_CLIENT = None
+        try:
+            rewritten = migration._rewrite_rows_to_shadow(
+                CoordinatorClient(source_rows=4),
+                columns=ParsedEventColumns,
+                batch_size=10,
+                case_id=None,
+                recompute_existing=False,
+                copy_workers=2,
+            )
+        finally:
+            migration.get_migration_client = original_get_client
+            migration._WORKER_MIGRATION_CLIENT = original_worker_client
+
+        try:
+            self.assertEqual(rewritten, 4)
+            self.assertEqual(sorted(seen_windows), [0, 900000, 1800000, 2700000])
+            self.assertGreaterEqual(len(client_creations), 1)
+            self.assertLessEqual(len(client_creations), 2)
+        finally:
+            manager.shutdown()
+
     def test_parallel_worker_failure_aborts_before_swap_and_buffer_recreation(self):
         class CoordinatorClient(_RewriteFakeClient):
             def query(self, sql, parameters=None):

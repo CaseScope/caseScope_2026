@@ -57,6 +57,7 @@ DEFAULT_SOURCE_WINDOW_SECONDS = max(
     1,
 )
 DEFAULT_COPY_WORKERS = max(int(os.environ.get("EVIDENCE_IDENTITY_COPY_WORKERS", 1)), 1)
+_WORKER_MIGRATION_CLIENT = None
 
 
 def _existing_columns(client, table_name: str) -> set:
@@ -739,7 +740,10 @@ def _copy_source_window_to_shadow(
 
 
 def _copy_source_window_to_shadow_with_fresh_client(**kwargs) -> Dict[str, int]:
-    client = get_migration_client()
+    global _WORKER_MIGRATION_CLIENT
+    if _WORKER_MIGRATION_CLIENT is None:
+        _WORKER_MIGRATION_CLIENT = get_migration_client()
+    client = _WORKER_MIGRATION_CLIENT
     return _copy_source_window_to_shadow(client, **kwargs)
 
 
