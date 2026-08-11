@@ -201,6 +201,9 @@ class ParsedEvent:
     
     # Metadata
     parser_version: str = ''
+    evidence_record_key: str = ''
+    evidence_identity_version: str = ''
+    evidence_identity_quality: str = ''
 
     _PROVENANCE_SKIP_FIELDS = {
         'case_id',
@@ -208,6 +211,9 @@ class ParsedEvent:
         'search_blob',
         'extra_fields',
         'parser_version',
+        'evidence_record_key',
+        'evidence_identity_version',
+        'evidence_identity_quality',
     }
 
     @staticmethod
@@ -347,6 +353,13 @@ class ParsedEvent:
         """Convert to tuple for ClickHouse insertion"""
         # Ensure timestamp_utc is computed
         self.compute_utc_timestamp()
+        if not self.evidence_record_key:
+            from utils.evidence_identity import build_evidence_record_identity
+
+            identity = build_evidence_record_identity(self)
+            self.evidence_record_key = identity.evidence_record_key
+            self.evidence_identity_version = identity.evidence_identity_version
+            self.evidence_identity_quality = identity.evidence_identity_quality
         extra_fields = self._serialized_extra_fields()
         
         return (
@@ -413,6 +426,9 @@ class ParsedEvent:
             self.search_blob,
             extra_fields,
             self.parser_version,
+            self.evidence_record_key,
+            self.evidence_identity_version,
+            self.evidence_identity_quality,
         )
     
     @staticmethod
@@ -436,6 +452,7 @@ class ParsedEvent:
             'mitre_attack_ids', 'mitre_attack_tactics', 'mitre_attack_sources',
             'mitre_mapping_max_confidence',
             'raw_json', 'search_blob', 'extra_fields', 'parser_version',
+            'evidence_record_key', 'evidence_identity_version', 'evidence_identity_quality',
         ]
 
 

@@ -268,7 +268,8 @@ class ParserHardeningTestCase(unittest.TestCase):
         )
 
         row = event.to_clickhouse_row()
-        extra_fields = json.loads(row[-2])
+        columns = {name: index for index, name in enumerate(ParsedEvent.clickhouse_columns())}
+        extra_fields = json.loads(row[columns['extra_fields']])
 
         self.assertEqual(extra_fields['provenance_source'], 'parser_emitted')
         self.assertEqual(extra_fields['field_provenance']['source_host'], 'SYSTEM_DERIVED')
@@ -287,7 +288,8 @@ class ParserHardeningTestCase(unittest.TestCase):
         )
 
         row = event.to_clickhouse_row()
-        extra_fields = json.loads(row[-2])
+        columns = {name: index for index, name in enumerate(ParsedEvent.clickhouse_columns())}
+        extra_fields = json.loads(row[columns['extra_fields']])
 
         self.assertEqual(extra_fields['field_provenance']['timestamp'], 'SYSTEM_DERIVED')
         self.assertEqual(extra_fields['field_provenance']['timestamp_utc'], 'SYSTEM_DERIVED')

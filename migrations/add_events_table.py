@@ -98,6 +98,9 @@ EVENTS_COLUMN_DEFINITIONS = {
     "search_blob": "String DEFAULT '' CODEC(ZSTD(1))",
     "extra_fields": "String DEFAULT '{}' CODEC(ZSTD(3))",
     "parser_version": "LowCardinality(String) DEFAULT ''",
+    "evidence_record_key": "String DEFAULT ''",
+    "evidence_identity_version": "LowCardinality(String) DEFAULT ''",
+    "evidence_identity_quality": "LowCardinality(String) DEFAULT ''",
     "indexed_at": "DateTime64(3) DEFAULT now64(3)",
     "selector_key": f"String MATERIALIZED {SELECTOR_KEY_EXPRESSION}",
     "analyst_tagged": "Bool DEFAULT false",
@@ -119,7 +122,8 @@ CREATE TABLE IF NOT EXISTS events (
     INDEX idx_search_ngram search_blob TYPE ngrambf_v1(3, 512, 2, 0) GRANULARITY 4,
     INDEX idx_search_token search_blob TYPE tokenbf_v1(32768, 3, 0) GRANULARITY 4,
     INDEX idx_event_id event_id TYPE bloom_filter(0.01) GRANULARITY 4,
-    INDEX idx_selector_key selector_key TYPE bloom_filter(0.01) GRANULARITY 4
+    INDEX idx_selector_key selector_key TYPE bloom_filter(0.01) GRANULARITY 4,
+    INDEX idx_evidence_record_key evidence_record_key TYPE bloom_filter(0.01) GRANULARITY 4
 )
 ENGINE = MergeTree()
 PARTITION BY case_id

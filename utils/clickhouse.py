@@ -272,6 +272,29 @@ def query_events(case_id, where_clause='', params=None, limit=1000):
     return client.query(query, parameters=parameters)
 
 
+def get_event_by_evidence_record_key(case_id, evidence_record_key, *, client=None):
+    """Resolve one normalized event by case-scoped forensic evidence identity."""
+    key = str(evidence_record_key or '').strip()
+    if not key:
+        return None
+
+    client = client or get_client()
+    result = client.query(
+        f"""
+        SELECT *
+        FROM events
+        WHERE case_id = {{case_id:UInt32}}
+          AND evidence_record_key = {{evidence_record_key:String}}
+        LIMIT 1
+        """,
+        parameters={
+            'case_id': int(case_id),
+            'evidence_record_key': key,
+        },
+    )
+    return result.result_rows[0] if result.result_rows else None
+
+
 def count_events(case_id):
     """Get event count for a case
     

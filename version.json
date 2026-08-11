@@ -1,6 +1,14 @@
 {
-  "version": "4.12.4",
+  "version": "4.12.5",
   "changelog": [
+    {
+      "version": "4.12.5",
+      "date": "2026-08-10",
+      "changes": [
+        "Normalized events now receive a case-scoped Evidence Identity v1 key alongside the existing selector key for future forensic graph provenance",
+        "ClickHouse schema migration and focused regression coverage now preserve selector compatibility while distinguishing same-second non-native source records"
+      ]
+    },
     {
       "version": "4.12.4",
       "date": "2026-08-10",

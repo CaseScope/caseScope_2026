@@ -1,0 +1,69 @@
+Evidence Identity v1
+====================
+
+Purpose
+-------
+Evidence Identity v1 gives each normalized event record a durable forensic
+locator, stored as `events.evidence_record_key`. It is designed for future
+relationship graph provenance and investigation-thread references.
+
+Selector key distinction
+------------------------
+`selector_key` remains the operational hunting UI and mutable event-state
+selector. It can intentionally continue to use the current record-or-second
+fallback behavior.
+
+`evidence_record_key` is the forensic evidence identity. New features that need
+authoritative record provenance should reference it with case scope.
+
+Identity inputs
+---------------
+The v1 algorithm is generated during normalized parser ingestion and is versioned
+with `evidence_identity_version = "1"`. It uses SHA-256 over canonical JSON with
+deterministic field ordering.
+
+The hash includes `case_id`, so identical records in different cases receive
+different evidence keys. Lookup must still require `case_id`.
+
+Native ID behavior
+------------------
+When a parser supplies a positive native `record_id`, v1 uses it with source
+context: case, case file ID when present, source file/path, source host, parser
+version, event ID, channel, and provider. A Windows Event Log record ID is never
+treated as globally unique by itself.
+
+Source identifier behavior
+--------------------------
+When there is no positive `record_id`, v1 checks parser metadata for known
+stable source identifiers such as `row_id`, `sqlite_rowid`, `entry_id`, or
+`source_record_id`. These are used only as source-scoped identifiers.
+
+Fingerprint behavior
+--------------------
+When no stronger native identifier exists, v1 fingerprints case/source scope,
+full timestamp precision, artifact/source type, source host, normalized record
+identity fields, canonical `raw_json` when retained, and stable parser output
+when raw source payload is unavailable.
+
+Mutable state exclusions
+------------------------
+Analyst tags, analyst notes, noise state, IOC state, MITRE enrichment columns,
+processing timestamps, selector keys, and evidence identity columns are excluded
+from the authoritative identity. AI or model-derived summaries/rationales may
+not establish or change evidence identity.
+
+Backfill behavior
+-----------------
+Legacy rows can be backfilled from the normalized event data retained in
+ClickHouse. Rows with a native ID receive `native` quality, rows with recognized
+source identifiers receive `source_identifier`, rows fingerprinted from retained
+raw or normalized data receive `fingerprinted`, and rows without enough retained
+source detail are marked `legacy_fallback`.
+
+Future graph guidance
+---------------------
+Graph edges should store provenance as case ID plus `evidence_record_key`, with
+optional locator context such as source table, source file/path, case file ID,
+source host, artifact type, timestamp, event ID, record ID, parser version, and
+source-native identifier. Do not use `selector_key` as the permanent graph-edge
+evidence identity.
