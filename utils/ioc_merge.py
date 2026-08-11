@@ -16,10 +16,11 @@ def merge_semantic_results(
     """Merge semantic extractions into the deterministic base extraction."""
     merged = deterministic_extraction
     for semantic in semantic_results or []:
+        previous_summary = merged.get("extraction_summary", {})
         merged = merge_func(semantic, merged)
         merged["extraction_summary"] = merge_summary_func(
             merged.get("extraction_summary", {}),
-            semantic.get("extraction_summary", {}),
+            previous_summary,
         )
     return merged
 

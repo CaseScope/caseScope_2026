@@ -56,6 +56,36 @@ class Phase5IOCMergeContractTestCase(unittest.TestCase):
             ['abc123', 'def456'],
         )
 
+    def test_deterministic_confirmed_hosts_survive_sanitized_semantic_merge(self):
+        merged = ioc_merge.merge_semantic_results(
+            {
+                'extraction_summary': {
+                    'method': 'regex',
+                    'affected_hosts': ['FIN-LAPTOP-9'],
+                    'confirmed_compromised_hosts': ['FIN-LAPTOP-9'],
+                },
+                'iocs': {'hostnames': [{'value': 'FIN-LAPTOP-9'}]},
+                'raw_artifacts': {},
+            },
+            [
+                {
+                    'extraction_summary': {
+                        'affected_hosts': ['FIN-LAPTOP-9'],
+                        'confirmed_compromised_hosts': [],
+                    },
+                    'iocs': {'hostnames': [{'value': 'FIN-LAPTOP-9'}]},
+                    'raw_artifacts': {},
+                }
+            ],
+            merge_func=ioc_merge.merge_extractions,
+            merge_summary_func=ioc_merge.merge_extraction_summaries,
+        )
+
+        self.assertEqual(
+            merged['extraction_summary'].get('confirmed_compromised_hosts'),
+            ['FIN-LAPTOP-9'],
+        )
+
     def test_ioc_extractor_uses_shared_merge_surface(self):
         fake_merge = type(
             "FakeMerge",

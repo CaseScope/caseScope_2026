@@ -276,6 +276,66 @@ class Phase5IOCNormalizerContractTestCase(unittest.TestCase):
             any(command['value'] == 'pythonw.exe run.pyw' for command in normalized['iocs']['commands'])
         )
 
+    def _normalize_with_ai_confirmed_hosts(self, report_text, confirmed_hosts):
+        return ioc_normalizer._normalize_ai_extraction(
+            {
+                'network_iocs': {'ipv4': [], 'ipv6': [], 'domains': [], 'urls': [], 'cloudflare_tunnels': []},
+                'file_iocs': {'hashes': [], 'file_paths': [], 'file_names': []},
+                'process_iocs': {'commands': [], 'services': [], 'scheduled_tasks': []},
+                'persistence_iocs': {'registry': [], 'credential_theft_indicators': []},
+                'authentication_iocs': {'compromised_users': [], 'created_users': [], 'passwords_observed': []},
+                'vulnerability_iocs': {'cves': [], 'webshells': []},
+                'raw_artifacts': {},
+                'iocs': {'hostnames': [{'value': host} for host in confirmed_hosts]},
+                'extraction_summary': {
+                    'affected_hosts': list(confirmed_hosts),
+                    'confirmed_compromised_hosts': list(confirmed_hosts),
+                },
+            },
+            report_text=report_text,
+        )
+
+    def test_ai_guardrail_replaces_confirmed_hosts_with_source_grounded_hosts(self):
+        cases = (
+            (
+                'ai-only fake host is removed',
+                "Host: FIN-LAPTOP-9\nMalware detected.",
+                ['FAKEHOST'],
+                [],
+            ),
+            (
+                'ai fake host is replaced by source-grounded host',
+                "FIN-LAPTOP-9 was compromised.",
+                ['FAKEHOST'],
+                ['FIN-LAPTOP-9'],
+            ),
+            (
+                'same ai and source host survives due to source evidence',
+                "FIN-LAPTOP-9 was compromised.",
+                ['FIN-LAPTOP-9'],
+                ['FIN-LAPTOP-9'],
+            ),
+            (
+                'pronoun compromise does not promote structured host',
+                "Host: FIN-LAPTOP-9\nThe host was compromised.",
+                ['FIN-LAPTOP-9'],
+                [],
+            ),
+            (
+                'empty source never trusts ai confirmed host state',
+                "",
+                ['FIN-LAPTOP-9'],
+                [],
+            ),
+        )
+        for name, report, claimed_hosts, expected in cases:
+            with self.subTest(name=name):
+                normalized = self._normalize_with_ai_confirmed_hosts(report, claimed_hosts)
+                self.assertEqual(
+                    normalized['extraction_summary'].get('confirmed_compromised_hosts'),
+                    expected,
+                )
+
     def test_ai_guardrail_rejects_uppercase_generic_confirmed_hosts(self):
         for report, claimed_host in (
             ('The SERVER was compromised.', 'SERVER'),

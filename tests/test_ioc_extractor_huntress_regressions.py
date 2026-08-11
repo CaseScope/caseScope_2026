@@ -1441,6 +1441,68 @@ class IOCHuntressExtractorRegressionTestCase(unittest.TestCase):
         self.assertTrue(processed['known_systems_results'])
         self.assertFalse(any(item['now_compromised'] for item in processed['known_systems_results']))
 
+    def test_ai_only_confirmed_host_does_not_reach_compromised_known_system(self):
+        normalized = self.extractor_module._ioc_normalizer._normalize_ai_extraction(
+            {
+                'network_iocs': {'ipv4': [], 'ipv6': [], 'domains': [], 'urls': [], 'cloudflare_tunnels': []},
+                'file_iocs': {'hashes': [], 'file_paths': [], 'file_names': []},
+                'process_iocs': {'commands': [], 'services': [], 'scheduled_tasks': []},
+                'persistence_iocs': {'registry': [], 'credential_theft_indicators': []},
+                'authentication_iocs': {'compromised_users': [], 'created_users': [], 'passwords_observed': []},
+                'vulnerability_iocs': {'cves': [], 'webshells': []},
+                'raw_artifacts': {},
+                'iocs': {'hostnames': [{'value': 'FAKEHOST'}]},
+                'extraction_summary': {
+                    'affected_hosts': ['FAKEHOST'],
+                    'confirmed_compromised_hosts': ['FAKEHOST'],
+                },
+            },
+            report_text="Host: FIN-LAPTOP-9\nMalware detected.",
+        )
+        processed = self._process_with_fake_known_systems(normalized)
+
+        self.assertEqual(
+            normalized['extraction_summary'].get('confirmed_compromised_hosts'),
+            [],
+        )
+        self.assertFalse(
+            any(
+                item['hostname'] == 'FAKEHOST' and item['now_compromised']
+                for item in processed['known_systems_results']
+            )
+        )
+
+    def test_source_grounded_confirmed_host_reaches_compromised_known_system(self):
+        normalized = self.extractor_module._ioc_normalizer._normalize_ai_extraction(
+            {
+                'network_iocs': {'ipv4': [], 'ipv6': [], 'domains': [], 'urls': [], 'cloudflare_tunnels': []},
+                'file_iocs': {'hashes': [], 'file_paths': [], 'file_names': []},
+                'process_iocs': {'commands': [], 'services': [], 'scheduled_tasks': []},
+                'persistence_iocs': {'registry': [], 'credential_theft_indicators': []},
+                'authentication_iocs': {'compromised_users': [], 'created_users': [], 'passwords_observed': []},
+                'vulnerability_iocs': {'cves': [], 'webshells': []},
+                'raw_artifacts': {},
+                'iocs': {'hostnames': [{'value': 'FAKEHOST'}]},
+                'extraction_summary': {
+                    'affected_hosts': ['FAKEHOST'],
+                    'confirmed_compromised_hosts': ['FAKEHOST'],
+                },
+            },
+            report_text="FIN-LAPTOP-9 was compromised.",
+        )
+        processed = self._process_with_fake_known_systems(normalized)
+
+        self.assertEqual(
+            normalized['extraction_summary'].get('confirmed_compromised_hosts'),
+            ['FIN-LAPTOP-9'],
+        )
+        self.assertTrue(
+            any(
+                item['hostname'] == 'FIN-LAPTOP-9' and item['now_compromised']
+                for item in processed['known_systems_results']
+            )
+        )
+
     def test_affected_endpoint_is_not_confirmed_compromised(self):
         report = "Affected Endpoint: FIN-LAPTOP-9"
         extraction = self.extractor_module.run_deterministic_ioc_extraction(report)

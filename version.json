@@ -1,6 +1,14 @@
 {
-  "version": "4.12.3",
+  "version": "4.12.4",
   "changelog": [
+    {
+      "version": "4.12.4",
+      "date": "2026-08-10",
+      "changes": [
+        "Semantic IOC merge now preserves deterministic confirmed-host state after AI guardrail sanitization",
+        "Confirmed-host regression coverage now proves AI-only compromised host claims cannot reach KnownSystem compromised state"
+      ]
+    },
     {
       "version": "4.12.3",
       "date": "2026-08-10",
