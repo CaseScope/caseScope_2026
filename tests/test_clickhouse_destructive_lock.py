@@ -92,6 +92,30 @@ class ClickHouseDestructiveLockTestCase(unittest.TestCase):
             else:
                 sys.modules["redis"] = original_redis
 
+    def test_assert_active_detects_stolen_token_synchronously(self):
+        fake_client = _FakeRedisClient()
+        redis_module = types.ModuleType("redis")
+        redis_module.Redis = lambda **_kwargs: fake_client
+        original_redis = sys.modules.get("redis")
+        original_interval = clickhouse._destructive_rewrite_lock_renew_interval
+        sys.modules["redis"] = redis_module
+        clickhouse._destructive_rewrite_lock_renew_interval = lambda _ttl: 3600
+        try:
+            with self.assertRaisesRegex(RuntimeError, "Lost Redis-backed destructive rewrite lock"):
+                with clickhouse.destructive_event_rewrite_guard(
+                    "test_lock",
+                    ttl_seconds=300,
+                    require_lock=True,
+                ) as lease:
+                    fake_client.value = "stolen-token"
+                    lease["assert_active"]()
+        finally:
+            clickhouse._destructive_rewrite_lock_renew_interval = original_interval
+            if original_redis is None:
+                sys.modules.pop("redis", None)
+            else:
+                sys.modules["redis"] = original_redis
+
 
 if __name__ == "__main__":
     unittest.main()

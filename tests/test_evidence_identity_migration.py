@@ -172,16 +172,20 @@ class _RewriteFakeClient:
             return SimpleNamespace(result_rows=[(1,)])
         if compact == "SELECT DISTINCT case_id FROM events ORDER BY case_id":
             return SimpleNamespace(result_rows=[(7,)])
-        active_rows = [
+        inserted_rows = [
             row
             for _table, rows, _columns in self.inserts
             for row in rows
-        ] if self.swapped else []
+        ]
+        query_targets_shadow = f"FROM {migration.SHADOW_TABLE}" in compact
+        query_targets_active_events = "FROM events " in compact or compact.endswith("FROM events")
+        use_inserted_rows = query_targets_shadow or (self.swapped and query_targets_active_events)
+        active_rows = inserted_rows if use_inserted_rows else []
         key_index = ParsedEventColumns.index("evidence_record_key")
         version_index = ParsedEventColumns.index("evidence_identity_version")
         quality_index = ParsedEventColumns.index("evidence_identity_quality")
         valid_v2 = lambda value: str(value or "").startswith(EVIDENCE_RECORD_KEY_PREFIX) and len(str(value or "")) == len(EVIDENCE_RECORD_KEY_PREFIX) + 64
-        if f"SELECT count() FROM {migration.SHADOW_TABLE}" in compact:
+        if compact == f"SELECT count() FROM {migration.SHADOW_TABLE}":
             count = self.shadow_count_override
             if count is None:
                 count = sum(len(rows) for _table, rows, _columns in self.inserts)
@@ -199,7 +203,7 @@ class _RewriteFakeClient:
             return SimpleNamespace(result_rows=[(self.source_rows,)])
         if "evidence_record_key = ''" in sql:
             return SimpleNamespace(result_rows=[(
-                sum(1 for row in active_rows if row[key_index] == "") if self.swapped else self.source_rows
+                sum(1 for row in active_rows if row[key_index] == "") if use_inserted_rows else self.source_rows
             ,)])
         if "NOT match(evidence_record_key" in sql:
             return SimpleNamespace(result_rows=[(0,)])
@@ -211,12 +215,12 @@ class _RewriteFakeClient:
                     if valid_v2(row[key_index])
                     and (row[version_index] != "2" or row[quality_index] == "")
                 )
-                if self.swapped
+                if use_inserted_rows
                 else 0
             ,)])
         if "match(evidence_record_key" in sql:
             return SimpleNamespace(result_rows=[(
-                sum(1 for row in active_rows if valid_v2(row[key_index])) if self.swapped else 0
+                sum(1 for row in active_rows if valid_v2(row[key_index])) if use_inserted_rows else 0
             ,)])
         if "startsWith" in sql or "NOT startsWith" in sql:
             return SimpleNamespace(result_rows=[(0,)])
@@ -900,6 +904,52 @@ class EvidenceIdentityMigrationTestCase(unittest.TestCase):
         self.assertNotIn("rename_swap", client.operations)
         self.assertNotIn("create_buffer", client.operations)
         self.assertNotIn("events_buffer", client.tables)
+
+    def test_bad_shadow_identity_validation_aborts_before_swap_and_buffer_recreation(self):
+        class BadShadowClient(_RewriteFakeClient):
+            def query(self, sql, parameters=None):
+                compact = " ".join(sql.split())
+                if f"FROM {migration.SHADOW_TABLE}" in compact and "NOT match(evidence_record_key" in sql:
+                    return SimpleNamespace(result_rows=[(1,)])
+                return super().query(sql, parameters=parameters)
+
+        client = BadShadowClient(source_rows=100)
+
+        with self.assertRaisesRegex(RuntimeError, "validation failed on events_evidence_identity_backfill"):
+            migration.backfill_identity_columns(client, batch_size=200)
+
+        self.assertIn("count_shadow", client.operations)
+        self.assertNotIn("rename_swap", client.operations)
+        self.assertNotIn("create_buffer", client.operations)
+        self.assertNotIn("events_buffer", client.tables)
+        self.assertNotIn(migration.OLD_TABLE, client.tables)
+
+    def test_lost_rewrite_lease_immediately_before_swap_aborts_without_buffer_recreation(self):
+        assert_calls = {"count": 0}
+
+        @contextmanager
+        def guarded_rewrite(*args, **kwargs):
+            def assert_active():
+                assert_calls["count"] += 1
+                if assert_calls["count"] >= 3:
+                    raise RuntimeError("Lost Redis-backed destructive rewrite lock; refusing to continue")
+
+            yield {"assert_active": assert_active}
+
+        client = _RewriteFakeClient(source_rows=100)
+        original_guard = migration.destructive_event_rewrite_guard
+        migration.destructive_event_rewrite_guard = guarded_rewrite
+        try:
+            with self.assertRaisesRegex(RuntimeError, "Lost Redis-backed destructive rewrite lock"):
+                migration.backfill_identity_columns(client, batch_size=200)
+        finally:
+            migration.destructive_event_rewrite_guard = original_guard
+
+        self.assertIn("count_shadow", client.operations)
+        self.assertNotIn("rename_swap", client.operations)
+        self.assertNotIn("create_buffer", client.operations)
+        self.assertNotIn("events_buffer", client.tables)
+        self.assertNotIn(migration.OLD_TABLE, client.tables)
 
     def test_rogue_late_ingestion_cannot_use_removed_buffer_target(self):
         client = _RewriteFakeClient(source_rows=100)

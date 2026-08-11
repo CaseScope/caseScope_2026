@@ -201,6 +201,23 @@ def destructive_event_rewrite_guard(operation, *, case_id=None, ttl_seconds=None
     def assert_active():
         if renewal_error['message']:
             raise RuntimeError(renewal_error['message'])
+        try:
+            current = client.get(_DESTRUCTIVE_REWRITE_LOCK_KEY)
+            if isinstance(current, bytes):
+                current = current.decode('utf-8', errors='replace')
+            if current != serialized:
+                renewal_error['message'] = (
+                    "Lost Redis-backed destructive rewrite lock; refusing to continue"
+                )
+                raise RuntimeError(renewal_error['message'])
+        except RuntimeError:
+            raise
+        except Exception as exc:
+            renewal_error['message'] = (
+                "Unable to verify Redis-backed destructive rewrite lock; "
+                f"refusing to continue ({exc})"
+            )
+            raise RuntimeError(renewal_error['message']) from exc
 
     def renew_loop():
         renew_interval = _destructive_rewrite_lock_renew_interval(ttl)

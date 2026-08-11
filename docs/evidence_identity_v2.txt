@@ -201,11 +201,13 @@ authoritative source snapshot. The sequence is:
 6. Count authoritative source rows in `events`.
 7. Create and fill `events_evidence_identity_backfill`.
 8. Validate `shadow_row_count == source_count_before_copy`.
-9. Recount original `events` and validate
+9. Strictly validate Evidence Identity keys and metadata on the shadow table.
+10. Recount original `events` and validate
    `source_count_before_swap == source_count_before_copy`.
-10. Rename `events` to `events_evidence_identity_previous` and the shadow table
+11. Synchronously verify the Redis rewrite-lock token is still owned.
+12. Rename `events` to `events_evidence_identity_previous` and the shadow table
    to `events`.
-11. Recreate `events_buffer` against the final active table.
+13. Recreate `events_buffer` against the final active table.
 
 The forensic snapshot boundary is established after the verified Buffer
 ingestion target has been removed, not by `OPTIMIZE TABLE` alone. If pending
@@ -218,11 +220,13 @@ environment settings (`REDIS_HOST`, `REDIS_PORT`, `REDIS_DB`, and
 `REDIS_PASSWORD` when used). It does not import Flask `Config` and does not
 require `SECRET_KEY`. Destructive Evidence Identity rewrites require the Redis
 lock, renew the lock lease while running, renew only when the stored token still
-matches the holder, and release only the matching token on exit.
+matches the holder, synchronously verify token ownership before swap, and
+release only the matching token on exit.
 
 Final validation
 ----------------
-Before declaring completion, the migration enforces these scoped postconditions:
+Before the shadow can be swapped into `events`, the migration enforces these
+scoped postconditions on `events_evidence_identity_backfill`:
 - `empty evidence_record_key rows = 0`
 - `erk:v1 evidence_record_key rows = 0`
 - `unknown/malformed evidence_record_key rows = 0`
@@ -230,7 +234,8 @@ Before declaring completion, the migration enforces these scoped postconditions:
 - `valid erk:v2 rows = expected scoped row count`
 
 With `--case-id`, these validation counts apply to the targeted case. Other
-cases are still copied into the shadow unchanged.
+cases are still copied into the shadow unchanged. After a successful swap, the
+same validation is repeated against active `events` as a post-swap sanity check.
 
 Previous and shadow tables
 --------------------------

@@ -1,6 +1,13 @@
 {
-  "version": "4.12.10",
+  "version": "4.12.11",
   "changelog": [
+    {
+      "version": "4.12.11",
+      "date": "2026-08-11",
+      "changes": [
+        "Evidence Identity shadow identity validation now runs before table swap and the Redis lock token is synchronously verified immediately before rename"
+      ]
+    },
     {
       "version": "4.12.10",
       "date": "2026-08-11",

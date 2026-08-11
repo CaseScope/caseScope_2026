@@ -389,8 +389,8 @@ def _table_bytes(client, table_name: str) -> Optional[int]:
     return int(value) if value is not None else None
 
 
-def _identity_schema_state(client) -> Dict[str, Any]:
-    events_columns = _existing_columns(client, "events")
+def _identity_schema_state(client, table_name: str = "events") -> Dict[str, Any]:
+    events_columns = _existing_columns(client, table_name)
     missing_columns = [column for column in IDENTITY_COLUMNS if column not in events_columns]
     return {
         "installed": not missing_columns,
@@ -402,10 +402,11 @@ def _identity_schema_state(client) -> Dict[str, Any]:
 def _identity_version_counts(
     client,
     *,
+    table_name: str = "events",
     case_id: Optional[int] = None,
     identity_schema: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Optional[int]]:
-    identity_schema = identity_schema or _identity_schema_state(client)
+    identity_schema = identity_schema or _identity_schema_state(client, table_name=table_name)
     if "evidence_record_key" not in identity_schema["events_columns"]:
         return {
             "empty": None,
@@ -415,12 +416,13 @@ def _identity_version_counts(
             "metadata_invalid": None,
         }
     return {
-        "empty": _count_empty_identity(client, case_id=case_id),
-        "v1": _count_identity_prefix(client, LEGACY_V1_PREFIX, case_id=case_id),
-        "v2": _count_valid_v2_identity(client, case_id=case_id),
-        "unknown": _count_unknown_identity(client, case_id=case_id),
+        "empty": _count_empty_identity(client, table_name=table_name, case_id=case_id),
+        "v1": _count_identity_prefix(client, LEGACY_V1_PREFIX, table_name=table_name, case_id=case_id),
+        "v2": _count_valid_v2_identity(client, table_name=table_name, case_id=case_id),
+        "unknown": _count_unknown_identity(client, table_name=table_name, case_id=case_id),
         "metadata_invalid": _count_invalid_identity_metadata(
             client,
+            table_name=table_name,
             case_id=case_id,
             identity_schema=identity_schema,
         ),
@@ -740,10 +742,16 @@ def _validate_final_identity_state(
     *,
     expected_rows: int,
     case_id: Optional[int],
+    table_name: str = "events",
 ) -> Dict[str, Optional[int]]:
-    identity_schema = _identity_schema_state(client)
-    verify_identity_columns(client)
-    counts = _identity_version_counts(client, case_id=case_id, identity_schema=identity_schema)
+    identity_schema = _identity_schema_state(client, table_name=table_name)
+    verify_identity_columns(client, table_name=table_name)
+    counts = _identity_version_counts(
+        client,
+        table_name=table_name,
+        case_id=case_id,
+        identity_schema=identity_schema,
+    )
     failures = []
     if counts["empty"] != 0:
         failures.append(f"empty={_format_count(counts['empty'])}")
@@ -756,9 +764,12 @@ def _validate_final_identity_state(
     if counts["v2"] != int(expected_rows):
         failures.append(f"v2={_format_count(counts['v2'])} expected={int(expected_rows)}")
     if failures:
-        raise RuntimeError("Final Evidence Identity validation failed: " + ", ".join(failures))
+        raise RuntimeError(
+            f"Final Evidence Identity validation failed on {table_name}: "
+            + ", ".join(failures)
+        )
     print(
-        "- Final validation complete: "
+        f"- Final validation complete on {table_name}: "
         f"empty=0 v1=0 unknown=0 metadata_invalid=0 v2={int(expected_rows)}"
     )
     return counts
@@ -878,13 +889,19 @@ def backfill_identity_columns(
             )
 
             shadow_rows = _count_events(client, table_name=SHADOW_TABLE)
-            current_original_source_count = _count_events(client)
             if shadow_rows != source_count_before_copy:
                 raise RuntimeError(
                     "Shadow row count mismatch: "
                     f"events_before_copy={source_count_before_copy}, "
                     f"{SHADOW_TABLE}={shadow_rows}"
                 )
+            _validate_final_identity_state(
+                client,
+                table_name=SHADOW_TABLE,
+                expected_rows=scoped_rows if case_id is not None else source_count_before_copy,
+                case_id=case_id,
+            )
+            current_original_source_count = _count_events(client)
             if current_original_source_count != source_count_before_copy:
                 raise RuntimeError(
                     "Source events row count changed during shadow rewrite: "
@@ -892,6 +909,7 @@ def backfill_identity_columns(
                     f"before_swap={current_original_source_count}"
                 )
 
+            _assert_rewrite_lease_active(rewrite_lease)
             _swap_shadow_table(client)
             swap_completed = True
             ensure_identity_index(client, materialize=materialize_index)
