@@ -1,6 +1,7 @@
 import inspect
 import importlib.util
 import os
+import shutil
 import subprocess
 import sys
 import types
@@ -1224,6 +1225,123 @@ class EvidenceIdentityMigrationTestCase(unittest.TestCase):
         self.assertEqual(client.operations.count("window:0"), 1)
         self.assertEqual(client.operations.count("window:900000"), 1)
         self.assertNotIn("ORDER BY", client.last_stream_query.upper())
+
+    def test_native_evtx_sql_fast_path_is_inserted_before_python_fallback(self):
+        columns = [
+            "case_id",
+            "artifact_type",
+            "timestamp",
+            "timestamp_utc",
+            "timestamp_source_tz",
+            "source_file",
+            "source_path",
+            "source_host",
+            "case_file_id",
+            "event_id",
+            "record_id",
+            "raw_json",
+            "search_blob",
+            "extra_fields",
+            "parser_version",
+            "evidence_record_key",
+            "evidence_identity_version",
+            "evidence_identity_quality",
+        ]
+        fallback_defaults = {
+            "case_id": 7,
+            "artifact_type": "registry",
+            "timestamp": datetime(2026, 4, 21, 12),
+            "timestamp_utc": datetime(2026, 4, 21, 12),
+            "timestamp_source_tz": "UTC",
+            "source_file": "registry.log",
+            "source_path": "/archive/registry.log",
+            "source_host": "HOST1",
+            "case_file_id": 99,
+            "event_id": "reg",
+            "record_id": None,
+            "raw_json": '{"key":"value"}',
+            "search_blob": "",
+            "extra_fields": "{}",
+            "parser_version": "Parser-1",
+            "evidence_record_key": "",
+            "evidence_identity_version": "",
+            "evidence_identity_quality": "",
+        }
+        fallback_row = tuple(fallback_defaults.get(column, None) for column in ParsedEventColumns)
+        test_case = self
+
+        class FastPathClient:
+            def __init__(self):
+                self.commands = []
+                self.last_stream_query = ""
+
+            def query(self, sql, parameters=None):
+                compact = " ".join(sql.split())
+                if compact == "SELECT DISTINCT case_id FROM events ORDER BY case_id":
+                    return SimpleNamespace(result_rows=[(7,)])
+                if compact == "SELECT count() FROM events":
+                    return SimpleNamespace(result_rows=[(2,)])
+                if "toStartOfInterval(timestamp_utc" in sql:
+                    test_case.assertIn("AND NOT (artifact_type = 'evtx'", sql)
+                    return SimpleNamespace(result_rows=[(0, 1)])
+                if "WHERE artifact_type = 'evtx'" in sql:
+                    return SimpleNamespace(result_rows=[(1,)])
+                return SimpleNamespace(result_rows=[(0,)])
+
+            def query_rows_stream(self, query, parameters=None, settings=None):
+                self.last_stream_query = query
+                return _Stream([fallback_row])
+
+            def insert(self, table, rows, column_names=None):
+                pass
+
+            def command(self, sql):
+                self.commands.append(sql)
+
+        client = FastPathClient()
+        rewritten = migration._rewrite_rows_to_shadow(
+            client,
+            columns=columns,
+            batch_size=10,
+            case_id=None,
+            recompute_existing=False,
+            native_evtx_sql_fast_path=True,
+        )
+
+        self.assertEqual(rewritten, 2)
+        self.assertTrue(any(command.startswith(f"INSERT INTO {migration.SHADOW_TABLE}") for command in client.commands))
+        self.assertTrue(any("SHA256" in command for command in client.commands))
+        self.assertIn("AND NOT (artifact_type = 'evtx'", client.last_stream_query)
+
+    def test_native_evtx_sql_identity_expression_matches_python_contract(self):
+        if shutil.which("clickhouse-client") is None:
+            self.skipTest("clickhouse-client not available")
+
+        python_identity = evidence_identity_module.build_evidence_record_identity(
+            {
+                "case_id": 7,
+                "artifact_type": "evtx",
+                "case_file_id": 99,
+                "record_id": 100,
+                "raw_json": "{}",
+            }
+        )
+        query = (
+            f"SELECT {migration._sql_native_evtx_identity_key_expression()} "
+            "FROM (SELECT toUInt32(7) AS case_id, toUInt32(99) AS case_file_id, "
+            "toUInt64(100) AS record_id)"
+        )
+        result = subprocess.run(
+            ["clickhouse-client", "--query", query],
+            cwd=REPO_ROOT,
+            text=True,
+            capture_output=True,
+            check=False,
+        )
+        if result.returncode != 0:
+            self.skipTest(f"clickhouse-client unavailable: {result.stderr.strip()}")
+
+        self.assertEqual(result.stdout.strip(), python_identity.evidence_record_key)
 
     def test_dense_source_windows_are_split_by_row_count(self):
         class DenseWindowClient:

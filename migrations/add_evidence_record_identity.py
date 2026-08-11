@@ -65,6 +65,10 @@ DEFAULT_SOURCE_WINDOW_MIN_SECONDS = max(
     1,
 )
 DEFAULT_COPY_WORKERS = max(int(os.environ.get("EVIDENCE_IDENTITY_COPY_WORKERS", 1)), 1)
+DEFAULT_NATIVE_EVTX_SQL_FAST_PATH = os.environ.get(
+    "EVIDENCE_IDENTITY_NATIVE_EVTX_SQL_FAST_PATH",
+    "1",
+).strip().lower() not in {"0", "false", "no", "off"}
 _WORKER_MIGRATION_CLIENT = None
 
 
@@ -364,14 +368,173 @@ def _distinct_case_ids(client) -> List[int]:
     return [int(row[0]) for row in result.result_rows]
 
 
-def _source_window_row_count(client, case_id: int, window_start_ms: int, window_end_ms: int) -> int:
+def _native_evtx_fast_path_predicate() -> str:
+    return (
+        "artifact_type = 'evtx' "
+        "AND record_id IS NOT NULL "
+        "AND case_file_id IS NOT NULL "
+        "AND case_file_id > 0"
+    )
+
+
+def _sql_valid_v2_key_expression(column_name: str = "evidence_record_key") -> str:
+    return f"match(ifNull({column_name}, ''), '{VALID_V2_KEY_PATTERN}')"
+
+
+def _sql_native_evtx_identity_key_expression() -> str:
+    payload_expression = (
+        "concat("
+        "'{\"algorithm\":\"evidence_identity_v2\",\"payload\":{\"case_scope\":{\"case_id\":', "
+        "toString(toUInt32(case_id)), "
+        "'},\"native\":{\"identity_type\":\"evtx_record_id\",\"record_id\":', "
+        "toString(toUInt64(record_id)), "
+        "'},\"source_scope\":{\"case_file_id\":', "
+        "toString(toUInt32(case_file_id)), "
+        "'}},\"version\":\"2\"}'"
+        ")"
+    )
+    return f"concat('{EVIDENCE_RECORD_KEY_PREFIX}', lower(hex(SHA256({payload_expression}))))"
+
+
+def _sql_identity_mutation_scope(case_id: Optional[int]) -> str:
+    if case_id is None:
+        return "1"
+    return f"case_id = {int(case_id)}"
+
+
+def _sql_fast_path_key_recompute_condition(*, case_id: Optional[int], recompute_existing: bool) -> str:
+    scoped = _sql_identity_mutation_scope(case_id)
+    if recompute_existing:
+        return f"({scoped})"
+    return f"(({scoped}) AND NOT {_sql_valid_v2_key_expression()})"
+
+
+def _sql_fast_path_metadata_repair_condition(*, case_id: Optional[int]) -> str:
+    scoped = _sql_identity_mutation_scope(case_id)
+    quality_sql = ", ".join(f"'{value}'" for value in VALID_QUALITY_VALUES)
+    return (
+        f"(({scoped}) "
+        f"AND {_sql_valid_v2_key_expression()} "
+        f"AND (ifNull(evidence_identity_version, '') != '{EVIDENCE_IDENTITY_VERSION}' "
+        f"OR ifNull(evidence_identity_quality, '') NOT IN ({quality_sql})))"
+    )
+
+
+def _sql_fast_path_select_expression(column_name: str, *, case_id: Optional[int], recompute_existing: bool) -> str:
+    key_recompute_condition = _sql_fast_path_key_recompute_condition(
+        case_id=case_id,
+        recompute_existing=recompute_existing,
+    )
+    metadata_repair_condition = _sql_fast_path_metadata_repair_condition(case_id=case_id)
+    identity_mutation_condition = f"({key_recompute_condition} OR {metadata_repair_condition})"
+    if column_name == "evidence_record_key":
+        return (
+            f"if({key_recompute_condition}, "
+            f"{_sql_native_evtx_identity_key_expression()}, "
+            f"{column_name}) AS {column_name}"
+        )
+    if column_name == "evidence_identity_version":
+        return (
+            f"if({identity_mutation_condition}, "
+            f"'{EVIDENCE_IDENTITY_VERSION}', "
+            f"{column_name}) AS {column_name}"
+        )
+    if column_name == "evidence_identity_quality":
+        return (
+            f"if({identity_mutation_condition}, "
+            f"'{EvidenceIdentityQuality.NATIVE.value}', "
+            f"{column_name}) AS {column_name}"
+        )
+    return column_name
+
+
+def _count_native_evtx_fast_path_rows(client, *, case_id: Optional[int] = None) -> int:
+    where = f"WHERE {_native_evtx_fast_path_predicate()}"
+    if case_id is not None:
+        where += f" AND case_id = {int(case_id)}"
+    result = client.query(f"SELECT count() FROM events {where}")
+    return int(result.result_rows[0][0]) if result.result_rows else 0
+
+
+def _count_native_evtx_fast_path_mutation_rows(
+    client,
+    *,
+    case_id: Optional[int],
+    recompute_existing: bool,
+) -> int:
+    key_recompute_condition = _sql_fast_path_key_recompute_condition(
+        case_id=case_id,
+        recompute_existing=bool(recompute_existing),
+    )
+    metadata_repair_condition = _sql_fast_path_metadata_repair_condition(case_id=case_id)
     result = client.query(
-        """
+        f"SELECT count() FROM events "
+        f"WHERE {_native_evtx_fast_path_predicate()} "
+        f"AND ({key_recompute_condition} OR {metadata_repair_condition})"
+    )
+    return int(result.result_rows[0][0]) if result.result_rows else 0
+
+
+def _copy_native_evtx_fast_path_to_shadow(
+    client,
+    *,
+    columns: List[str],
+    case_id: Optional[int],
+    recompute_existing: bool,
+) -> Dict[str, int]:
+    fast_path_rows = _count_native_evtx_fast_path_rows(client)
+    if fast_path_rows <= 0:
+        print("- Native EVTX SQL fast path: no eligible rows")
+        return {"copied": 0, "rewritten": 0}
+    mutation_rows = _count_native_evtx_fast_path_mutation_rows(
+        client,
+        case_id=case_id,
+        recompute_existing=bool(recompute_existing),
+    )
+
+    column_list = ", ".join(columns)
+    select_list = ", ".join(
+        _sql_fast_path_select_expression(
+            column_name,
+            case_id=case_id,
+            recompute_existing=bool(recompute_existing),
+        )
+        for column_name in columns
+    )
+    client.command(
+        f"INSERT INTO {SHADOW_TABLE} ({column_list}) "
+        f"SELECT {select_list} "
+        f"FROM events "
+        f"WHERE {_native_evtx_fast_path_predicate()}"
+    )
+    print(
+        f"- Native EVTX SQL fast path inserted {fast_path_rows:,} rows into shadow "
+        f"({mutation_rows:,} generated/repaired)"
+    )
+    return {"copied": fast_path_rows, "rewritten": mutation_rows}
+
+
+def _source_window_row_count(
+    client,
+    case_id: int,
+    window_start_ms: int,
+    window_end_ms: int,
+    *,
+    exclude_native_evtx_fast_path: bool = False,
+) -> int:
+    fast_path_filter = (
+        f"AND NOT ({_native_evtx_fast_path_predicate()})"
+        if exclude_native_evtx_fast_path
+        else ""
+    )
+    result = client.query(
+        f"""
         SELECT count()
         FROM events
-        WHERE case_id = {case_id:UInt32}
-          AND timestamp_utc >= fromUnixTimestamp64Milli({window_start_ms:Int64})
-          AND timestamp_utc < fromUnixTimestamp64Milli({window_end_ms:Int64})
+        WHERE case_id = {{case_id:UInt32}}
+          AND timestamp_utc >= fromUnixTimestamp64Milli({{window_start_ms:Int64}})
+          AND timestamp_utc < fromUnixTimestamp64Milli({{window_end_ms:Int64}})
+          {fast_path_filter}
         """,
         parameters={
             "case_id": int(case_id),
@@ -391,15 +554,28 @@ def _split_dense_source_window(
     row_count: Optional[int],
     max_rows: int,
     min_seconds: int,
+    exclude_native_evtx_fast_path: bool,
 ) -> List[tuple]:
     duration_ms = int(window_end_ms) - int(window_start_ms)
     if row_count is None:
-        row_count = _source_window_row_count(client, case_id, window_start_ms, window_end_ms)
+        row_count = _source_window_row_count(
+            client,
+            case_id,
+            window_start_ms,
+            window_end_ms,
+            exclude_native_evtx_fast_path=bool(exclude_native_evtx_fast_path),
+        )
     if row_count <= int(max_rows) or duration_ms <= int(min_seconds) * 1000:
         return [(int(window_start_ms), int(window_end_ms))]
 
     midpoint_ms = int(window_start_ms) + max(duration_ms // 2, 1)
-    left_count = _source_window_row_count(client, case_id, int(window_start_ms), midpoint_ms)
+    left_count = _source_window_row_count(
+        client,
+        case_id,
+        int(window_start_ms),
+        midpoint_ms,
+        exclude_native_evtx_fast_path=bool(exclude_native_evtx_fast_path),
+    )
     right_count = max(int(row_count) - int(left_count), 0)
     return (
         _split_dense_source_window(
@@ -410,6 +586,7 @@ def _split_dense_source_window(
             row_count=left_count,
             max_rows=max_rows,
             min_seconds=min_seconds,
+            exclude_native_evtx_fast_path=bool(exclude_native_evtx_fast_path),
         )
         + _split_dense_source_window(
             client,
@@ -419,6 +596,7 @@ def _split_dense_source_window(
             row_count=right_count,
             max_rows=max_rows,
             min_seconds=min_seconds,
+            exclude_native_evtx_fast_path=bool(exclude_native_evtx_fast_path),
         )
     )
 
@@ -430,7 +608,13 @@ def _case_source_windows(
     window_seconds: int,
     max_rows: int = DEFAULT_SOURCE_WINDOW_MAX_ROWS,
     min_seconds: int = DEFAULT_SOURCE_WINDOW_MIN_SECONDS,
+    exclude_native_evtx_fast_path: bool = False,
 ) -> List[tuple]:
+    fast_path_filter = (
+        f"AND NOT ({_native_evtx_fast_path_predicate()})"
+        if exclude_native_evtx_fast_path
+        else ""
+    )
     result = client.query(
         f"""
         SELECT
@@ -439,6 +623,7 @@ def _case_source_windows(
             count() AS rows
         FROM events
         WHERE case_id = {{case_id:UInt32}}
+          {fast_path_filter}
         GROUP BY bucket_start_ms
         ORDER BY bucket_start_ms
         """,
@@ -457,6 +642,7 @@ def _case_source_windows(
                 row_count=row_count,
                 max_rows=int(max_rows),
                 min_seconds=int(min_seconds),
+                exclude_native_evtx_fast_path=bool(exclude_native_evtx_fast_path),
             )
         )
     return windows
@@ -635,6 +821,7 @@ def _print_dry_run_plan(
     source_window_max_rows: int,
     source_window_min_seconds: int,
     copy_workers: int,
+    native_evtx_sql_fast_path: bool,
     total_rows: int,
     scoped_rows: int,
     counts: Dict[str, Optional[int]],
@@ -689,6 +876,9 @@ def _print_dry_run_plan(
     print(f"  source window max rows: {int(source_window_max_rows)}")
     print(f"  source window min seconds: {int(source_window_min_seconds)}")
     print(f"  copy workers: {int(copy_workers)}")
+    print(f"  native EVTX SQL fast path: {_format_bool(bool(native_evtx_sql_fast_path))}")
+    if native_evtx_sql_fast_path:
+        print(f"  native EVTX SQL fast-path rows: {_count_native_evtx_fast_path_rows(client)}")
     print(f"  full v2 recompute requested: {_format_bool(bool(recompute_existing))}")
     print("- Dry run only; no ClickHouse DDL or data writes were executed")
     return rewrite_needed
@@ -757,12 +947,18 @@ def _insert_shadow_batch(client, rows: List[tuple], columns: List[str]) -> None:
         _insert_shadow_batch(client, rows[midpoint:], columns)
 
 
-def _source_window_query(columns_sql: str) -> str:
+def _source_window_query(columns_sql: str, *, exclude_native_evtx_fast_path: bool = False) -> str:
+    fast_path_filter = (
+        f" AND NOT ({_native_evtx_fast_path_predicate()})"
+        if exclude_native_evtx_fast_path
+        else ""
+    )
     return (
         f"SELECT {columns_sql} FROM events "
         "WHERE case_id = {case_id:UInt32} "
         "AND timestamp_utc >= fromUnixTimestamp64Milli({window_start_ms:Int64}) "
         "AND timestamp_utc < fromUnixTimestamp64Milli({window_end_ms:Int64})"
+        f"{fast_path_filter}"
     )
 
 
@@ -776,6 +972,7 @@ def _copy_source_window_to_shadow(
     window_end_ms: int,
     target_case_id: Optional[int],
     recompute_existing: bool,
+    exclude_native_evtx_fast_path: bool = False,
 ) -> Dict[str, int]:
     identity_indexes = {name: columns.index(name) for name in IDENTITY_COLUMNS}
     rows_buffer = []
@@ -783,7 +980,10 @@ def _copy_source_window_to_shadow(
     copied = 0
     columns_sql = ", ".join(columns)
     with client.query_rows_stream(
-        _source_window_query(columns_sql),
+        _source_window_query(
+            columns_sql,
+            exclude_native_evtx_fast_path=bool(exclude_native_evtx_fast_path),
+        ),
         parameters={
             "case_id": int(current_case_id),
             "window_start_ms": int(window_start_ms),
@@ -847,11 +1047,13 @@ def _rewrite_rows_to_shadow(
     source_window_max_rows: int = DEFAULT_SOURCE_WINDOW_MAX_ROWS,
     source_window_min_seconds: int = DEFAULT_SOURCE_WINDOW_MIN_SECONDS,
     copy_workers: int = DEFAULT_COPY_WORKERS,
+    native_evtx_sql_fast_path: bool = DEFAULT_NATIVE_EVTX_SQL_FAST_PATH,
     rewrite_lease: Any = None,
 ) -> int:
     copy_workers = max(int(copy_workers), 1)
     copied = 0
     rewritten = 0
+    sql_fast_path_rows = 0
     case_ids = _distinct_case_ids(client)
     total_rows = _count_events(client)
     started_at = time.monotonic()
@@ -869,6 +1071,7 @@ def _rewrite_rows_to_shadow(
             window_seconds=int(source_window_seconds),
             max_rows=int(source_window_max_rows),
             min_seconds=int(source_window_min_seconds),
+            exclude_native_evtx_fast_path=bool(native_evtx_sql_fast_path),
         )
         case_totals[int(current_case_id)] = 0
         print(
@@ -885,6 +1088,7 @@ def _rewrite_rows_to_shadow(
                     "window_end_ms": int(window_end_ms),
                     "target_case_id": case_id,
                     "recompute_existing": bool(recompute_existing),
+                    "exclude_native_evtx_fast_path": bool(native_evtx_sql_fast_path),
                 }
             )
 
@@ -903,6 +1107,18 @@ def _rewrite_rows_to_shadow(
                 f"identities={rewritten:,}; elapsed={elapsed:.0f}s"
             )
             next_progress += max(int(progress_interval), 1)
+
+    if native_evtx_sql_fast_path:
+        _assert_rewrite_lease_active(rewrite_lease)
+        sql_fast_path_result = _copy_native_evtx_fast_path_to_shadow(
+            client,
+            columns=columns,
+            case_id=case_id,
+            recompute_existing=bool(recompute_existing),
+        )
+        sql_fast_path_rows = int(sql_fast_path_result["copied"])
+        copied += sql_fast_path_rows
+        rewritten += int(sql_fast_path_result["rewritten"])
 
     if copy_workers == 1:
         for task in window_tasks:
@@ -940,7 +1156,11 @@ def _rewrite_rows_to_shadow(
 
     for current_case_id in case_ids:
         print(f"- Finished case_id={current_case_id}: {case_totals.get(int(current_case_id), 0):,} rows copied")
-    print(f"- Finished shadow copy: {copied} rows copied; {rewritten} identities generated")
+    print(
+        f"- Finished shadow copy: {copied} rows copied; "
+        f"{rewritten} identities generated/repaired "
+        f"({sql_fast_path_rows:,} via native EVTX SQL fast path)"
+    )
     return rewritten
 
 
@@ -1043,6 +1263,7 @@ def backfill_identity_columns(
     source_window_max_rows: int = DEFAULT_SOURCE_WINDOW_MAX_ROWS,
     source_window_min_seconds: int = DEFAULT_SOURCE_WINDOW_MIN_SECONDS,
     copy_workers: int = DEFAULT_COPY_WORKERS,
+    native_evtx_sql_fast_path: bool = DEFAULT_NATIVE_EVTX_SQL_FAST_PATH,
     case_id: Optional[int] = None,
     dry_run: bool = False,
     recompute_existing: bool = False,
@@ -1063,6 +1284,7 @@ def backfill_identity_columns(
             source_window_max_rows=source_window_max_rows,
             source_window_min_seconds=source_window_min_seconds,
             copy_workers=copy_workers,
+            native_evtx_sql_fast_path=native_evtx_sql_fast_path,
             total_rows=total_rows,
             scoped_rows=scoped_rows,
             counts=counts,
@@ -1155,6 +1377,7 @@ def backfill_identity_columns(
                 source_window_max_rows=int(source_window_max_rows),
                 source_window_min_seconds=int(source_window_min_seconds),
                 copy_workers=int(copy_workers),
+                native_evtx_sql_fast_path=bool(native_evtx_sql_fast_path),
                 case_id=case_id,
                 recompute_existing=bool(recompute_existing),
                 rewrite_lease=rewrite_lease,
@@ -1268,6 +1491,11 @@ def _parse_args(argv: Optional[List[str]] = None) -> argparse.Namespace:
         help="parallel source-window copy workers; one coordinator still owns swap and validation",
     )
     parser.add_argument(
+        "--disable-native-evtx-sql-fast-path",
+        action="store_true",
+        help="disable ClickHouse SQL fast-path generation for native EVTX identities",
+    )
+    parser.add_argument(
         "--recompute-existing",
         action="store_true",
         help="recompute existing evidence identities in scope and write v2 keys",
@@ -1302,6 +1530,7 @@ def migrate(argv: Optional[List[str]] = None) -> None:
             source_window_max_rows=args.source_window_max_rows,
             source_window_min_seconds=args.source_window_min_seconds,
             copy_workers=args.copy_workers,
+            native_evtx_sql_fast_path=not args.disable_native_evtx_sql_fast_path,
             case_id=args.case_id,
             dry_run=True,
             recompute_existing=args.recompute_existing,
@@ -1317,6 +1546,7 @@ def migrate(argv: Optional[List[str]] = None) -> None:
         source_window_max_rows=args.source_window_max_rows,
         source_window_min_seconds=args.source_window_min_seconds,
         copy_workers=args.copy_workers,
+        native_evtx_sql_fast_path=not args.disable_native_evtx_sql_fast_path,
         case_id=args.case_id,
         dry_run=args.dry_run,
         recompute_existing=args.recompute_existing,

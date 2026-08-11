@@ -180,15 +180,35 @@ It then streams each case separately:
 
 `SELECT <insertable columns> FROM events WHERE case_id = {case_id:UInt32}`
 
+Before the Python fallback streams rows, the migration uses a ClickHouse-native
+SQL fast path for rows whose Evidence Identity v2 input is provably native EVTX
+identity material:
+
+`artifact_type = 'evtx' AND record_id IS NOT NULL AND case_file_id IS NOT NULL AND case_file_id > 0`
+
+Those rows are inserted into the empty shadow table with `INSERT SELECT`. The
+`erk:v2:` key is computed in ClickHouse from the same compact sorted JSON payload
+and `SHA256` digest as the Python identity contract, and metadata is set to
+version `2` and quality `native` only when the row is in mutation scope or
+requires metadata repair. Python workers then stream only rows outside this
+native fast path, preventing duplicate shadow rows. The fast path is enabled by
+default and can be disabled with `--disable-native-evtx-sql-fast-path` or
+`EVIDENCE_IDENTITY_NATIVE_EVTX_SQL_FAST_PATH=0`.
+
+The migration intentionally still creates an empty shadow table instead of using
+`CREATE TABLE ... CLONE AS ...` for the active rewrite. A full data clone would
+copy rows with their current identity values; the Python fallback has no stable
+per-row update key for safely replacing only the non-fast-path cloned rows.
+
 There is no source row `ORDER BY`; identity generation is per-record and does
-not depend on traversal order. Each case is further split into timestamp windows
+not depend on traversal order. Each fallback case is further split into timestamp windows
 before streaming, controlled by `--source-window-seconds` or
 `EVIDENCE_IDENTITY_SOURCE_WINDOW_SECONDS` with a default of 900 seconds. Dense
 timestamp buckets are recursively subdivided before streaming when their row
 counts exceed `--source-window-max-rows` or
 `EVIDENCE_IDENTITY_SOURCE_WINDOW_MAX_ROWS`, down to
 `--source-window-min-seconds` or `EVIDENCE_IDENTITY_SOURCE_WINDOW_MIN_SECONDS`.
-Large cases are still streamed through ClickHouse's row-stream API using the
+Large fallback cases are still streamed through ClickHouse's row-stream API using the
 migration source settings above. Memory is bounded by ClickHouse stream block
 size plus the Python insert batch, not by the number of rows in a case. A
 174,899,397-row case therefore does not require materializing 174,899,397 rows

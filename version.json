@@ -1,6 +1,13 @@
 {
-  "version": "4.12.15",
+  "version": "4.12.16",
   "changelog": [
+    {
+      "version": "4.12.16",
+      "date": "2026-08-11",
+      "changes": [
+        "Evidence Identity migration now uses a ClickHouse SQL fast path for provable native EVTX identities before Python fallback workers"
+      ]
+    },
     {
       "version": "4.12.15",
       "date": "2026-08-11",
