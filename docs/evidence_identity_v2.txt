@@ -195,6 +195,16 @@ native fast path, preventing duplicate shadow rows. The fast path is enabled by
 default and can be disabled with `--disable-native-evtx-sql-fast-path` or
 `EVIDENCE_IDENTITY_NATIVE_EVTX_SQL_FAST_PATH=0`.
 
+The native EVTX SQL fast path uses query-local ClickHouse parallelism settings
+instead of raising the global migration client settings. By default that single
+`INSERT SELECT` runs with `max_threads = 6` and `max_insert_threads = 4`,
+controlled by `--native-evtx-sql-max-threads`,
+`--native-evtx-sql-max-insert-threads`,
+`EVIDENCE_IDENTITY_NATIVE_EVTX_SQL_MAX_THREADS`, and
+`EVIDENCE_IDENTITY_NATIVE_EVTX_SQL_MAX_INSERT_THREADS`. Python fallback streams
+continue to use the migration source settings, including `max_threads = 1` per
+worker.
+
 The migration intentionally still creates an empty shadow table instead of using
 `CREATE TABLE ... CLONE AS ...` for the active rewrite. A full data clone would
 copy rows with their current identity values; the Python fallback has no stable

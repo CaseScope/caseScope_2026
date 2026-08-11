@@ -1311,6 +1311,7 @@ class EvidenceIdentityMigrationTestCase(unittest.TestCase):
         self.assertEqual(rewritten, 2)
         self.assertTrue(any(command.startswith(f"INSERT INTO {migration.SHADOW_TABLE}") for command in client.commands))
         self.assertTrue(any("SHA256" in command for command in client.commands))
+        self.assertTrue(any("SETTINGS max_threads = 6, max_insert_threads = 4" in command for command in client.commands))
         self.assertIn("AND NOT (artifact_type = 'evtx'", client.last_stream_query)
 
     def test_native_evtx_sql_identity_expression_matches_python_contract(self):

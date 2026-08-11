@@ -69,6 +69,14 @@ DEFAULT_NATIVE_EVTX_SQL_FAST_PATH = os.environ.get(
     "EVIDENCE_IDENTITY_NATIVE_EVTX_SQL_FAST_PATH",
     "1",
 ).strip().lower() not in {"0", "false", "no", "off"}
+DEFAULT_NATIVE_EVTX_SQL_MAX_THREADS = max(
+    int(os.environ.get("EVIDENCE_IDENTITY_NATIVE_EVTX_SQL_MAX_THREADS", 6)),
+    1,
+)
+DEFAULT_NATIVE_EVTX_SQL_MAX_INSERT_THREADS = max(
+    int(os.environ.get("EVIDENCE_IDENTITY_NATIVE_EVTX_SQL_MAX_INSERT_THREADS", 4)),
+    1,
+)
 _WORKER_MIGRATION_CLIENT = None
 
 
@@ -396,6 +404,18 @@ def _sql_native_evtx_identity_key_expression() -> str:
     return f"concat('{EVIDENCE_RECORD_KEY_PREFIX}', lower(hex(SHA256({payload_expression}))))"
 
 
+def _native_evtx_sql_fast_path_settings_clause(
+    *,
+    max_threads: int = DEFAULT_NATIVE_EVTX_SQL_MAX_THREADS,
+    max_insert_threads: int = DEFAULT_NATIVE_EVTX_SQL_MAX_INSERT_THREADS,
+) -> str:
+    return (
+        "SETTINGS "
+        f"max_threads = {max(int(max_threads), 1)}, "
+        f"max_insert_threads = {max(int(max_insert_threads), 1)}"
+    )
+
+
 def _sql_identity_mutation_scope(case_id: Optional[int]) -> str:
     if case_id is None:
         return "1"
@@ -481,6 +501,8 @@ def _copy_native_evtx_fast_path_to_shadow(
     columns: List[str],
     case_id: Optional[int],
     recompute_existing: bool,
+    max_threads: int = DEFAULT_NATIVE_EVTX_SQL_MAX_THREADS,
+    max_insert_threads: int = DEFAULT_NATIVE_EVTX_SQL_MAX_INSERT_THREADS,
 ) -> Dict[str, int]:
     fast_path_rows = _count_native_evtx_fast_path_rows(client)
     if fast_path_rows <= 0:
@@ -505,7 +527,8 @@ def _copy_native_evtx_fast_path_to_shadow(
         f"INSERT INTO {SHADOW_TABLE} ({column_list}) "
         f"SELECT {select_list} "
         f"FROM events "
-        f"WHERE {_native_evtx_fast_path_predicate()}"
+        f"WHERE {_native_evtx_fast_path_predicate()} "
+        f"{_native_evtx_sql_fast_path_settings_clause(max_threads=max_threads, max_insert_threads=max_insert_threads)}"
     )
     print(
         f"- Native EVTX SQL fast path inserted {fast_path_rows:,} rows into shadow "
@@ -822,6 +845,8 @@ def _print_dry_run_plan(
     source_window_min_seconds: int,
     copy_workers: int,
     native_evtx_sql_fast_path: bool,
+    native_evtx_sql_max_threads: int,
+    native_evtx_sql_max_insert_threads: int,
     total_rows: int,
     scoped_rows: int,
     counts: Dict[str, Optional[int]],
@@ -879,6 +904,8 @@ def _print_dry_run_plan(
     print(f"  native EVTX SQL fast path: {_format_bool(bool(native_evtx_sql_fast_path))}")
     if native_evtx_sql_fast_path:
         print(f"  native EVTX SQL fast-path rows: {_count_native_evtx_fast_path_rows(client)}")
+        print(f"  native EVTX SQL max_threads: {int(native_evtx_sql_max_threads)}")
+        print(f"  native EVTX SQL max_insert_threads: {int(native_evtx_sql_max_insert_threads)}")
     print(f"  full v2 recompute requested: {_format_bool(bool(recompute_existing))}")
     print("- Dry run only; no ClickHouse DDL or data writes were executed")
     return rewrite_needed
@@ -1048,6 +1075,8 @@ def _rewrite_rows_to_shadow(
     source_window_min_seconds: int = DEFAULT_SOURCE_WINDOW_MIN_SECONDS,
     copy_workers: int = DEFAULT_COPY_WORKERS,
     native_evtx_sql_fast_path: bool = DEFAULT_NATIVE_EVTX_SQL_FAST_PATH,
+    native_evtx_sql_max_threads: int = DEFAULT_NATIVE_EVTX_SQL_MAX_THREADS,
+    native_evtx_sql_max_insert_threads: int = DEFAULT_NATIVE_EVTX_SQL_MAX_INSERT_THREADS,
     rewrite_lease: Any = None,
 ) -> int:
     copy_workers = max(int(copy_workers), 1)
@@ -1115,6 +1144,8 @@ def _rewrite_rows_to_shadow(
             columns=columns,
             case_id=case_id,
             recompute_existing=bool(recompute_existing),
+            max_threads=int(native_evtx_sql_max_threads),
+            max_insert_threads=int(native_evtx_sql_max_insert_threads),
         )
         sql_fast_path_rows = int(sql_fast_path_result["copied"])
         copied += sql_fast_path_rows
@@ -1264,6 +1295,8 @@ def backfill_identity_columns(
     source_window_min_seconds: int = DEFAULT_SOURCE_WINDOW_MIN_SECONDS,
     copy_workers: int = DEFAULT_COPY_WORKERS,
     native_evtx_sql_fast_path: bool = DEFAULT_NATIVE_EVTX_SQL_FAST_PATH,
+    native_evtx_sql_max_threads: int = DEFAULT_NATIVE_EVTX_SQL_MAX_THREADS,
+    native_evtx_sql_max_insert_threads: int = DEFAULT_NATIVE_EVTX_SQL_MAX_INSERT_THREADS,
     case_id: Optional[int] = None,
     dry_run: bool = False,
     recompute_existing: bool = False,
@@ -1285,6 +1318,8 @@ def backfill_identity_columns(
             source_window_min_seconds=source_window_min_seconds,
             copy_workers=copy_workers,
             native_evtx_sql_fast_path=native_evtx_sql_fast_path,
+            native_evtx_sql_max_threads=native_evtx_sql_max_threads,
+            native_evtx_sql_max_insert_threads=native_evtx_sql_max_insert_threads,
             total_rows=total_rows,
             scoped_rows=scoped_rows,
             counts=counts,
@@ -1378,6 +1413,8 @@ def backfill_identity_columns(
                 source_window_min_seconds=int(source_window_min_seconds),
                 copy_workers=int(copy_workers),
                 native_evtx_sql_fast_path=bool(native_evtx_sql_fast_path),
+                native_evtx_sql_max_threads=int(native_evtx_sql_max_threads),
+                native_evtx_sql_max_insert_threads=int(native_evtx_sql_max_insert_threads),
                 case_id=case_id,
                 recompute_existing=bool(recompute_existing),
                 rewrite_lease=rewrite_lease,
@@ -1496,6 +1533,18 @@ def _parse_args(argv: Optional[List[str]] = None) -> argparse.Namespace:
         help="disable ClickHouse SQL fast-path generation for native EVTX identities",
     )
     parser.add_argument(
+        "--native-evtx-sql-max-threads",
+        type=int,
+        default=DEFAULT_NATIVE_EVTX_SQL_MAX_THREADS,
+        help="ClickHouse max_threads setting for the native EVTX SQL fast-path insert only",
+    )
+    parser.add_argument(
+        "--native-evtx-sql-max-insert-threads",
+        type=int,
+        default=DEFAULT_NATIVE_EVTX_SQL_MAX_INSERT_THREADS,
+        help="ClickHouse max_insert_threads setting for the native EVTX SQL fast-path insert only",
+    )
+    parser.add_argument(
         "--recompute-existing",
         action="store_true",
         help="recompute existing evidence identities in scope and write v2 keys",
@@ -1531,6 +1580,8 @@ def migrate(argv: Optional[List[str]] = None) -> None:
             source_window_min_seconds=args.source_window_min_seconds,
             copy_workers=args.copy_workers,
             native_evtx_sql_fast_path=not args.disable_native_evtx_sql_fast_path,
+            native_evtx_sql_max_threads=args.native_evtx_sql_max_threads,
+            native_evtx_sql_max_insert_threads=args.native_evtx_sql_max_insert_threads,
             case_id=args.case_id,
             dry_run=True,
             recompute_existing=args.recompute_existing,
@@ -1547,6 +1598,8 @@ def migrate(argv: Optional[List[str]] = None) -> None:
         source_window_min_seconds=args.source_window_min_seconds,
         copy_workers=args.copy_workers,
         native_evtx_sql_fast_path=not args.disable_native_evtx_sql_fast_path,
+        native_evtx_sql_max_threads=args.native_evtx_sql_max_threads,
+        native_evtx_sql_max_insert_threads=args.native_evtx_sql_max_insert_threads,
         case_id=args.case_id,
         dry_run=args.dry_run,
         recompute_existing=args.recompute_existing,

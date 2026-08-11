@@ -1,6 +1,13 @@
 {
-  "version": "4.12.16",
+  "version": "4.12.17",
   "changelog": [
+    {
+      "version": "4.12.17",
+      "date": "2026-08-11",
+      "changes": [
+        "Evidence Identity native EVTX SQL fast path now uses query-local ClickHouse thread settings without changing Python fallback source stream limits"
+      ]
+    },
     {
       "version": "4.12.16",
       "date": "2026-08-11",
