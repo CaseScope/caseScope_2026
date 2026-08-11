@@ -404,6 +404,22 @@ class IOCExtractorCaseScopeTestCase(unittest.TestCase):
         self.assertIn(('Domain', 'evil.example'), imported)
         self.assertIn(('File Name', 'evil.example'), imported)
 
+    def test_process_known_system_defaults_to_relevant_not_compromised(self):
+        default_result = self.extractor_module._ioc_known_entities.process_known_system(
+            'FIN-LAPTOP-9',
+            case_id=42,
+            username='tester',
+        )
+        compromised_result = self.extractor_module._ioc_known_entities.process_known_system(
+            'FIN-LAPTOP-9',
+            case_id=42,
+            username='tester',
+            compromised=True,
+        )
+
+        self.assertFalse(default_result['now_compromised'])
+        self.assertTrue(compromised_result['now_compromised'])
+
     def test_save_extracted_iocs_calls_batch_auto_enrichment(self):
         created_iocs = []
         enrichment_calls = []

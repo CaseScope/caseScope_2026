@@ -77,7 +77,7 @@ def _process_known_system(
     hostname: str,
     case_id: int,
     username: str,
-    compromised: bool = True,
+    compromised: bool = False,
 ) -> Optional[Dict[str, Any]]:
     return _ioc_known_entities.process_known_system(
         hostname=hostname,

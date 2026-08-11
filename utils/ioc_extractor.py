@@ -793,13 +793,15 @@ def _create_ioc_entry_with_type_awareness(
 def _process_known_system(
     hostname: str,
     case_id: int,
-    username: str
+    username: str,
+    compromised: bool = False,
 ) -> Optional[Dict[str, Any]]:
     """Return the case-scoped known-system action implied by one hostname."""
     return _ioc_known_entities.process_known_system(
         hostname=hostname,
         case_id=case_id,
         username=username,
+        compromised=compromised,
     )
 
 

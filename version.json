@@ -1,6 +1,15 @@
 {
-  "version": "4.12.1",
+  "version": "4.12.2",
   "changelog": [
+    {
+      "version": "4.12.2",
+      "date": "2026-08-10",
+      "changes": [
+        "IOC extraction now rejects grammatical host-compromise false positives while still confirming explicitly named compromised hosts",
+        "Semantic username, credential and scheduled-task normalization now preserves item-level provenance and command-only scheduled-task evidence without fabricating task names or paths",
+        "KnownSystem import helpers now default to relevant-host handling unless compromise is explicitly requested"
+      ]
+    },
     {
       "version": "4.12.1",
       "date": "2026-08-10",

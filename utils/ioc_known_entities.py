@@ -9,7 +9,7 @@ def process_known_system(
     hostname: str,
     case_id: int,
     username: str,
-    compromised: bool = True,
+    compromised: bool = False,
 ) -> Optional[Dict[str, Any]]:
     """Return the case-scoped known-system action implied by one hostname."""
     from models.known_system import KnownSystem

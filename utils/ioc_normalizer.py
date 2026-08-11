@@ -80,6 +80,21 @@ HOST_COMPROMISE_PATTERNS = (
     r'\battacker\s+gained\s+access\s+to\s+(?P<host>[A-Za-z0-9][A-Za-z0-9._-]{1,254})\b',
 )
 
+HOST_COMPROMISE_STOPWORDS = {
+    'affected',
+    'attacker',
+    'compromised',
+    'confirmed',
+    'endpoint',
+    'host',
+    'is',
+    'machine',
+    'system',
+    'the',
+    'was',
+    'we',
+}
+
 URL_PATTERN = re.compile(
     r'(?:hxxps?|https?)(?:\[?://\]?|://)[\w\-\.]+(?:\[\.\]|\.)[\w\-\.]+[^\s<>"{}|\\^`\[\]]*',
     re.I,
@@ -338,9 +353,9 @@ def _extract_confirmed_compromised_hosts(report_text: str, candidate_hosts: Opti
             host = (match.groupdict().get('host') or '').strip().strip('.,;:')
             if not host:
                 continue
-            if candidates and host.lower() not in candidates:
-                continue
             normalized = host.lower()
+            if not _is_plausible_confirmed_host(host, normalized in candidates):
+                continue
             if normalized in seen:
                 continue
             seen.add(normalized)
@@ -348,10 +363,28 @@ def _extract_confirmed_compromised_hosts(report_text: str, candidate_hosts: Opti
     return confirmed
 
 
+def _is_plausible_confirmed_host(host: str, is_known_candidate: bool = False) -> bool:
+    token = (host or '').strip().strip('.,;:')
+    lowered = token.lower()
+    if not token or lowered in HOST_COMPROMISE_STOPWORDS:
+        return False
+    if _is_valid_ipv4(token):
+        return False
+    if is_known_candidate:
+        return True
+    if any(char.isdigit() for char in token):
+        return True
+    if any(char in token for char in '.-_'):
+        return True
+    return token.isupper() and len(token) >= 3
+
+
 def _copy_provenance_fields(source: Dict[str, Any], target: Dict[str, Any]) -> Dict[str, Any]:
     for key in (
         'raw_value',
         'normalized_value',
+        'evidence',
+        'evidence_origin',
         'evidence_source_section',
         'canonical_section',
         'evidence_classes',
@@ -698,8 +731,19 @@ def _normalize_ai_extraction(extraction: Dict[str, Any], report_text: str = '') 
             cleaned['path'] = _optional_value(cleaned.get('path'))
             cleaned['command'] = _optional_value(cleaned.get('command'))
             cleaned['action'] = _optional_value(cleaned.get('action'))
-            if cleaned.get('name') or cleaned.get('path'):
+            if cleaned.get('name') or cleaned.get('path') or cleaned.get('command'):
                 normalized['iocs']['scheduled_tasks'].append(cleaned)
+                if cleaned.get('command') and not (cleaned.get('name') or cleaned.get('path')):
+                    normalized['iocs']['commands'].append(_copy_provenance_fields(cleaned, {
+                        'value': cleaned.get('command', ''),
+                        'executable': '',
+                        'context': cleaned.get('context', ''),
+                        'parent': '',
+                        'user': '',
+                        'pid': '',
+                        'evidence': cleaned.get('evidence', ''),
+                        'evidence_origin': cleaned.get('evidence_origin', ''),
+                    }))
         else:
             normalized['iocs']['scheduled_tasks'].append({'name': task, 'path': None, 'command': None})
 
@@ -746,21 +790,29 @@ def _normalize_ai_extraction(extraction: Dict[str, Any], report_text: str = '') 
             if cleaned_user:
                 normalized['iocs']['users'].append(cleaned_user)
             if user.get('password'):
-                normalized['iocs']['credentials'].append({
+                normalized['iocs']['credentials'].append(_copy_provenance_fields(user, {
                     'type': 'password',
                     'username': user.get('username', ''),
                     'value': user.get('password', ''),
+                    'raw_value': user.get('password', ''),
+                    'normalized_value': user.get('password', ''),
                     'context': 'Attacker-created account password',
-                })
+                    'evidence': user.get('evidence', ''),
+                    'evidence_origin': user.get('evidence_origin', ''),
+                }))
 
     for cred in auth.get('passwords_observed', []):
         if isinstance(cred, dict):
-            normalized['iocs']['credentials'].append({
+            normalized['iocs']['credentials'].append(_copy_provenance_fields(cred, {
                 'type': 'password',
                 'username': cred.get('username', ''),
                 'value': cred.get('password', ''),
+                'raw_value': cred.get('raw_value') or cred.get('password', ''),
+                'normalized_value': cred.get('normalized_value') or cred.get('password', ''),
                 'context': cred.get('context', ''),
-            })
+                'evidence': cred.get('evidence', ''),
+                'evidence_origin': cred.get('evidence_origin', ''),
+            }))
 
     vuln = extraction.get('vulnerability_iocs', {})
     for cve in vuln.get('cves', []):

@@ -1448,6 +1448,40 @@ class IOCHuntressExtractorRegressionTestCase(unittest.TestCase):
         self.assertIn('FIN-LAPTOP-9', extraction['extraction_summary']['affected_hosts'])
         self.assertEqual(extraction['extraction_summary'].get('confirmed_compromised_hosts'), [])
 
+    def test_generic_compromise_prose_does_not_create_confirmed_host(self):
+        for report in (
+            "The host was compromised.",
+            "The endpoint was compromised.",
+            "The system is compromised.",
+            "We confirmed the host was compromised.",
+        ):
+            with self.subTest(report=report):
+                extraction = self.extractor_module.run_deterministic_ioc_extraction(report)
+                self.assertEqual(
+                    extraction['extraction_summary'].get('confirmed_compromised_hosts'),
+                    [],
+                )
+
+    def test_named_compromised_hosts_are_still_confirmed_without_host_field(self):
+        for report in (
+            "FIN-LAPTOP-9 was compromised.",
+            "The attacker compromised FIN-LAPTOP-9.",
+            "The attacker gained access to FIN-LAPTOP-9 during the incident.",
+        ):
+            with self.subTest(report=report):
+                extraction = self.extractor_module.run_deterministic_ioc_extraction(report)
+                self.assertEqual(
+                    extraction['extraction_summary'].get('confirmed_compromised_hosts'),
+                    ['FIN-LAPTOP-9'],
+                )
+
+    def test_structured_host_plus_generic_compromise_does_not_infer_confirmation(self):
+        report = "Host: FIN-LAPTOP-9\nThe host was compromised."
+        extraction = self.extractor_module.run_deterministic_ioc_extraction(report)
+
+        self.assertIn('FIN-LAPTOP-9', extraction['extraction_summary']['affected_hosts'])
+        self.assertEqual(extraction['extraction_summary'].get('confirmed_compromised_hosts'), [])
+
     def test_explicit_compromised_host_state_is_scoped_to_named_host(self):
         report = (
             "Host: FIN-LAPTOP-9\n"
@@ -1616,6 +1650,40 @@ class IOCHuntressExtractorRegressionTestCase(unittest.TestCase):
         task_names = sorted(item['name'] for item in extraction['iocs']['scheduled_tasks'])
 
         self.assertEqual(task_names, ['UpdateService', 'WmiPrvSE'])
+
+    def test_semantic_scheduled_task_validator_accepts_partial_task_values(self):
+        validate = self.extractor_module._semantic_stage._validate_task_items
+        base_task = {
+            'name': None,
+            'path': None,
+            'command': None,
+            'action': None,
+            'evidence': 'Scheduled task evidence.',
+            'evidence_origin': 'reported_finding',
+        }
+
+        for field, value in (
+            ('name', 'UpdateService'),
+            ('path', r'\Microsoft\Windows\UpdateService'),
+            ('command', 'pythonw.exe run.pyw'),
+        ):
+            with self.subTest(field=field):
+                task = dict(base_task)
+                task[field] = value
+                self.assertIsNone(
+                    validate(
+                        'semantic_process_relationships',
+                        {'commands': [], 'services': [], 'scheduled_tasks': [task]},
+                    )
+                )
+
+        self.assertEqual(
+            validate(
+                'semantic_process_relationships',
+                {'commands': [], 'services': [], 'scheduled_tasks': [base_task]},
+            ),
+            'scheduled_tasks[0]: scheduled task item must include name, path, or command',
+        )
 
     def test_affected_user_with_infostealer_is_not_confirmed_compromised(self):
         normalize = self.extractor_module._normalize_ai_extraction

@@ -151,11 +151,12 @@ def records_from_extraction(
         }
 
     def _provenance_args(meta: Dict[str, Any]) -> Dict[str, Any]:
+        refs = meta.get("evidence_refs") or []
         return {
-            "evidence_source_section": meta.get("evidence_source_section") or evidence_source_section,
-            "canonical_section": meta.get("canonical_section") or canonical_section,
-            "evidence_classes": meta.get("evidence_classes") or evidence_classes,
-            "evidence_refs": meta.get("evidence_refs") or None,
+            "evidence_source_section": meta.get("evidence_source_section") or ("" if refs else evidence_source_section),
+            "canonical_section": meta.get("canonical_section") or ("" if refs else canonical_section),
+            "evidence_classes": meta.get("evidence_classes") or ([] if refs else evidence_classes),
+            "evidence_refs": refs or None,
         }
 
     for item in iocs.get("hashes", []):
@@ -398,6 +399,8 @@ def records_from_extraction(
     for item in iocs.get("credentials", []):
         if not isinstance(item, dict):
             continue
+        meta = _item_meta(item)
+        record_section = section if meta.get("evidence_source_section") or not meta.get("evidence_refs") else ""
         context = f"Username: {item.get('username', '')}".strip()
         if item.get("context"):
             context = f"{context} | {item['context']}" if context else str(item["context"])
@@ -410,16 +413,19 @@ def records_from_extraction(
             trust_tier=trust_tier,
             field="credentials",
             context=context,
-            section=section,
-            raw_value=item.get("value", ""),
-            normalized_value=item.get("normalized_value", item.get("value", "")),
-            evidence=item.get("evidence") or context,
-            evidence_origin=item.get("evidence_origin", ""),
+            section=record_section,
+            raw_value=meta.get("raw_value", item.get("value", "")),
+            normalized_value=meta.get("normalized_value", item.get("value", "")),
+            evidence=meta.get("evidence", context),
+            evidence_origin=meta.get("evidence_origin", ""),
             extraction_method=source,
-            semantic_route=semantic_route,
+            semantic_route=meta.get("semantic_route", semantic_route),
+            **_provenance_args(meta),
         )
 
     for item in iocs.get("users", []):
+        meta = _item_meta(item)
+        record_section = section if meta.get("evidence_source_section") or not meta.get("evidence_refs") else ""
         if isinstance(item, dict):
             value = item.get("value", "")
             context = item.get("context", "")
@@ -435,13 +441,14 @@ def records_from_extraction(
             trust_tier=trust_tier,
             field="users",
             context=context,
-            section=section,
-            raw_value=value,
-            normalized_value=item.get("normalized_value", value) if isinstance(item, dict) else value,
-            evidence=item.get("evidence") or context if isinstance(item, dict) else context,
-            evidence_origin=item.get("evidence_origin", "") if isinstance(item, dict) else "",
+            section=record_section,
+            raw_value=meta.get("raw_value", value),
+            normalized_value=meta.get("normalized_value", value),
+            evidence=meta.get("evidence", context),
+            evidence_origin=meta.get("evidence_origin", ""),
             extraction_method=source,
-            semantic_route=semantic_route,
+            semantic_route=meta.get("semantic_route", semantic_route),
+            **_provenance_args(meta),
         )
 
     for item in iocs.get("hostnames", []):
@@ -489,6 +496,17 @@ def records_from_extraction(
         )
 
     for user in summary.get("affected_users", []):
+        meta = _item_meta(user)
+        exact_user_provenance = (
+            _provenance_args(meta)
+            if meta.get("evidence_source_section") or meta.get("evidence_refs")
+            else {
+                "evidence_source_section": "",
+                "canonical_section": "",
+                "evidence_classes": [],
+                "evidence_refs": None,
+            }
+        )
         if isinstance(user, dict):
             value = user.get("username", "")
         else:
@@ -502,8 +520,14 @@ def records_from_extraction(
             trust_tier=trust_tier,
             field="affected_users",
             context="From extraction summary",
-            section=section,
-            raw_value=value,
+            section=section if meta.get("evidence_source_section") or meta.get("evidence_refs") else "",
+            raw_value=meta.get("raw_value", value),
+            normalized_value=meta.get("normalized_value", value),
+            evidence=meta.get("evidence", "From extraction summary"),
+            evidence_origin=meta.get("evidence_origin", ""),
+            extraction_method=source,
+            semantic_route=meta.get("semantic_route", semantic_route),
+            **exact_user_provenance,
         )
 
     for record in records:
@@ -513,9 +537,13 @@ def records_from_extraction(
             record["evidence_source_product"] = evidence_source_product
         if not record.get("evidence_source_report_id"):
             record["evidence_source_report_id"] = evidence_source_report_id
-        if not record.get("evidence_source_section"):
+        if (
+            not record.get("evidence_source_section")
+            and record.get("field") != "affected_users"
+            and not record.get("evidence_refs")
+        ):
             record["evidence_source_section"] = evidence_source_section
-        if not record.get("canonical_section"):
+        if not record.get("canonical_section") and not record.get("evidence_refs"):
             record["canonical_section"] = canonical_section
         for ref in record.get("evidence_refs") or []:
             if not ref.get("source_type"):
@@ -524,9 +552,9 @@ def records_from_extraction(
                 ref["source_product"] = evidence_source_product
             if not ref.get("source_report_id"):
                 ref["source_report_id"] = evidence_source_report_id
-            if not ref.get("source_section"):
+            if not ref.get("source_section") and record.get("field") != "affected_users":
                 ref["source_section"] = evidence_source_section
-            if not ref.get("canonical_section"):
+            if not ref.get("canonical_section") and record.get("field") != "affected_users":
                 ref["canonical_section"] = canonical_section
 
     return records

@@ -37,9 +37,23 @@ class RegexIOCExtractor:
     PATTERNS = _ioc_regex_catalog.REGEX_IOC_PATTERNS
     RMM_TOOLS = _ioc_regex_catalog.REGEX_EXTRACTOR_RMM_TOOLS
     MALWARE_FAMILIES = _ioc_regex_catalog.REGEX_EXTRACTOR_MALWARE_FAMILIES
+    HOST_COMPROMISE_STOPWORDS = {
+        "affected",
+        "attacker",
+        "compromised",
+        "confirmed",
+        "endpoint",
+        "host",
+        "is",
+        "machine",
+        "system",
+        "the",
+        "was",
+        "we",
+    }
     HOST_COMPROMISE_PATTERNS = (
         re.compile(r"\bhost\s+(?P<host>[A-Za-z0-9][A-Za-z0-9._-]{1,254})\s+(?:was\s+|is\s+)?(?:confirmed\s+)?compromised\b", re.I),
-        re.compile(r"\b(?P<host>[A-Za-z0-9][A-Za-z0-9._-]{1,254})\s+(?:was\s+|is\s+)?(?:confirmed\s+)?compromised\b", re.I),
+        re.compile(r"\b(?P<host>[A-Za-z0-9][A-Za-z0-9._-]{1,254})\s+(?:(?:was|is)\s+)?(?:confirmed\s+)?compromised\b", re.I),
         re.compile(r"\battacker\s+compromised\s+(?P<host>[A-Za-z0-9][A-Za-z0-9._-]{1,254})\b", re.I),
         re.compile(r"\battacker\s+gained\s+access\s+to\s+(?P<host>[A-Za-z0-9][A-Za-z0-9._-]{1,254})\b", re.I),
     )
@@ -283,15 +297,30 @@ class RegexIOCExtractor:
                 host = (match.group("host") or "").strip().strip(".,;:")
                 if not host:
                     continue
-                if candidate_hosts and host.lower() not in candidate_hosts:
-                    continue
                 normalized = host.lower()
+                if not self._is_plausible_confirmed_host(host, normalized in candidate_hosts):
+                    continue
                 if normalized in seen:
                     continue
                 seen.add(normalized)
                 confirmed.append(candidate_hosts.get(normalized, host))
         if confirmed:
             results["extraction_summary"]["confirmed_compromised_hosts"].extend(confirmed)
+
+    def _is_plausible_confirmed_host(self, host: str, is_known_candidate: bool = False) -> bool:
+        token = (host or "").strip().strip(".,;:")
+        lowered = token.lower()
+        if not token or lowered in self.HOST_COMPROMISE_STOPWORDS:
+            return False
+        if self.PATTERNS["ip_v4"].match(token):
+            return False
+        if is_known_candidate:
+            return True
+        if any(char.isdigit() for char in token):
+            return True
+        if any(char in token for char in ".-_"):
+            return True
+        return token.isupper() and len(token) >= 3
 
     def extract(self, text: str) -> Dict[str, Any]:
         clean_text = self.defang(text)
