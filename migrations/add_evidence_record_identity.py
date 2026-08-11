@@ -12,6 +12,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from migrations.add_events_table import (  # noqa: E402
     EVENTS_COLUMN_DEFINITIONS,
+    assert_events_buffer_is_buffer_engine,
     fence_events_buffer_ingestion,
     get_events_buffer_state,
     recreate_events_buffer,
@@ -144,24 +145,15 @@ def ensure_events_buffer_schema(client) -> None:
         recreate_events_buffer(client)
         return
 
+    assert_events_buffer_is_buffer_engine(client)
     events_columns = set(_insertable_columns(client, "events"))
     buffer_columns = set(_insertable_columns(client, "events_buffer"))
     if events_columns == buffer_columns:
         return
 
-    if _table_engine(client, "events_buffer").lower() == "buffer":
-        fence_events_buffer_ingestion(client, context="events_buffer schema recreation")
-        recreate_events_buffer(client)
-        print("- Recreated events_buffer to match events schema")
-        return
-
-    for column_name in sorted(events_columns - buffer_columns):
-        definition = EVENTS_COLUMN_DEFINITIONS.get(column_name)
-        if definition:
-            client.command(
-                f"ALTER TABLE events_buffer ADD COLUMN IF NOT EXISTS {column_name} {definition}"
-            )
-            print(f"- Added {column_name} to events_buffer")
+    fence_events_buffer_ingestion(client, context="events_buffer schema recreation")
+    recreate_events_buffer(client)
+    print("- Recreated events_buffer to match events schema")
 
 
 def _row_to_mapping(columns: List[str], row: Iterable[Any]) -> Dict[str, Any]:
@@ -260,7 +252,30 @@ def _table_bytes(client, table_name: str) -> Optional[int]:
     return int(value) if value is not None else None
 
 
-def _identity_version_counts(client, *, case_id: Optional[int] = None) -> Dict[str, int]:
+def _identity_schema_state(client) -> Dict[str, Any]:
+    events_columns = _existing_columns(client, "events")
+    missing_columns = [column for column in IDENTITY_COLUMNS if column not in events_columns]
+    return {
+        "installed": not missing_columns,
+        "missing_columns": missing_columns,
+        "events_columns": events_columns,
+    }
+
+
+def _identity_version_counts(
+    client,
+    *,
+    case_id: Optional[int] = None,
+    identity_schema: Optional[Dict[str, Any]] = None,
+) -> Dict[str, Optional[int]]:
+    identity_schema = identity_schema or _identity_schema_state(client)
+    if "evidence_record_key" not in identity_schema["events_columns"]:
+        return {
+            "empty": None,
+            "v1": None,
+            "v2": None,
+            "unknown": None,
+        }
     return {
         "empty": _count_empty_identity(client, case_id=case_id),
         "v1": _count_identity_prefix(client, LEGACY_V1_PREFIX, case_id=case_id),
@@ -269,7 +284,22 @@ def _identity_version_counts(client, *, case_id: Optional[int] = None) -> Dict[s
     }
 
 
-def _rewrite_required(counts: Dict[str, int], *, scoped_rows: int, recompute_existing: bool) -> bool:
+def _format_count(value: Optional[int]) -> str:
+    return str(value) if value is not None else "unavailable"
+
+
+def _format_bool(value: bool) -> str:
+    return "true" if value else "false"
+
+
+def _rewrite_required(
+    counts: Dict[str, Optional[int]],
+    *,
+    scoped_rows: int,
+    recompute_existing: bool,
+) -> bool:
+    if counts["empty"] is None or counts["v1"] is None:
+        return scoped_rows > 0
     if recompute_existing:
         return scoped_rows > 0
     return counts["empty"] > 0 or counts["v1"] > 0
@@ -282,8 +312,10 @@ def _print_preflight(
     recompute_existing: bool,
     total_rows: int,
     scoped_rows: int,
-    counts: Dict[str, int],
+    counts: Dict[str, Optional[int]],
+    identity_schema: Optional[Dict[str, Any]] = None,
 ) -> bool:
+    identity_schema = identity_schema or _identity_schema_state(client)
     buffer_state = get_events_buffer_state(client)
     previous_exists = _table_exists(client, OLD_TABLE)
     shadow_exists = _table_exists(client, SHADOW_TABLE)
@@ -300,20 +332,25 @@ def _print_preflight(
     if case_id is not None:
         print(f"  scoped rows: {scoped_rows}")
         print("  rewrite scope: whole events table copy; identity mutation limited to target case")
-    print(f"  empty evidence keys: {counts['empty']}")
-    print(f"  erk:v1 keys: {counts['v1']}")
-    print(f"  erk:v2 keys: {counts['v2']}")
-    print(f"  other/unknown evidence keys: {counts['unknown']}")
-    print(f"  evidence index present: {_has_identity_index(client)}")
+    print(f"  Evidence Identity schema installed: {_format_bool(identity_schema['installed'])}")
+    print(
+        "  missing identity columns: "
+        f"{', '.join(identity_schema['missing_columns']) if identity_schema['missing_columns'] else 'none'}"
+    )
+    print(f"  empty evidence keys: {_format_count(counts['empty'])}")
+    print(f"  erk:v1 keys: {_format_count(counts['v1'])}")
+    print(f"  erk:v2 keys: {_format_count(counts['v2'])}")
+    print(f"  other/unknown evidence keys: {_format_count(counts['unknown'])}")
+    print(f"  evidence index present: {_format_bool(_has_identity_index(client))}")
     print(
         "  events_buffer: "
         f"exists={buffer_state['exists']} engine={buffer_state['engine'] or 'n/a'} "
         f"pending_rows={buffer_state['pending_rows']}"
     )
-    print(f"  previous rollback table present: {previous_exists}")
-    print(f"  stale shadow table present: {shadow_exists}")
-    print(f"  recompute existing requested: {bool(recompute_existing)}")
-    print(f"  rewrite necessary: {rewrite_needed}")
+    print(f"  previous rollback table present: {_format_bool(previous_exists)}")
+    print(f"  stale shadow table present: {_format_bool(shadow_exists)}")
+    print(f"  recompute existing requested: {_format_bool(bool(recompute_existing))}")
+    print(f"  rewrite necessary: {_format_bool(rewrite_needed)}")
     print(
         "  events table disk bytes: "
         f"{events_bytes if events_bytes is not None else 'unavailable'}"
@@ -330,11 +367,12 @@ def _print_dry_run_plan(
     recompute_existing: bool,
     total_rows: int,
     scoped_rows: int,
-    counts: Dict[str, int],
+    counts: Dict[str, Optional[int]],
+    identity_schema: Optional[Dict[str, Any]] = None,
 ) -> bool:
-    events_columns = _existing_columns(client, "events")
-    schema_change_required = any(column not in events_columns for column in IDENTITY_COLUMNS)
-    index_required = not _has_identity_index(client)
+    identity_schema = identity_schema or _identity_schema_state(client)
+    schema_change_required = not identity_schema["installed"]
+    index_required = "evidence_record_key" not in identity_schema["events_columns"] or not _has_identity_index(client)
     buffer_state = get_events_buffer_state(client)
     previous_exists = _table_exists(client, OLD_TABLE)
     rewrite_needed = _rewrite_required(
@@ -350,15 +388,16 @@ def _print_dry_run_plan(
         total_rows=total_rows,
         scoped_rows=scoped_rows,
         counts=counts,
+        identity_schema=identity_schema,
     )
     print("- Dry-run plan:")
-    print(f"  schema change required: {schema_change_required}")
-    print(f"  evidence index required: {index_required}")
-    print(f"  buffer fencing required: {rewrite_needed and buffer_state['exists']}")
-    print(f"  identity rewrite required: {rewrite_needed}")
-    print(f"  v1 keys to upgrade: {counts['v1']}")
-    print(f"  empty keys to generate: {counts['empty']}")
-    print(f"  full table copy required: {rewrite_needed}")
+    print(f"  schema change required: {_format_bool(schema_change_required)}")
+    print(f"  evidence index required: {_format_bool(index_required)}")
+    print(f"  buffer fencing required: {_format_bool(rewrite_needed and buffer_state['exists'])}")
+    print(f"  identity rewrite required: {_format_bool(rewrite_needed)}")
+    print(f"  v1 keys to upgrade: {_format_count(counts['v1'])}")
+    print(f"  empty keys to generate: {_format_count(counts['empty'])}")
+    print(f"  full table copy required: {_format_bool(rewrite_needed)}")
     print(f"  previous rollback table: {'present' if previous_exists else 'none'}")
     print("- Dry run only; no ClickHouse DDL or data writes were executed")
     return rewrite_needed
@@ -467,7 +506,8 @@ def backfill_identity_columns(
     if dry_run:
         total_rows = _count_events(client)
         scoped_rows = _count_events(client, case_id=case_id)
-        counts = _identity_version_counts(client, case_id=case_id)
+        identity_schema = _identity_schema_state(client)
+        counts = _identity_version_counts(client, case_id=case_id, identity_schema=identity_schema)
         _print_dry_run_plan(
             client,
             case_id=case_id,
@@ -475,6 +515,7 @@ def backfill_identity_columns(
             total_rows=total_rows,
             scoped_rows=scoped_rows,
             counts=counts,
+            identity_schema=identity_schema,
         )
         return 0
 
@@ -489,7 +530,8 @@ def backfill_identity_columns(
     ):
         total_rows = _count_events(client)
         scoped_rows = _count_events(client, case_id=case_id)
-        counts = _identity_version_counts(client, case_id=case_id)
+        identity_schema = _identity_schema_state(client)
+        counts = _identity_version_counts(client, case_id=case_id, identity_schema=identity_schema)
         rewrite_needed = _print_preflight(
             client,
             case_id=case_id,
@@ -497,6 +539,7 @@ def backfill_identity_columns(
             total_rows=total_rows,
             scoped_rows=scoped_rows,
             counts=counts,
+            identity_schema=identity_schema,
         )
         if not rewrite_needed:
             print("- No Evidence Identity migration work required")
@@ -553,17 +596,24 @@ def backfill_identity_columns(
 
 
 def print_status(client, *, case_id: Optional[int] = None) -> None:
+    print(f"- events table present: {_format_bool(_table_exists(client, 'events'))}")
     print(f"- events rows: {_count_events(client)}")
     if case_id is not None:
         print(f"- events rows for case {int(case_id)}: {_count_events(client, case_id=case_id)}")
-    counts = _identity_version_counts(client, case_id=case_id)
-    print(f"- empty evidence_record_key rows: {counts['empty']}")
-    print(f"- erk:v1 evidence_record_key rows: {counts['v1']}")
-    print(f"- erk:v2 evidence_record_key rows: {counts['v2']}")
-    print(f"- other/unknown evidence_record_key rows: {counts['unknown']}")
-    print(f"- shadow table present: {_table_exists(client, SHADOW_TABLE)}")
-    print(f"- previous table present: {_table_exists(client, OLD_TABLE)}")
-    print(f"- {IDENTITY_INDEX_NAME} present: {_has_identity_index(client)}")
+    identity_schema = _identity_schema_state(client)
+    counts = _identity_version_counts(client, case_id=case_id, identity_schema=identity_schema)
+    print(f"- Evidence Identity schema installed: {_format_bool(identity_schema['installed'])}")
+    print(
+        "- missing identity columns: "
+        f"{', '.join(identity_schema['missing_columns']) if identity_schema['missing_columns'] else 'none'}"
+    )
+    print(f"- empty evidence_record_key rows: {_format_count(counts['empty'])}")
+    print(f"- erk:v1 evidence_record_key rows: {_format_count(counts['v1'])}")
+    print(f"- erk:v2 evidence_record_key rows: {_format_count(counts['v2'])}")
+    print(f"- other/unknown evidence_record_key rows: {_format_count(counts['unknown'])}")
+    print(f"- shadow table present: {_format_bool(_table_exists(client, SHADOW_TABLE))}")
+    print(f"- previous table present: {_format_bool(_table_exists(client, OLD_TABLE))}")
+    print(f"- {IDENTITY_INDEX_NAME} present: {_format_bool(_has_identity_index(client))}")
     buffer_state = get_events_buffer_state(client)
     print(
         "- events_buffer state: "

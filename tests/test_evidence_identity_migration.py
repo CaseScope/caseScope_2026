@@ -43,6 +43,7 @@ try:
     sys.modules["utils.clickhouse"] = clickhouse_module
     sys.modules["utils.evidence_identity"] = evidence_identity_module
     from migrations import add_evidence_record_identity as migration
+    from migrations import add_events_table as events_table_migration
 finally:
     if _original_utils is None:
         sys.modules.pop("utils", None)
@@ -182,6 +183,94 @@ class _RewriteFakeClient:
         elif "ENGINE = Buffer" in sql:
             self.operations.append("create_buffer")
             self.tables.add("events_buffer")
+
+
+class _NonBufferEventsBufferClient:
+    def __init__(self):
+        self.commands = []
+        self.tables = {"events", "events_buffer"}
+
+    def query(self, sql, parameters=None):
+        parameters = parameters or {}
+        compact = " ".join(sql.split())
+        table = parameters.get("table_name")
+        if "SELECT engine" in sql:
+            return SimpleNamespace(result_rows=[("MergeTree",)] if table in self.tables else [])
+        if "FROM system.tables" in sql:
+            return SimpleNamespace(result_rows=[(1 if table in self.tables else 0,)])
+        if "FROM system.columns" in sql:
+            return SimpleNamespace(result_rows=[
+                ("case_id", ""),
+                ("artifact_type", ""),
+                ("evidence_record_key", ""),
+            ])
+        if compact == "SELECT count() FROM events":
+            return SimpleNamespace(result_rows=[(100,)])
+        if compact == "SELECT count() FROM events_buffer":
+            return SimpleNamespace(result_rows=[(100,)])
+        return SimpleNamespace(result_rows=[(0,)])
+
+    def command(self, sql):
+        self.commands.append(sql)
+        compact = " ".join(sql.split())
+        if compact in {
+            "DROP TABLE IF EXISTS events_buffer",
+            "DROP TABLE events_buffer",
+            "DETACH TABLE events_buffer",
+        }:
+            self.tables.discard("events_buffer")
+        if "ENGINE = Buffer" in sql:
+            self.tables.add("events_buffer")
+
+
+class _PreIdentitySchemaClient:
+    def __init__(self, *, source_rows):
+        self.source_rows = source_rows
+        self.commands = []
+        self.inserts = []
+        self.queries = []
+        self.tables = {"events", "events_buffer"}
+
+    def query(self, sql, parameters=None):
+        self.queries.append((sql, parameters or {}))
+        compact = " ".join(sql.split())
+        if (
+            "evidence_record_key" in sql
+            and "system.data_skipping_indices" not in sql
+            and "FROM system.columns" not in sql
+        ):
+            raise AssertionError(f"identity-column query should not run before schema install: {sql}")
+        if "FROM system.columns" in sql:
+            table = (parameters or {}).get("table_name")
+            if table == "events":
+                return SimpleNamespace(result_rows=[
+                    ("case_id", ""),
+                    ("artifact_type", ""),
+                    ("timestamp_utc", ""),
+                ])
+            return SimpleNamespace(result_rows=[])
+        if "SELECT engine" in sql:
+            table = (parameters or {}).get("table_name")
+            return SimpleNamespace(result_rows=[("Buffer",)] if table == "events_buffer" else [])
+        if "FROM system.tables" in sql and "total_bytes" in sql:
+            table = (parameters or {}).get("table_name")
+            return SimpleNamespace(result_rows=[(1234,)] if table == "events" else [])
+        if "FROM system.tables" in sql:
+            table = (parameters or {}).get("table_name")
+            return SimpleNamespace(result_rows=[(1 if table in self.tables else 0,)])
+        if "system.data_skipping_indices" in sql:
+            return SimpleNamespace(result_rows=[])
+        if compact == "SELECT count() FROM events_buffer":
+            return SimpleNamespace(result_rows=[(self.source_rows,)])
+        if compact.startswith("SELECT count() FROM events"):
+            return SimpleNamespace(result_rows=[(self.source_rows,)])
+        return SimpleNamespace(result_rows=[(0,)])
+
+    def command(self, sql):
+        self.commands.append(sql)
+
+    def insert(self, table, rows, column_names=None):
+        self.inserts.append((table, rows, column_names))
 
 
 class EvidenceIdentityMigrationTestCase(unittest.TestCase):
@@ -327,6 +416,36 @@ class EvidenceIdentityMigrationTestCase(unittest.TestCase):
         self.assertIn("OPTIMIZE TABLE events_buffer", client.commands)
         self.assertIn("DROP TABLE IF EXISTS events_buffer", client.commands)
         self.assertTrue(any("ENGINE = Buffer" in command for command in client.commands))
+
+    def test_non_buffer_events_buffer_aborts_without_drop_or_recreation(self):
+        client = _NonBufferEventsBufferClient()
+
+        with self.assertRaisesRegex(RuntimeError, "not a Buffer-engine table"):
+            migration.fence_events_buffer_ingestion(client, context="test fence")
+
+        command_text = "\n".join(client.commands).upper()
+        self.assertNotIn("DROP TABLE", command_text)
+        self.assertNotIn("DETACH TABLE", command_text)
+        self.assertNotIn("ENGINE = BUFFER", command_text)
+        self.assertIn("events_buffer", client.tables)
+
+    def test_identity_buffer_schema_path_rejects_non_buffer_events_buffer(self):
+        client = _NonBufferEventsBufferClient()
+
+        with self.assertRaisesRegex(RuntimeError, "not a Buffer-engine table"):
+            migration.ensure_events_buffer_schema(client)
+
+        self.assertEqual(client.commands, [])
+        self.assertIn("events_buffer", client.tables)
+
+    def test_events_schema_path_rejects_non_buffer_events_buffer(self):
+        client = _NonBufferEventsBufferClient()
+
+        with self.assertRaisesRegex(RuntimeError, "not a Buffer-engine table"):
+            events_table_migration._ensure_events_buffer_schema(client)
+
+        self.assertEqual(client.commands, [])
+        self.assertIn("events_buffer", client.tables)
 
     def test_case_id_scope_does_not_mutate_other_case_empty_keys(self):
         columns = [
@@ -598,6 +717,8 @@ class EvidenceIdentityMigrationTestCase(unittest.TestCase):
     def test_status_reports_version_distribution_and_buffer_state(self):
         class FakeClient:
             def query(self, sql, parameters=None):
+                if "FROM system.columns" in sql:
+                    return SimpleNamespace(result_rows=[(name, "") for name in ParsedEventColumns])
                 if "SELECT engine" in sql:
                     return SimpleNamespace(result_rows=[("Buffer",)])
                 if "FROM system.tables" in sql:
@@ -627,6 +748,73 @@ class EvidenceIdentityMigrationTestCase(unittest.TestCase):
         self.assertIn("erk:v1 evidence_record_key rows: 2", status)
         self.assertIn("erk:v2 evidence_record_key rows: 5", status)
         self.assertIn("pending_rows=1", status)
+
+    def test_status_before_identity_columns_reports_unavailable_without_writes(self):
+        client = _PreIdentitySchemaClient(source_rows=100)
+        original_get_client = migration.get_fresh_client
+        migration.get_fresh_client = lambda: client
+        try:
+            from io import StringIO
+            from contextlib import redirect_stdout
+
+            output = StringIO()
+            with redirect_stdout(output):
+                migration.migrate(["--status"])
+        finally:
+            migration.get_fresh_client = original_get_client
+
+        status = output.getvalue()
+        self.assertIn("events table present: true", status)
+        self.assertIn("events rows: 100", status)
+        self.assertIn("Evidence Identity schema installed: false", status)
+        self.assertIn("missing identity columns: evidence_record_key", status)
+        self.assertIn("erk:v1 evidence_record_key rows: unavailable", status)
+        self.assertEqual(client.commands, [])
+        self.assertEqual(client.inserts, [])
+
+    def test_dry_run_before_identity_columns_plans_rewrite_without_writes(self):
+        client = _PreIdentitySchemaClient(source_rows=100)
+        original_get_client = migration.get_fresh_client
+        migration.get_fresh_client = lambda: client
+        try:
+            from io import StringIO
+            from contextlib import redirect_stdout
+
+            output = StringIO()
+            with redirect_stdout(output):
+                migration.migrate(["--dry-run"])
+        finally:
+            migration.get_fresh_client = original_get_client
+
+        dry_run = output.getvalue()
+        self.assertIn("schema change required: true", dry_run)
+        self.assertIn("identity rewrite required: true", dry_run)
+        self.assertIn("v1 keys to upgrade: unavailable", dry_run)
+        self.assertIn("empty keys to generate: unavailable", dry_run)
+        self.assertIn("Dry run only; no ClickHouse DDL or data writes were executed", dry_run)
+        self.assertEqual(client.commands, [])
+        self.assertEqual(client.inserts, [])
+
+    def test_dry_run_before_identity_columns_with_zero_events_skips_rewrite(self):
+        client = _PreIdentitySchemaClient(source_rows=0)
+        original_get_client = migration.get_fresh_client
+        migration.get_fresh_client = lambda: client
+        try:
+            from io import StringIO
+            from contextlib import redirect_stdout
+
+            output = StringIO()
+            with redirect_stdout(output):
+                migration.migrate(["--dry-run"])
+        finally:
+            migration.get_fresh_client = original_get_client
+
+        dry_run = output.getvalue()
+        self.assertIn("schema change required: true", dry_run)
+        self.assertIn("identity rewrite required: false", dry_run)
+        self.assertIn("full table copy required: false", dry_run)
+        self.assertEqual(client.commands, [])
+        self.assertEqual(client.inserts, [])
 
 
 ParsedEventColumns = migration.ParsedEvent.clickhouse_columns()

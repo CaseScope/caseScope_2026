@@ -219,6 +219,17 @@ def _buffer_pending_rows(client):
     return max(int(buffer_visible_rows) - int(events_rows), 0)
 
 
+def assert_events_buffer_is_buffer_engine(client, *, engine=None):
+    if engine is None:
+        engine = _table_engine(client, "events_buffer")
+    if str(engine).lower() != "buffer":
+        raise RuntimeError(
+            "events_buffer exists but is not a Buffer-engine table "
+            f"(engine={engine or 'unknown'}); refusing to drop unexpected table"
+        )
+    return engine
+
+
 def get_events_buffer_state(client):
     exists = _table_exists(client, "events_buffer")
     engine = _table_engine(client, "events_buffer") if exists else ""
@@ -231,19 +242,18 @@ def get_events_buffer_state(client):
 
 
 def safely_drain_events_buffer(client, *, context="events migration"):
-    """Flush and verify the Buffer table before DDL that could discard rows.
+    """Preliminarily drain and verify the known Buffer table before fencing.
 
-    ClickHouse documents OPTIMIZE for Buffer-engine tables as an immediate
-    flush, and DROP/DETACH as flushing buffered rows to the destination table.
-    The explicit OPTIMIZE keeps pending-row diagnostics visible before fencing.
+    OPTIMIZE is a preliminary Buffer drain/diagnostic. The authoritative
+    migration fence is removal of the verified Buffer ingestion target before
+    the source snapshot, followed by a source recount before swap.
     """
 
     if not _table_exists(client, "events_buffer"):
         return {"exists": False, "engine": "", "pending_before": 0, "pending_after": 0}
 
     engine = _table_engine(client, "events_buffer")
-    if engine.lower() != "buffer":
-        return {"exists": True, "engine": engine, "pending_before": 0, "pending_after": 0}
+    assert_events_buffer_is_buffer_engine(client, engine=engine)
 
     pending_before = _buffer_pending_rows(client)
     print(f"- events_buffer pending rows before {context}: {pending_before}")
@@ -270,12 +280,9 @@ def fence_events_buffer_ingestion(client, *, context="events migration"):
     if not _table_exists(client, "events_buffer"):
         print("- events_buffer ingestion target is absent")
         return {**state, "fenced": True}
-    if _table_engine(client, "events_buffer").lower() == "buffer":
-        client.command("DROP TABLE IF EXISTS events_buffer")
-        print("- Dropped events_buffer to fence event ingestion")
-    else:
-        client.command("DROP TABLE IF EXISTS events_buffer")
-        print("- Dropped non-Buffer events_buffer replacement to fence event ingestion")
+    assert_events_buffer_is_buffer_engine(client)
+    client.command("DROP TABLE IF EXISTS events_buffer")
+    print("- Dropped events_buffer to fence event ingestion")
     if _table_exists(client, "events_buffer"):
         raise RuntimeError("events_buffer still exists after fence; aborting migration")
     return {**state, "fenced": True}
@@ -342,19 +349,16 @@ def _ensure_events_buffer_schema(client):
         recreate_events_buffer(client)
         return
 
+    assert_events_buffer_is_buffer_engine(client)
     events_columns = set(_insertable_columns(client, "events"))
     buffer_columns = set(_insertable_columns(client, "events_buffer"))
     if events_columns == buffer_columns:
         print("- Created or verified events_buffer table")
         return
 
-    if _table_engine(client, "events_buffer").lower() == "buffer":
-        fence_events_buffer_ingestion(client, context="events_buffer schema recreation")
-        recreate_events_buffer(client)
-        print("- Recreated events_buffer table to match events schema")
-        return
-
-    _add_missing_columns(client, "events_buffer")
+    fence_events_buffer_ingestion(client, context="events_buffer schema recreation")
+    recreate_events_buffer(client)
+    print("- Recreated events_buffer table to match events schema")
 
 
 def migrate_clickhouse():

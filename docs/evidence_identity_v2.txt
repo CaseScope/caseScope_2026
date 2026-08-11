@@ -127,23 +127,27 @@ systemd state, so it also removes the writable Buffer target before the
 authoritative source snapshot. The sequence is:
 
 1. Acquire the destructive rewrite guard.
-2. Drain `events_buffer` with `OPTIMIZE TABLE events_buffer`, which ClickHouse
-   supports for Buffer-engine tables as an immediate flush.
-3. Drop `events_buffer`. ClickHouse documents Buffer DROP/DETACH as flushing
-   buffered rows to the destination table; after the drop, late writers to the
-   Buffer target fail instead of silently entering the old table.
-4. Verify `events_buffer` no longer exists.
-5. Count authoritative source rows in `events`.
-6. Create and fill `events_evidence_identity_backfill`.
-7. Validate `shadow_row_count == source_count_before_copy`.
-8. Recount original `events` and validate
+2. Verify `events_buffer` exists only as the expected Buffer-engine ingestion
+   table.
+3. Run `OPTIMIZE TABLE events_buffer` as a preliminary drain/diagnostic when
+   supported by the current ClickHouse deployment. This can reduce or reveal
+   pending rows, but it is not the authoritative forensic snapshot boundary.
+4. Remove/fence the verified Buffer ingestion target.
+5. Verify `events_buffer` no longer exists.
+6. Count authoritative source rows in `events`.
+7. Create and fill `events_evidence_identity_backfill`.
+8. Validate `shadow_row_count == source_count_before_copy`.
+9. Recount original `events` and validate
    `source_count_before_swap == source_count_before_copy`.
-9. Rename `events` to `events_evidence_identity_previous` and the shadow table
+10. Rename `events` to `events_evidence_identity_previous` and the shadow table
    to `events`.
-10. Recreate `events_buffer` against the final active table.
+11. Recreate `events_buffer` against the final active table.
 
-If pending Buffer rows cannot be proven zero, the migration fails closed before
-the shadow rewrite.
+The forensic snapshot boundary is established after the verified Buffer
+ingestion target has been removed, not by `OPTIMIZE TABLE` alone. If pending
+Buffer rows cannot be proven zero, the migration fails closed before the shadow
+rewrite. If `events_buffer` exists with an unexpected non-Buffer engine, the
+migration aborts without dropping, detaching, recreating, or modifying it.
 
 Previous and shadow tables
 --------------------------
