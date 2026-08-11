@@ -183,6 +183,25 @@ class EvidenceIdentityTestCase(unittest.TestCase):
 
         self.assertEqual(identity.evidence_identity_quality, EvidenceIdentityQuality.NATIVE.value)
 
+    def test_native_identity_does_not_parse_unused_raw_json(self):
+        parsed_values = []
+        original_parse = evidence_identity._parse_jsonish
+
+        def tracking_parse(value):
+            parsed_values.append(value)
+            return original_parse(value)
+
+        evidence_identity._parse_jsonish = tracking_parse
+        try:
+            identity = build_evidence_record_identity(
+                self._event(artifact_type="evtx", record_id=100, raw_json="{not-json")
+            )
+        finally:
+            evidence_identity._parse_jsonish = original_parse
+
+        self.assertEqual(identity.evidence_identity_quality, EvidenceIdentityQuality.NATIVE.value)
+        self.assertNotIn("{not-json", parsed_values)
+
     def test_evtx_native_identity_ignores_normalized_event_fields(self):
         first = self._event(
             artifact_type="evtx",

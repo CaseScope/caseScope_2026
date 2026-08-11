@@ -210,6 +210,34 @@ The migration intentionally still creates an empty shadow table instead of using
 copy rows with their current identity values; the Python fallback has no stable
 per-row update key for safely replacing only the non-fast-path cloned rows.
 
+Bulk-server backfill mode
+-------------------------
+`--bulk-server-backfill` is an opt-in whole-table rewrite mode for large first
+runs. It keeps the same Buffer fencing, empty shadow, validation, source recount,
+Redis lease, swap, and Buffer recreation safety sequence, but changes how the
+shadow is filled:
+
+1. Insert native EVTX rows with the ClickHouse SQL fast path.
+2. Install/reload the `casescope_evidence_identity_v2` executable-pool UDF.
+3. Insert all non-native-EVTX fallback rows with one server-side `INSERT SELECT`
+   that calls the UDF for the three Evidence Identity output columns.
+
+The UDF script imports and calls the existing Python
+`build_identity_from_clickhouse_row()` implementation. It does not reimplement
+Evidence Identity v2. The migration installs the UDF script/config into
+ClickHouse's dynamic executable UDF workdir when run with permission to write
+ClickHouse's function paths. `--bulk-server-backfill` rejects `--case-id`
+because it is designed as a full-table rebuild.
+
+Bulk mode removes the Python window-copy loop from fallback processing. It does
+not use `--source-window-seconds`, `--source-window-max-rows`,
+`--source-window-min-seconds`, `--copy-workers`, or Python HTTP row inserts for
+the fallback path. ClickHouse keeps the bulk scan/write inside the server, while
+the executable pool receives only identity inputs and returns
+`(evidence_record_key, evidence_identity_version, evidence_identity_quality)`.
+Tune fallback execution with `--identity-udf-pool-size` and
+`--fallback-sql-max-threads`.
+
 There is no source row `ORDER BY`; identity generation is per-record and does
 not depend on traversal order. Each fallback case is further split into timestamp windows
 before streaming, controlled by `--source-window-seconds` or

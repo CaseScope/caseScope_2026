@@ -6,10 +6,14 @@ from __future__ import annotations
 import argparse
 from concurrent.futures import ProcessPoolExecutor, as_completed
 import os
+from pathlib import Path
+import pwd
 import re
+import shutil
 import sys
 import time
 from typing import Any, Dict, Iterable, List, Optional
+from xml.sax.saxutils import escape as xml_escape
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -77,6 +81,22 @@ DEFAULT_NATIVE_EVTX_SQL_MAX_INSERT_THREADS = max(
     int(os.environ.get("EVIDENCE_IDENTITY_NATIVE_EVTX_SQL_MAX_INSERT_THREADS", 4)),
     1,
 )
+DEFAULT_BULK_SERVER_BACKFILL = os.environ.get(
+    "EVIDENCE_IDENTITY_BULK_SERVER_BACKFILL",
+    "0",
+).strip().lower() in {"1", "true", "yes", "on"}
+DEFAULT_IDENTITY_UDF_POOL_SIZE = max(
+    int(os.environ.get("EVIDENCE_IDENTITY_UDF_POOL_SIZE", 8)),
+    1,
+)
+DEFAULT_FALLBACK_SQL_MAX_THREADS = max(
+    int(os.environ.get("EVIDENCE_IDENTITY_FALLBACK_SQL_MAX_THREADS", 8)),
+    1,
+)
+IDENTITY_UDF_NAME = "casescope_evidence_identity_v2"
+IDENTITY_UDF_SCRIPT_NAME = f"{IDENTITY_UDF_NAME}.py"
+IDENTITY_UDF_SOURCE_SCRIPT = Path(__file__).with_name("evidence_identity_udf.py")
+IDENTITY_UDF_WORKDIR_NAME = "8e7f6a57-81e5-5bd5-9ca6-956ed53191b5"
 _WORKER_MIGRATION_CLIENT = None
 
 
@@ -476,6 +496,175 @@ def _count_native_evtx_fast_path_rows(client, *, case_id: Optional[int] = None) 
     return int(result.result_rows[0][0]) if result.result_rows else 0
 
 
+IDENTITY_UDF_ARGUMENTS = (
+    ("case_id", "UInt32", "case_id"),
+    ("artifact_type", "String", "toString(artifact_type)"),
+    ("timestamp", "DateTime64(3)", "timestamp"),
+    ("timestamp_utc", "DateTime64(3)", "timestamp_utc"),
+    ("source_file", "String", "source_file"),
+    ("source_path", "String", "source_path"),
+    ("source_host", "String", "toString(source_host)"),
+    ("case_file_id", "Nullable(UInt32)", "case_file_id"),
+    ("event_id", "String", "event_id"),
+    ("channel", "String", "toString(channel)"),
+    ("provider", "String", "provider"),
+    ("record_id", "Nullable(UInt64)", "record_id"),
+    ("level", "String", "toString(level)"),
+    ("username", "String", "username"),
+    ("domain", "String", "domain"),
+    ("sid", "String", "sid"),
+    ("logon_type", "Nullable(UInt16)", "logon_type"),
+    ("logon_id", "String", "logon_id"),
+    ("remote_host", "String", "remote_host"),
+    ("workstation_name", "String", "workstation_name"),
+    ("auth_package", "String", "toString(auth_package)"),
+    ("logon_process", "String", "logon_process"),
+    ("elevated_token", "String", "toString(elevated_token)"),
+    ("process_name", "String", "process_name"),
+    ("process_path", "String", "process_path"),
+    ("process_id", "Nullable(UInt64)", "process_id"),
+    ("parent_process", "String", "parent_process"),
+    ("parent_pid", "Nullable(UInt64)", "parent_pid"),
+    ("command_line", "String", "command_line"),
+    ("thread_id", "Nullable(UInt64)", "thread_id"),
+    ("executable_info", "String", "executable_info"),
+    ("payload_data1", "String", "payload_data1"),
+    ("payload_data2", "String", "payload_data2"),
+    ("payload_data3", "String", "payload_data3"),
+    ("payload_data4", "String", "payload_data4"),
+    ("payload_data5", "String", "payload_data5"),
+    ("payload_data6", "String", "payload_data6"),
+    ("target_path", "String", "target_path"),
+    ("file_hash_md5", "String", "file_hash_md5"),
+    ("file_hash_sha1", "String", "file_hash_sha1"),
+    ("file_hash_sha256", "String", "file_hash_sha256"),
+    ("file_size", "Nullable(UInt64)", "file_size"),
+    ("src_ip", "Nullable(IPv4)", "src_ip"),
+    ("dst_ip", "Nullable(IPv4)", "dst_ip"),
+    ("src_port", "Nullable(UInt16)", "src_port"),
+    ("dst_port", "Nullable(UInt16)", "dst_port"),
+    ("reg_key", "String", "reg_key"),
+    ("reg_value", "String", "reg_value"),
+    ("reg_data", "String", "reg_data"),
+    ("raw_json", "String", "raw_json"),
+    ("extra_fields", "String", "extra_fields"),
+)
+
+
+def _server_setting(client, setting_name: str, default: str) -> str:
+    try:
+        result = client.query(
+            """
+            SELECT value
+            FROM system.server_settings
+            WHERE name = {setting_name:String}
+            """,
+            parameters={"setting_name": setting_name},
+        )
+    except Exception:
+        return default
+    return str(result.result_rows[0][0]) if result.result_rows else default
+
+
+def _install_identity_udf(client, *, pool_size: int) -> None:
+    user_scripts_path = Path(
+        _server_setting(client, "user_scripts_path", "/var/lib/clickhouse/user_scripts/")
+    )
+    udf_config_path = Path(
+        _server_setting(
+            client,
+            "dynamic_user_defined_executable_functions_path",
+            "/var/lib/clickhouse/dynamic_user_defined_executable_functions/",
+        )
+    )
+    dynamic_workdir = udf_config_path / IDENTITY_UDF_WORKDIR_NAME
+    script_target = dynamic_workdir / IDENTITY_UDF_SCRIPT_NAME
+    config_target = udf_config_path / f"{IDENTITY_UDF_NAME}.xml"
+    workdir_target = udf_config_path / f"{IDENTITY_UDF_NAME}.workdir"
+
+    if not IDENTITY_UDF_SOURCE_SCRIPT.exists():
+        raise RuntimeError(f"Evidence Identity UDF source script missing: {IDENTITY_UDF_SOURCE_SCRIPT}")
+    try:
+        udf_config_path.mkdir(parents=True, exist_ok=True)
+        dynamic_workdir.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(IDENTITY_UDF_SOURCE_SCRIPT, script_target)
+        script_target.chmod(0o750)
+
+        try:
+            clickhouse_uid = pwd.getpwnam("clickhouse").pw_uid
+            clickhouse_gid = pwd.getpwnam("clickhouse").pw_gid
+            os.chown(script_target, clickhouse_uid, clickhouse_gid)
+        except (KeyError, PermissionError):
+            pass
+
+        arguments_xml = "\n".join(
+            "            <argument>\n"
+            f"                <type>{xml_escape(argument_type)}</type>\n"
+            f"                <name>{xml_escape(argument_name)}</name>\n"
+            "            </argument>"
+            for argument_name, argument_type, _expression in IDENTITY_UDF_ARGUMENTS
+        )
+        config_target.write_text(
+            (
+                "<functions>\n"
+                "    <function>\n"
+                "        <type>executable_pool</type>\n"
+                f"        <name>{IDENTITY_UDF_NAME}</name>\n"
+                "        <return_type>Tuple(String, String, String)</return_type>\n"
+                "        <return_name>identity</return_name>\n"
+                f"{arguments_xml}\n"
+                "        <format>JSONEachRow</format>\n"
+                f"        <command>{IDENTITY_UDF_SCRIPT_NAME}</command>\n"
+                f"        <pool_size>{max(int(pool_size), 1)}</pool_size>\n"
+                "        <max_command_execution_time>600</max_command_execution_time>\n"
+                "        <command_read_timeout>600000</command_read_timeout>\n"
+                "        <command_write_timeout>600000</command_write_timeout>\n"
+                "        <command_termination_timeout>10</command_termination_timeout>\n"
+                "        <execute_direct>1</execute_direct>\n"
+                "        <deterministic>1</deterministic>\n"
+                "    </function>\n"
+                "</functions>\n"
+            ),
+            encoding="utf-8",
+        )
+        config_target.chmod(0o640)
+        workdir_target.write_text(IDENTITY_UDF_WORKDIR_NAME, encoding="utf-8")
+        workdir_target.chmod(0o640)
+        try:
+            os.chown(dynamic_workdir, clickhouse_uid, clickhouse_gid)
+            os.chown(config_target, clickhouse_uid, clickhouse_gid)
+            os.chown(workdir_target, clickhouse_uid, clickhouse_gid)
+        except (UnboundLocalError, PermissionError):
+            pass
+    except OSError as exc:
+        raise RuntimeError(
+            "Unable to install ClickHouse executable UDF files. "
+            "Run the bulk-server migration with permissions to write ClickHouse "
+            f"user script/config paths ({user_scripts_path}, {udf_config_path})."
+        ) from exc
+
+    client.command("SYSTEM RELOAD FUNCTIONS")
+    result = client.query(
+        """
+        SELECT load_status, loading_error_message, pool_size
+        FROM system.user_defined_functions
+        WHERE name = {function_name:String}
+        """,
+        parameters={"function_name": IDENTITY_UDF_NAME},
+    )
+    if not result.result_rows:
+        raise RuntimeError(f"ClickHouse UDF {IDENTITY_UDF_NAME} was not loaded")
+    load_status, loading_error_message, loaded_pool_size = result.result_rows[0]
+    if str(load_status) != "Success":
+        raise RuntimeError(
+            f"ClickHouse UDF {IDENTITY_UDF_NAME} failed to load: {loading_error_message}"
+        )
+    print(
+        f"- Verified ClickHouse executable_pool UDF {IDENTITY_UDF_NAME} "
+        f"with pool_size={loaded_pool_size}"
+    )
+
+
 def _count_native_evtx_fast_path_mutation_rows(
     client,
     *,
@@ -535,6 +724,55 @@ def _copy_native_evtx_fast_path_to_shadow(
         f"({mutation_rows:,} generated/repaired)"
     )
     return {"copied": fast_path_rows, "rewritten": mutation_rows}
+
+
+def _bulk_fallback_sql_settings_clause(*, max_threads: int) -> str:
+    return f"SETTINGS max_threads = {max(int(max_threads), 1)}"
+
+
+def _count_bulk_server_fallback_rows(client) -> int:
+    result = client.query(
+        f"SELECT count() FROM events WHERE NOT ({_native_evtx_fast_path_predicate()})"
+    )
+    return int(result.result_rows[0][0]) if result.result_rows else 0
+
+
+def _bulk_server_fallback_select_expression(column_name: str) -> str:
+    if column_name == "evidence_record_key":
+        return "tupleElement(identity, 1) AS evidence_record_key"
+    if column_name == "evidence_identity_version":
+        return "tupleElement(identity, 2) AS evidence_identity_version"
+    if column_name == "evidence_identity_quality":
+        return "tupleElement(identity, 3) AS evidence_identity_quality"
+    return column_name
+
+
+def _copy_bulk_server_fallback_to_shadow(
+    client,
+    *,
+    columns: List[str],
+    pool_size: int,
+    fallback_sql_max_threads: int,
+) -> int:
+    fallback_rows = _count_bulk_server_fallback_rows(client)
+    if fallback_rows <= 0:
+        print("- Bulk-server UDF fallback: no rows outside native EVTX fast path")
+        return 0
+
+    _install_identity_udf(client, pool_size=pool_size)
+    column_list = ", ".join(columns)
+    select_list = ", ".join(_bulk_server_fallback_select_expression(column_name) for column_name in columns)
+    udf_arguments = ", ".join(expression for _name, _type, expression in IDENTITY_UDF_ARGUMENTS)
+    client.command(
+        f"INSERT INTO {SHADOW_TABLE} ({column_list}) "
+        f"WITH {IDENTITY_UDF_NAME}({udf_arguments}) AS identity "
+        f"SELECT {select_list} "
+        f"FROM events "
+        f"WHERE NOT ({_native_evtx_fast_path_predicate()}) "
+        f"{_bulk_fallback_sql_settings_clause(max_threads=fallback_sql_max_threads)}"
+    )
+    print(f"- Bulk-server UDF fallback inserted {fallback_rows:,} rows into shadow")
+    return fallback_rows
 
 
 def _source_window_row_count(
@@ -847,6 +1085,9 @@ def _print_dry_run_plan(
     native_evtx_sql_fast_path: bool,
     native_evtx_sql_max_threads: int,
     native_evtx_sql_max_insert_threads: int,
+    bulk_server_backfill: bool,
+    identity_udf_pool_size: int,
+    fallback_sql_max_threads: int,
     total_rows: int,
     scoped_rows: int,
     counts: Dict[str, Optional[int]],
@@ -906,6 +1147,10 @@ def _print_dry_run_plan(
         print(f"  native EVTX SQL fast-path rows: {_count_native_evtx_fast_path_rows(client)}")
         print(f"  native EVTX SQL max_threads: {int(native_evtx_sql_max_threads)}")
         print(f"  native EVTX SQL max_insert_threads: {int(native_evtx_sql_max_insert_threads)}")
+    print(f"  bulk server backfill: {_format_bool(bool(bulk_server_backfill))}")
+    if bulk_server_backfill:
+        print(f"  identity UDF pool size: {int(identity_udf_pool_size)}")
+        print(f"  fallback SQL max_threads: {int(fallback_sql_max_threads)}")
     print(f"  full v2 recompute requested: {_format_bool(bool(recompute_existing))}")
     print("- Dry run only; no ClickHouse DDL or data writes were executed")
     return rewrite_needed
@@ -1195,6 +1440,42 @@ def _rewrite_rows_to_shadow(
     return rewritten
 
 
+def _bulk_server_rewrite_to_shadow(
+    client,
+    *,
+    columns: List[str],
+    native_evtx_sql_max_threads: int,
+    native_evtx_sql_max_insert_threads: int,
+    identity_udf_pool_size: int,
+    fallback_sql_max_threads: int,
+    rewrite_lease: Any = None,
+) -> int:
+    print("- Starting bulk-server Evidence Identity shadow rebuild")
+    _assert_rewrite_lease_active(rewrite_lease)
+    native_result = _copy_native_evtx_fast_path_to_shadow(
+        client,
+        columns=columns,
+        case_id=None,
+        recompute_existing=True,
+        max_threads=int(native_evtx_sql_max_threads),
+        max_insert_threads=int(native_evtx_sql_max_insert_threads),
+    )
+    _assert_rewrite_lease_active(rewrite_lease)
+    fallback_rows = _copy_bulk_server_fallback_to_shadow(
+        client,
+        columns=columns,
+        pool_size=int(identity_udf_pool_size),
+        fallback_sql_max_threads=int(fallback_sql_max_threads),
+    )
+    rewritten = int(native_result["rewritten"]) + int(fallback_rows)
+    print(
+        f"- Finished bulk-server shadow rebuild: "
+        f"{int(native_result['copied']) + int(fallback_rows):,} rows copied; "
+        f"{rewritten:,} identities generated/repaired"
+    )
+    return rewritten
+
+
 def _prepare_shadow_table(client) -> None:
     if _table_exists(client, SHADOW_TABLE):
         client.command(f"DROP TABLE IF EXISTS {SHADOW_TABLE}")
@@ -1297,12 +1578,17 @@ def backfill_identity_columns(
     native_evtx_sql_fast_path: bool = DEFAULT_NATIVE_EVTX_SQL_FAST_PATH,
     native_evtx_sql_max_threads: int = DEFAULT_NATIVE_EVTX_SQL_MAX_THREADS,
     native_evtx_sql_max_insert_threads: int = DEFAULT_NATIVE_EVTX_SQL_MAX_INSERT_THREADS,
+    bulk_server_backfill: bool = DEFAULT_BULK_SERVER_BACKFILL,
+    identity_udf_pool_size: int = DEFAULT_IDENTITY_UDF_POOL_SIZE,
+    fallback_sql_max_threads: int = DEFAULT_FALLBACK_SQL_MAX_THREADS,
     case_id: Optional[int] = None,
     dry_run: bool = False,
     recompute_existing: bool = False,
     replace_previous: bool = False,
     materialize_index: bool = False,
 ) -> int:
+    if bulk_server_backfill and case_id is not None:
+        raise RuntimeError("--bulk-server-backfill only supports whole-table rewrites; remove --case-id")
     if dry_run:
         total_rows = _count_events(client)
         scoped_rows = _count_events(client, case_id=case_id)
@@ -1320,6 +1606,9 @@ def backfill_identity_columns(
             native_evtx_sql_fast_path=native_evtx_sql_fast_path,
             native_evtx_sql_max_threads=native_evtx_sql_max_threads,
             native_evtx_sql_max_insert_threads=native_evtx_sql_max_insert_threads,
+            bulk_server_backfill=bulk_server_backfill,
+            identity_udf_pool_size=identity_udf_pool_size,
+            fallback_sql_max_threads=fallback_sql_max_threads,
             total_rows=total_rows,
             scoped_rows=scoped_rows,
             counts=counts,
@@ -1404,21 +1693,32 @@ def backfill_identity_columns(
             print(f"- Authoritative events source count after Buffer fence: {source_count_before_copy}")
 
             _prepare_shadow_table(client)
-            rewritten = _rewrite_rows_to_shadow(
-                client,
-                columns=columns,
-                batch_size=int(batch_size),
-                source_window_seconds=int(source_window_seconds),
-                source_window_max_rows=int(source_window_max_rows),
-                source_window_min_seconds=int(source_window_min_seconds),
-                copy_workers=int(copy_workers),
-                native_evtx_sql_fast_path=bool(native_evtx_sql_fast_path),
-                native_evtx_sql_max_threads=int(native_evtx_sql_max_threads),
-                native_evtx_sql_max_insert_threads=int(native_evtx_sql_max_insert_threads),
-                case_id=case_id,
-                recompute_existing=bool(recompute_existing),
-                rewrite_lease=rewrite_lease,
-            )
+            if bulk_server_backfill:
+                rewritten = _bulk_server_rewrite_to_shadow(
+                    client,
+                    columns=columns,
+                    native_evtx_sql_max_threads=int(native_evtx_sql_max_threads),
+                    native_evtx_sql_max_insert_threads=int(native_evtx_sql_max_insert_threads),
+                    identity_udf_pool_size=int(identity_udf_pool_size),
+                    fallback_sql_max_threads=int(fallback_sql_max_threads),
+                    rewrite_lease=rewrite_lease,
+                )
+            else:
+                rewritten = _rewrite_rows_to_shadow(
+                    client,
+                    columns=columns,
+                    batch_size=int(batch_size),
+                    source_window_seconds=int(source_window_seconds),
+                    source_window_max_rows=int(source_window_max_rows),
+                    source_window_min_seconds=int(source_window_min_seconds),
+                    copy_workers=int(copy_workers),
+                    native_evtx_sql_fast_path=bool(native_evtx_sql_fast_path),
+                    native_evtx_sql_max_threads=int(native_evtx_sql_max_threads),
+                    native_evtx_sql_max_insert_threads=int(native_evtx_sql_max_insert_threads),
+                    case_id=case_id,
+                    recompute_existing=bool(recompute_existing),
+                    rewrite_lease=rewrite_lease,
+                )
 
             shadow_rows = _count_events(client, table_name=SHADOW_TABLE)
             if shadow_rows != source_count_before_copy:
@@ -1545,6 +1845,24 @@ def _parse_args(argv: Optional[List[str]] = None) -> argparse.Namespace:
         help="ClickHouse max_insert_threads setting for the native EVTX SQL fast-path insert only",
     )
     parser.add_argument(
+        "--bulk-server-backfill",
+        action="store_true",
+        default=DEFAULT_BULK_SERVER_BACKFILL,
+        help="use server-side INSERT SELECT plus executable_pool UDF fallback instead of Python row streaming",
+    )
+    parser.add_argument(
+        "--identity-udf-pool-size",
+        type=int,
+        default=DEFAULT_IDENTITY_UDF_POOL_SIZE,
+        help="ClickHouse executable_pool process count for bulk-server Evidence Identity fallback",
+    )
+    parser.add_argument(
+        "--fallback-sql-max-threads",
+        type=int,
+        default=DEFAULT_FALLBACK_SQL_MAX_THREADS,
+        help="ClickHouse max_threads setting for the bulk-server UDF fallback INSERT SELECT",
+    )
+    parser.add_argument(
         "--recompute-existing",
         action="store_true",
         help="recompute existing evidence identities in scope and write v2 keys",
@@ -1582,6 +1900,9 @@ def migrate(argv: Optional[List[str]] = None) -> None:
             native_evtx_sql_fast_path=not args.disable_native_evtx_sql_fast_path,
             native_evtx_sql_max_threads=args.native_evtx_sql_max_threads,
             native_evtx_sql_max_insert_threads=args.native_evtx_sql_max_insert_threads,
+            bulk_server_backfill=args.bulk_server_backfill,
+            identity_udf_pool_size=args.identity_udf_pool_size,
+            fallback_sql_max_threads=args.fallback_sql_max_threads,
             case_id=args.case_id,
             dry_run=True,
             recompute_existing=args.recompute_existing,
@@ -1600,6 +1921,9 @@ def migrate(argv: Optional[List[str]] = None) -> None:
         native_evtx_sql_fast_path=not args.disable_native_evtx_sql_fast_path,
         native_evtx_sql_max_threads=args.native_evtx_sql_max_threads,
         native_evtx_sql_max_insert_threads=args.native_evtx_sql_max_insert_threads,
+        bulk_server_backfill=args.bulk_server_backfill,
+        identity_udf_pool_size=args.identity_udf_pool_size,
+        fallback_sql_max_threads=args.fallback_sql_max_threads,
         case_id=args.case_id,
         dry_run=args.dry_run,
         recompute_existing=args.recompute_existing,

@@ -208,7 +208,6 @@ def build_evidence_record_identity(event: Any) -> EvidenceRecordIdentity:
 
     event_map = _event_to_mapping(event)
     extra_fields = _parse_jsonish(event_map.get("extra_fields"))
-    raw_payload = _parse_jsonish(event_map.get("raw_json"))
 
     native_record_id = _record_id_value(event_map.get("record_id"))
     source_identifier = _authoritative_source_identifier(event_map, extra_fields)
@@ -230,20 +229,22 @@ def build_evidence_record_identity(event: Any) -> EvidenceRecordIdentity:
             "source_scope": _source_scope(event_map),
             "source_identifier": _identifier_payload(source_identifier),
         }
-    elif _has_usable_raw_source_record(raw_payload):
-        quality = EvidenceIdentityQuality.FINGERPRINTED.value
-        identity_payload = {
-            "case_scope": _case_scope(event_map),
-            "source_scope": _source_scope(event_map),
-            "raw_source_record": _canonical_raw_source_payload(raw_payload),
-        }
     else:
-        quality = EvidenceIdentityQuality.FINGERPRINTED.value
-        identity_payload = {
-            "case_scope": _case_scope(event_map),
-            "source_scope": _source_scope(event_map),
-            "normalized_source_record": _normalized_record_payload(event_map),
-        }
+        raw_payload = _parse_jsonish(event_map.get("raw_json"))
+        if _has_usable_raw_source_record(raw_payload):
+            quality = EvidenceIdentityQuality.FINGERPRINTED.value
+            identity_payload = {
+                "case_scope": _case_scope(event_map),
+                "source_scope": _source_scope(event_map),
+                "raw_source_record": _canonical_raw_source_payload(raw_payload),
+            }
+        else:
+            quality = EvidenceIdentityQuality.FINGERPRINTED.value
+            identity_payload = {
+                "case_scope": _case_scope(event_map),
+                "source_scope": _source_scope(event_map),
+                "normalized_source_record": _normalized_record_payload(event_map),
+            }
 
     serialized = _identity_json_dumps(
         {

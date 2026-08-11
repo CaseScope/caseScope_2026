@@ -1344,6 +1344,68 @@ class EvidenceIdentityMigrationTestCase(unittest.TestCase):
 
         self.assertEqual(result.stdout.strip(), python_identity.evidence_record_key)
 
+    def test_bulk_server_rewrite_uses_udf_fallback_without_python_streaming(self):
+        columns = [
+            "case_id",
+            "artifact_type",
+            "timestamp",
+            "timestamp_utc",
+            "source_file",
+            "source_path",
+            "source_host",
+            "case_file_id",
+            "event_id",
+            "record_id",
+            "raw_json",
+            "extra_fields",
+            "evidence_record_key",
+            "evidence_identity_version",
+            "evidence_identity_quality",
+        ]
+
+        class BulkClient:
+            def __init__(self):
+                self.commands = []
+                self.query_rows_stream_called = False
+
+            def query(self, sql, parameters=None):
+                if "WHERE artifact_type = 'evtx'" in sql:
+                    return SimpleNamespace(result_rows=[(2,)])
+                if "WHERE NOT (artifact_type = 'evtx'" in sql:
+                    return SimpleNamespace(result_rows=[(3,)])
+                return SimpleNamespace(result_rows=[(0,)])
+
+            def command(self, sql):
+                self.commands.append(sql)
+
+            def query_rows_stream(self, *args, **kwargs):
+                self.query_rows_stream_called = True
+                raise AssertionError("bulk server mode must not use query_rows_stream")
+
+        installed = []
+        client = BulkClient()
+        original_install = migration._install_identity_udf
+        migration._install_identity_udf = lambda client, *, pool_size: installed.append(pool_size)
+        try:
+            rewritten = migration._bulk_server_rewrite_to_shadow(
+                client,
+                columns=columns,
+                native_evtx_sql_max_threads=6,
+                native_evtx_sql_max_insert_threads=4,
+                identity_udf_pool_size=8,
+                fallback_sql_max_threads=8,
+            )
+        finally:
+            migration._install_identity_udf = original_install
+
+        self.assertEqual(rewritten, 5)
+        self.assertEqual(installed, [8])
+        self.assertFalse(client.query_rows_stream_called)
+        self.assertEqual(len([command for command in client.commands if command.startswith(f"INSERT INTO {migration.SHADOW_TABLE}")]), 2)
+        self.assertTrue(any(migration.IDENTITY_UDF_NAME in command for command in client.commands))
+        self.assertTrue(any("WHERE NOT (artifact_type = 'evtx'" in command for command in client.commands))
+        self.assertTrue(any("SETTINGS max_threads = 8" in command for command in client.commands))
+
     def test_dense_source_windows_are_split_by_row_count(self):
         class DenseWindowClient:
             def query(self, sql, parameters=None):
