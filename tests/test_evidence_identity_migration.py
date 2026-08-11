@@ -172,6 +172,8 @@ class _RewriteFakeClient:
             return SimpleNamespace(result_rows=[(1,)])
         if compact == "SELECT DISTINCT case_id FROM events ORDER BY case_id":
             return SimpleNamespace(result_rows=[(7,)])
+        if "toStartOfInterval(timestamp_utc" in sql:
+            return SimpleNamespace(result_rows=[(0,)])
         inserted_rows = [
             row
             for _table, rows, _columns in self.inserts
@@ -355,6 +357,7 @@ class EvidenceIdentityMigrationTestCase(unittest.TestCase):
     def test_backfill_strategy_does_not_contain_per_event_alter_update(self):
         source = inspect.getsource(migration.backfill_identity_columns)
         source += inspect.getsource(migration._rewrite_rows_to_shadow)
+        source += inspect.getsource(migration._copy_source_window_to_shadow)
 
         self.assertNotIn("ALTER TABLE events UPDATE", source)
         self.assertIn("query_rows_stream", source)
@@ -1183,11 +1186,160 @@ class EvidenceIdentityMigrationTestCase(unittest.TestCase):
         )
 
         self.assertIn("WHERE case_id = {case_id:UInt32}", client.last_stream_query)
+        self.assertIn("timestamp_utc >=", client.last_stream_query)
         self.assertNotIn("ORDER BY", client.last_stream_query.upper())
-        self.assertEqual(client.last_stream_parameters, {"case_id": 7})
+        self.assertEqual(
+            client.last_stream_parameters,
+            {"case_id": 7, "window_start_ms": 0, "window_end_ms": 900000},
+        )
         self.assertEqual(client.last_stream_settings["max_threads"], 1)
         self.assertEqual(client.last_stream_settings["max_block_size"], 8192)
         self.assertEqual(client.last_stream_settings["max_execution_time"], 0)
+
+    def test_source_query_streams_each_case_time_window(self):
+        class WindowedClient(_RewriteFakeClient):
+            def query(self, sql, parameters=None):
+                if "toStartOfInterval(timestamp_utc" in sql:
+                    return SimpleNamespace(result_rows=[(0,), (900000,)])
+                return super().query(sql, parameters=parameters)
+
+            def query_rows_stream(self, query, parameters=None, settings=None):
+                self.operations.append(f"window:{parameters['window_start_ms']}")
+                self.last_stream_query = query
+                self.last_stream_parameters = parameters or {}
+                self.last_stream_settings = settings or {}
+                return _Stream(self.stream_rows[:1])
+
+        client = WindowedClient(source_rows=2)
+
+        migration._rewrite_rows_to_shadow(
+            client,
+            columns=ParsedEventColumns,
+            batch_size=10,
+            case_id=None,
+            recompute_existing=False,
+        )
+
+        self.assertEqual(client.operations.count("window:0"), 1)
+        self.assertEqual(client.operations.count("window:900000"), 1)
+        self.assertNotIn("ORDER BY", client.last_stream_query.upper())
+
+    def test_parallel_copy_workers_copy_disjoint_windows(self):
+        class CoordinatorClient(_RewriteFakeClient):
+            def query(self, sql, parameters=None):
+                if "toStartOfInterval(timestamp_utc" in sql:
+                    return SimpleNamespace(result_rows=[(0,), (900000,)])
+                return super().query(sql, parameters=parameters)
+
+        shared_inserts = []
+        seen_windows = []
+
+        class WorkerClient:
+            def query_rows_stream(self, query, parameters=None, settings=None):
+                seen_windows.append(parameters["window_start_ms"])
+                row = _event_row(
+                    ParsedEventColumns,
+                    raw_json=f'{{"window": {parameters["window_start_ms"]}}}',
+                )
+                return _Stream([row])
+
+            def insert(self, table, rows, column_names=None):
+                shared_inserts.append((table, rows, column_names))
+
+        original_get_client = migration.get_migration_client
+        migration.get_migration_client = WorkerClient
+        try:
+            rewritten = migration._rewrite_rows_to_shadow(
+                CoordinatorClient(source_rows=2),
+                columns=ParsedEventColumns,
+                batch_size=10,
+                case_id=None,
+                recompute_existing=False,
+                copy_workers=2,
+            )
+        finally:
+            migration.get_migration_client = original_get_client
+
+        inserted_rows = [row for _table, rows, _columns in shared_inserts for row in rows]
+        self.assertEqual(rewritten, 2)
+        self.assertEqual(len(inserted_rows), 2)
+        self.assertEqual(sorted(seen_windows), [0, 900000])
+
+    def test_parallel_worker_failure_aborts_before_swap_and_buffer_recreation(self):
+        class CoordinatorClient(_RewriteFakeClient):
+            def query(self, sql, parameters=None):
+                if "toStartOfInterval(timestamp_utc" in sql:
+                    return SimpleNamespace(result_rows=[(0,), (900000,)])
+                return super().query(sql, parameters=parameters)
+
+        class FailingWorkerClient:
+            def query_rows_stream(self, query, parameters=None, settings=None):
+                if parameters["window_start_ms"] == 900000:
+                    raise RuntimeError("worker window failed")
+                return _Stream([_event_row(ParsedEventColumns)])
+
+            def insert(self, table, rows, column_names=None):
+                pass
+
+        client = CoordinatorClient(source_rows=2)
+        original_get_client = migration.get_migration_client
+        migration.get_migration_client = FailingWorkerClient
+        try:
+            with self.assertRaisesRegex(RuntimeError, "worker window failed"):
+                migration.backfill_identity_columns(client, batch_size=10, copy_workers=2)
+        finally:
+            migration.get_migration_client = original_get_client
+
+        self.assertNotIn("rename_swap", client.operations)
+        self.assertNotIn("create_buffer", client.operations)
+        self.assertNotIn("events_buffer", client.tables)
+        self.assertNotIn(migration.OLD_TABLE, client.tables)
+
+    def test_copy_workers_one_uses_existing_client_path(self):
+        original_get_client = migration.get_migration_client
+        migration.get_migration_client = lambda: (_ for _ in ()).throw(
+            AssertionError("fresh worker client should not be used")
+        )
+        try:
+            rewritten = migration._rewrite_rows_to_shadow(
+                _RewriteFakeClient(source_rows=2),
+                columns=ParsedEventColumns,
+                batch_size=10,
+                case_id=None,
+                recompute_existing=False,
+                copy_workers=1,
+            )
+        finally:
+            migration.get_migration_client = original_get_client
+
+        self.assertEqual(rewritten, 2)
+
+    def test_shadow_insert_timeout_splits_batch(self):
+        class TimeoutOnceClient(_RewriteFakeClient):
+            def __init__(self):
+                super().__init__(source_rows=20)
+                self.failed_once = False
+
+            def insert(self, table, rows, column_names=None):
+                if not self.failed_once and len(rows) == 20:
+                    self.failed_once = True
+                    raise RuntimeError("ProtocolError: Connection aborted TimeoutError timed out")
+                return super().insert(table, rows, column_names=column_names)
+
+        client = TimeoutOnceClient()
+
+        rewritten = migration._rewrite_rows_to_shadow(
+            client,
+            columns=ParsedEventColumns,
+            batch_size=20,
+            case_id=None,
+            recompute_existing=False,
+        )
+
+        inserted_rows = sum(len(rows) for _table, rows, _columns in client.inserts)
+        self.assertEqual(rewritten, 20)
+        self.assertEqual(inserted_rows, 20)
+        self.assertEqual([len(rows) for _table, rows, _columns in client.inserts], [10, 10])
 
     def test_interrupted_shadow_is_discarded_and_rebuilt_with_buffer_absent(self):
         client = _RewriteFakeClient(source_rows=3)

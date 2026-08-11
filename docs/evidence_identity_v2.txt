@@ -151,8 +151,11 @@ Handling:
 - `--status` is read-only.
 
 Python `--batch-size` controls only insert grouping into the shadow table. It is
-not a ClickHouse source-query memory control. Source reads use a migration
-client with conservative defaults:
+not a ClickHouse source-query memory control. The default is `1000` rows and can
+also be set with `EVIDENCE_IDENTITY_INSERT_BATCH_SIZE`. If an HTTP transport
+timeout occurs while writing a shadow insert batch, the migration retries that
+batch as smaller chunks before failing. Source reads use a migration client with
+conservative defaults:
 - `max_threads = 1`
 - `max_block_size = 8192`
 - `max_execution_time = 0`
@@ -178,11 +181,20 @@ It then streams each case separately:
 `SELECT <insertable columns> FROM events WHERE case_id = {case_id:UInt32}`
 
 There is no source row `ORDER BY`; identity generation is per-record and does
-not depend on traversal order. Large cases are still streamed through
-ClickHouse's row-stream API using the migration source settings above. Memory is
-bounded by ClickHouse stream block size plus the Python insert batch, not by the
-number of rows in a case. A 174,899,397-row case therefore does not require
-materializing 174,899,397 rows in Python.
+not depend on traversal order. Each case is further split into timestamp windows
+before streaming, controlled by `--source-window-seconds` or
+`EVIDENCE_IDENTITY_SOURCE_WINDOW_SECONDS` with a default of 900 seconds. Large
+cases are still streamed through ClickHouse's row-stream API using the migration
+source settings above. Memory is bounded by ClickHouse stream block size plus
+the Python insert batch, not by the number of rows in a case. A 174,899,397-row
+case therefore does not require materializing 174,899,397 rows in Python or
+keeping one HTTP stream open for the entire case.
+
+The migration may copy multiple disjoint source windows concurrently with
+`--copy-workers` or `EVIDENCE_IDENTITY_COPY_WORKERS`. This is still one
+coordinated migration: one process owns the Redis lock, Buffer fencing, shadow
+validation, source recount, and final swap. Operators must not run multiple
+independent migration commands in parallel.
 
 Buffer safety
 -------------

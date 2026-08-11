@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+from concurrent.futures import ThreadPoolExecutor, as_completed
 import os
 import re
 import sys
@@ -50,6 +51,12 @@ VALID_QUALITY_VALUES = tuple(quality.value for quality in EvidenceIdentityQualit
 DEFAULT_PROGRESS_INTERVAL_ROWS = int(
     os.environ.get("EVIDENCE_IDENTITY_PROGRESS_INTERVAL_ROWS", 1_000_000)
 )
+DEFAULT_INSERT_BATCH_SIZE = int(os.environ.get("EVIDENCE_IDENTITY_INSERT_BATCH_SIZE", 1000))
+DEFAULT_SOURCE_WINDOW_SECONDS = max(
+    int(os.environ.get("EVIDENCE_IDENTITY_SOURCE_WINDOW_SECONDS", 900)),
+    1,
+)
+DEFAULT_COPY_WORKERS = max(int(os.environ.get("EVIDENCE_IDENTITY_COPY_WORKERS", 1)), 1)
 
 
 def _existing_columns(client, table_name: str) -> set:
@@ -348,6 +355,28 @@ def _distinct_case_ids(client) -> List[int]:
     return [int(row[0]) for row in result.result_rows]
 
 
+def _case_source_windows(client, case_id: int, *, window_seconds: int) -> List[tuple]:
+    result = client.query(
+        f"""
+        SELECT
+            toUnixTimestamp(toStartOfInterval(timestamp_utc, INTERVAL {int(window_seconds)} SECOND)) * 1000
+                AS bucket_start_ms
+        FROM events
+        WHERE case_id = {{case_id:UInt32}}
+        GROUP BY bucket_start_ms
+        ORDER BY bucket_start_ms
+        """,
+        parameters={"case_id": int(case_id)},
+    )
+    return [
+        (
+            int(row[0]),
+            int(row[0]) + int(window_seconds) * 1000,
+        )
+        for row in result.result_rows
+    ]
+
+
 def _count_case_partitions(client) -> Optional[int]:
     try:
         return len(_distinct_case_ids(client))
@@ -517,6 +546,8 @@ def _print_dry_run_plan(
     case_id: Optional[int],
     recompute_existing: bool,
     batch_size: int,
+    source_window_seconds: int,
+    copy_workers: int,
     total_rows: int,
     scoped_rows: int,
     counts: Dict[str, Optional[int]],
@@ -567,6 +598,8 @@ def _print_dry_run_plan(
     print(f"  migration max_memory_usage: {migration_settings['max_memory_usage'] or 'configured default'}")
     print(f"  migration send_receive_timeout: {migration_settings['send_receive_timeout']}")
     print(f"  Python insert batch size: {int(batch_size)}")
+    print(f"  source window seconds: {int(source_window_seconds)}")
+    print(f"  copy workers: {int(copy_workers)}")
     print(f"  full v2 recompute requested: {_format_bool(bool(recompute_existing))}")
     print("- Dry run only; no ClickHouse DDL or data writes were executed")
     return rewrite_needed
@@ -609,6 +642,107 @@ def _assert_rewrite_lease_active(rewrite_lease: Any) -> None:
         assert_active()
 
 
+def _is_insert_transport_timeout(exc: Exception) -> bool:
+    message = repr(exc)
+    timeout_markers = (
+        "TimeoutError",
+        "timed out",
+        "ProtocolError",
+        "Connection aborted",
+    )
+    return any(marker in message for marker in timeout_markers)
+
+
+def _insert_shadow_batch(client, rows: List[tuple], columns: List[str]) -> None:
+    try:
+        client.insert(SHADOW_TABLE, rows, column_names=columns)
+    except Exception as exc:
+        if len(rows) <= 1 or not _is_insert_transport_timeout(exc):
+            raise
+        midpoint = max(len(rows) // 2, 1)
+        print(
+            "- Shadow insert batch hit a transport timeout; "
+            f"retrying as {midpoint:,} and {len(rows) - midpoint:,} row chunks"
+        )
+        _insert_shadow_batch(client, rows[:midpoint], columns)
+        _insert_shadow_batch(client, rows[midpoint:], columns)
+
+
+def _source_window_query(columns_sql: str) -> str:
+    return (
+        f"SELECT {columns_sql} FROM events "
+        "WHERE case_id = {case_id:UInt32} "
+        "AND timestamp_utc >= fromUnixTimestamp64Milli({window_start_ms:Int64}) "
+        "AND timestamp_utc < fromUnixTimestamp64Milli({window_end_ms:Int64})"
+    )
+
+
+def _copy_source_window_to_shadow(
+    client,
+    *,
+    columns: List[str],
+    batch_size: int,
+    current_case_id: int,
+    window_start_ms: int,
+    window_end_ms: int,
+    target_case_id: Optional[int],
+    recompute_existing: bool,
+) -> Dict[str, int]:
+    identity_indexes = {name: columns.index(name) for name in IDENTITY_COLUMNS}
+    rows_buffer = []
+    rewritten = 0
+    copied = 0
+    columns_sql = ", ".join(columns)
+    with client.query_rows_stream(
+        _source_window_query(columns_sql),
+        parameters={
+            "case_id": int(current_case_id),
+            "window_start_ms": int(window_start_ms),
+            "window_end_ms": int(window_end_ms),
+        },
+        settings=migration_source_query_settings(),
+    ) as stream:
+        for raw_row in stream:
+            row = list(raw_row)
+            row_map = _row_to_mapping(columns, row)
+            if _should_recompute_identity(
+                row_map,
+                case_id=target_case_id,
+                recompute_existing=recompute_existing,
+            ):
+                identity = build_identity_from_clickhouse_row(row_map)
+                row[identity_indexes["evidence_record_key"]] = identity.evidence_record_key
+                row[identity_indexes["evidence_identity_version"]] = identity.evidence_identity_version
+                row[identity_indexes["evidence_identity_quality"]] = identity.evidence_identity_quality
+                rewritten += 1
+            elif (
+                (target_case_id is None or int(row_map.get("case_id") or 0) == int(target_case_id))
+                and _has_invalid_identity_metadata(row_map)
+            ):
+                identity = build_identity_from_clickhouse_row(row_map)
+                row[identity_indexes["evidence_identity_version"]] = identity.evidence_identity_version
+                row[identity_indexes["evidence_identity_quality"]] = identity.evidence_identity_quality
+                rewritten += 1
+            rows_buffer.append(tuple(row))
+            copied += 1
+            if len(rows_buffer) >= batch_size:
+                _insert_shadow_batch(client, rows_buffer, columns)
+                rows_buffer = []
+    if rows_buffer:
+        _insert_shadow_batch(client, rows_buffer, columns)
+    return {
+        "case_id": int(current_case_id),
+        "window_start_ms": int(window_start_ms),
+        "copied": copied,
+        "rewritten": rewritten,
+    }
+
+
+def _copy_source_window_to_shadow_with_fresh_client(**kwargs) -> Dict[str, int]:
+    client = get_migration_client()
+    return _copy_source_window_to_shadow(client, **kwargs)
+
+
 def _rewrite_rows_to_shadow(
     client,
     *,
@@ -617,69 +751,99 @@ def _rewrite_rows_to_shadow(
     case_id: Optional[int],
     recompute_existing: bool,
     progress_interval: int = DEFAULT_PROGRESS_INTERVAL_ROWS,
+    source_window_seconds: int = DEFAULT_SOURCE_WINDOW_SECONDS,
+    copy_workers: int = DEFAULT_COPY_WORKERS,
     rewrite_lease: Any = None,
 ) -> int:
-    identity_indexes = {name: columns.index(name) for name in IDENTITY_COLUMNS}
-    rows_buffer = []
-    rewritten = 0
+    copy_workers = max(int(copy_workers), 1)
     copied = 0
-    columns_sql = ", ".join(columns)
-    source_settings = migration_source_query_settings()
+    rewritten = 0
     case_ids = _distinct_case_ids(client)
     total_rows = _count_events(client)
     started_at = time.monotonic()
     next_progress = max(int(progress_interval), 1)
-    print(f"- Starting bounded case streams for {len(case_ids)} case partitions")
+    case_totals: Dict[int, int] = {}
+    window_tasks = []
+    print(
+        f"- Starting bounded case streams for {len(case_ids)} case partitions "
+        f"with {copy_workers} copy worker(s)"
+    )
     for current_case_id in case_ids:
-        _assert_rewrite_lease_active(rewrite_lease)
-        case_copied = 0
-        query = f"SELECT {columns_sql} FROM events WHERE case_id = {{case_id:UInt32}}"
-        with client.query_rows_stream(
-            query,
-            parameters={"case_id": int(current_case_id)},
-            settings=source_settings,
-        ) as stream:
-            for raw_row in stream:
-                row = list(raw_row)
-                row_map = _row_to_mapping(columns, row)
-                if _should_recompute_identity(
-                    row_map,
-                    case_id=case_id,
-                    recompute_existing=recompute_existing,
-                ):
-                    identity = build_identity_from_clickhouse_row(row_map)
-                    row[identity_indexes["evidence_record_key"]] = identity.evidence_record_key
-                    row[identity_indexes["evidence_identity_version"]] = identity.evidence_identity_version
-                    row[identity_indexes["evidence_identity_quality"]] = identity.evidence_identity_quality
-                    rewritten += 1
-                elif (
-                    (case_id is None or int(row_map.get("case_id") or 0) == int(case_id))
-                    and _has_invalid_identity_metadata(row_map)
-                ):
-                    identity = build_identity_from_clickhouse_row(row_map)
-                    row[identity_indexes["evidence_identity_version"]] = identity.evidence_identity_version
-                    row[identity_indexes["evidence_identity_quality"]] = identity.evidence_identity_quality
-                    rewritten += 1
-                rows_buffer.append(tuple(row))
-                copied += 1
-                case_copied += 1
-                if len(rows_buffer) >= batch_size:
-                    client.insert(SHADOW_TABLE, rows_buffer, column_names=columns)
-                    rows_buffer = []
-                if copied >= next_progress:
-                    _assert_rewrite_lease_active(rewrite_lease)
-                    elapsed = max(time.monotonic() - started_at, 0.001)
-                    percent = (copied / total_rows * 100) if total_rows else 100.0
-                    print(
-                        f"- case_id={current_case_id}: {case_copied:,} rows copied; "
-                        f"total={copied:,}/{total_rows:,} ({percent:.2f}%); "
-                        f"identities={rewritten:,}; elapsed={elapsed:.0f}s"
+        source_windows = _case_source_windows(
+            client,
+            int(current_case_id),
+            window_seconds=int(source_window_seconds),
+        )
+        case_totals[int(current_case_id)] = 0
+        print(
+            f"- case_id={current_case_id}: streaming {len(source_windows):,} "
+            f"{int(source_window_seconds)}s source windows"
+        )
+        for window_start_ms, window_end_ms in source_windows:
+            window_tasks.append(
+                {
+                    "columns": columns,
+                    "batch_size": int(batch_size),
+                    "current_case_id": int(current_case_id),
+                    "window_start_ms": int(window_start_ms),
+                    "window_end_ms": int(window_end_ms),
+                    "target_case_id": case_id,
+                    "recompute_existing": bool(recompute_existing),
+                }
+            )
+
+    def apply_result(result: Dict[str, int]) -> None:
+        nonlocal copied, rewritten, next_progress
+        current_case_id = int(result["case_id"])
+        copied += int(result["copied"])
+        rewritten += int(result["rewritten"])
+        case_totals[current_case_id] = case_totals.get(current_case_id, 0) + int(result["copied"])
+        if copied >= next_progress:
+            _assert_rewrite_lease_active(rewrite_lease)
+            elapsed = max(time.monotonic() - started_at, 0.001)
+            percent = (copied / total_rows * 100) if total_rows else 100.0
+            print(
+                f"- total={copied:,}/{total_rows:,} ({percent:.2f}%); "
+                f"identities={rewritten:,}; elapsed={elapsed:.0f}s"
+            )
+            next_progress += max(int(progress_interval), 1)
+
+    if copy_workers == 1:
+        for task in window_tasks:
+            _assert_rewrite_lease_active(rewrite_lease)
+            apply_result(_copy_source_window_to_shadow(client, **task))
+    else:
+        with ThreadPoolExecutor(max_workers=copy_workers) as executor:
+            task_iter = iter(window_tasks)
+            futures = set()
+            max_in_flight = max(copy_workers * 2, copy_workers)
+
+            def submit_available() -> None:
+                while len(futures) < max_in_flight:
+                    try:
+                        task = next(task_iter)
+                    except StopIteration:
+                        return
+                    futures.add(
+                        executor.submit(_copy_source_window_to_shadow_with_fresh_client, **task)
                     )
-                    next_progress += max(int(progress_interval), 1)
-        if rows_buffer:
-            client.insert(SHADOW_TABLE, rows_buffer, column_names=columns)
-            rows_buffer = []
-        print(f"- Finished case_id={current_case_id}: {case_copied:,} rows copied")
+
+            submit_available()
+            try:
+                while futures:
+                    for future in as_completed(futures):
+                        futures.remove(future)
+                        _assert_rewrite_lease_active(rewrite_lease)
+                        apply_result(future.result())
+                        submit_available()
+                        break
+            except Exception:
+                for future in futures:
+                    future.cancel()
+                raise
+
+    for current_case_id in case_ids:
+        print(f"- Finished case_id={current_case_id}: {case_totals.get(int(current_case_id), 0):,} rows copied")
     print(f"- Finished shadow copy: {copied} rows copied; {rewritten} identities generated")
     return rewritten
 
@@ -778,7 +942,9 @@ def _validate_final_identity_state(
 def backfill_identity_columns(
     client,
     *,
-    batch_size: int = 10000,
+    batch_size: int = DEFAULT_INSERT_BATCH_SIZE,
+    source_window_seconds: int = DEFAULT_SOURCE_WINDOW_SECONDS,
+    copy_workers: int = DEFAULT_COPY_WORKERS,
     case_id: Optional[int] = None,
     dry_run: bool = False,
     recompute_existing: bool = False,
@@ -795,6 +961,8 @@ def backfill_identity_columns(
             case_id=case_id,
             recompute_existing=recompute_existing,
             batch_size=batch_size,
+            source_window_seconds=source_window_seconds,
+            copy_workers=copy_workers,
             total_rows=total_rows,
             scoped_rows=scoped_rows,
             counts=counts,
@@ -883,6 +1051,8 @@ def backfill_identity_columns(
                 client,
                 columns=columns,
                 batch_size=int(batch_size),
+                source_window_seconds=int(source_window_seconds),
+                copy_workers=int(copy_workers),
                 case_id=case_id,
                 recompute_existing=bool(recompute_existing),
                 rewrite_lease=rewrite_lease,
@@ -965,7 +1135,24 @@ def _parse_args(argv: Optional[List[str]] = None) -> argparse.Namespace:
         default=None,
         help="limit identity mutation scope to one case; the current migration still copies the full events table",
     )
-    parser.add_argument("--batch-size", type=int, default=10000, help="rows per shadow-table insert batch")
+    parser.add_argument(
+        "--batch-size",
+        type=int,
+        default=DEFAULT_INSERT_BATCH_SIZE,
+        help="rows per shadow-table insert batch",
+    )
+    parser.add_argument(
+        "--source-window-seconds",
+        type=int,
+        default=DEFAULT_SOURCE_WINDOW_SECONDS,
+        help="seconds per case-scoped source stream window",
+    )
+    parser.add_argument(
+        "--copy-workers",
+        type=int,
+        default=DEFAULT_COPY_WORKERS,
+        help="parallel source-window copy workers; one coordinator still owns swap and validation",
+    )
     parser.add_argument(
         "--recompute-existing",
         action="store_true",
@@ -997,6 +1184,8 @@ def migrate(argv: Optional[List[str]] = None) -> None:
         backfill_identity_columns(
             client,
             batch_size=args.batch_size,
+            source_window_seconds=args.source_window_seconds,
+            copy_workers=args.copy_workers,
             case_id=args.case_id,
             dry_run=True,
             recompute_existing=args.recompute_existing,
@@ -1008,6 +1197,8 @@ def migrate(argv: Optional[List[str]] = None) -> None:
     total = backfill_identity_columns(
         client,
         batch_size=args.batch_size,
+        source_window_seconds=args.source_window_seconds,
+        copy_workers=args.copy_workers,
         case_id=args.case_id,
         dry_run=args.dry_run,
         recompute_existing=args.recompute_existing,
