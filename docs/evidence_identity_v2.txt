@@ -193,8 +193,9 @@ keeping one HTTP stream open for the entire case.
 The migration may copy multiple disjoint source windows concurrently with
 `--copy-workers` or `EVIDENCE_IDENTITY_COPY_WORKERS`. This is still one
 coordinated migration: one process owns the Redis lock, Buffer fencing, shadow
-validation, source recount, and final swap. Operators must not run multiple
-independent migration commands in parallel.
+validation, source recount, and final swap. Copy workers run as child processes
+so Python identity generation can use multiple CPU cores. Operators must not run
+multiple independent migration commands in parallel.
 
 Buffer safety
 -------------

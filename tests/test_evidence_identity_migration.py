@@ -7,6 +7,7 @@ import types
 import unittest
 from contextlib import contextmanager
 from datetime import datetime
+from multiprocessing import Manager
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -1231,8 +1232,9 @@ class EvidenceIdentityMigrationTestCase(unittest.TestCase):
                     return SimpleNamespace(result_rows=[(0,), (900000,)])
                 return super().query(sql, parameters=parameters)
 
-        shared_inserts = []
-        seen_windows = []
+        manager = Manager()
+        shared_insert_counts = manager.list()
+        seen_windows = manager.list()
 
         class WorkerClient:
             def query_rows_stream(self, query, parameters=None, settings=None):
@@ -1244,7 +1246,7 @@ class EvidenceIdentityMigrationTestCase(unittest.TestCase):
                 return _Stream([row])
 
             def insert(self, table, rows, column_names=None):
-                shared_inserts.append((table, rows, column_names))
+                shared_insert_counts.append(len(rows))
 
         original_get_client = migration.get_migration_client
         migration.get_migration_client = WorkerClient
@@ -1260,10 +1262,12 @@ class EvidenceIdentityMigrationTestCase(unittest.TestCase):
         finally:
             migration.get_migration_client = original_get_client
 
-        inserted_rows = [row for _table, rows, _columns in shared_inserts for row in rows]
-        self.assertEqual(rewritten, 2)
-        self.assertEqual(len(inserted_rows), 2)
-        self.assertEqual(sorted(seen_windows), [0, 900000])
+        try:
+            self.assertEqual(rewritten, 2)
+            self.assertEqual(sum(shared_insert_counts), 2)
+            self.assertEqual(sorted(seen_windows), [0, 900000])
+        finally:
+            manager.shutdown()
 
     def test_parallel_worker_failure_aborts_before_swap_and_buffer_recreation(self):
         class CoordinatorClient(_RewriteFakeClient):

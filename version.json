@@ -1,6 +1,13 @@
 {
-  "version": "4.12.12",
+  "version": "4.12.13",
   "changelog": [
+    {
+      "version": "4.12.13",
+      "date": "2026-08-11",
+      "changes": [
+        "Evidence Identity copy workers now use process-based parallelism so identity generation can use multiple CPU cores"
+      ]
+    },
     {
       "version": "4.12.12",
       "date": "2026-08-11",

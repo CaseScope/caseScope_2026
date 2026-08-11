@@ -4,7 +4,7 @@
 from __future__ import annotations
 
 import argparse
-from concurrent.futures import ThreadPoolExecutor, as_completed
+from concurrent.futures import ProcessPoolExecutor, as_completed
 import os
 import re
 import sys
@@ -813,7 +813,7 @@ def _rewrite_rows_to_shadow(
             _assert_rewrite_lease_active(rewrite_lease)
             apply_result(_copy_source_window_to_shadow(client, **task))
     else:
-        with ThreadPoolExecutor(max_workers=copy_workers) as executor:
+        with ProcessPoolExecutor(max_workers=copy_workers) as executor:
             task_iter = iter(window_tasks)
             futures = set()
             max_in_flight = max(copy_workers * 2, copy_workers)
