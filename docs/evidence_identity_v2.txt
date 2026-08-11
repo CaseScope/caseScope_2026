@@ -183,12 +183,16 @@ It then streams each case separately:
 There is no source row `ORDER BY`; identity generation is per-record and does
 not depend on traversal order. Each case is further split into timestamp windows
 before streaming, controlled by `--source-window-seconds` or
-`EVIDENCE_IDENTITY_SOURCE_WINDOW_SECONDS` with a default of 900 seconds. Large
-cases are still streamed through ClickHouse's row-stream API using the migration
-source settings above. Memory is bounded by ClickHouse stream block size plus
-the Python insert batch, not by the number of rows in a case. A 174,899,397-row
-case therefore does not require materializing 174,899,397 rows in Python or
-keeping one HTTP stream open for the entire case.
+`EVIDENCE_IDENTITY_SOURCE_WINDOW_SECONDS` with a default of 900 seconds. Dense
+timestamp buckets are recursively subdivided before streaming when their row
+counts exceed `--source-window-max-rows` or
+`EVIDENCE_IDENTITY_SOURCE_WINDOW_MAX_ROWS`, down to
+`--source-window-min-seconds` or `EVIDENCE_IDENTITY_SOURCE_WINDOW_MIN_SECONDS`.
+Large cases are still streamed through ClickHouse's row-stream API using the
+migration source settings above. Memory is bounded by ClickHouse stream block
+size plus the Python insert batch, not by the number of rows in a case. A
+174,899,397-row case therefore does not require materializing 174,899,397 rows
+in Python or keeping one HTTP stream open for the entire case.
 
 The migration may copy multiple disjoint source windows concurrently with
 `--copy-workers` or `EVIDENCE_IDENTITY_COPY_WORKERS`. This is still one

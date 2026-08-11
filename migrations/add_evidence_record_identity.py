@@ -56,6 +56,14 @@ DEFAULT_SOURCE_WINDOW_SECONDS = max(
     int(os.environ.get("EVIDENCE_IDENTITY_SOURCE_WINDOW_SECONDS", 900)),
     1,
 )
+DEFAULT_SOURCE_WINDOW_MAX_ROWS = max(
+    int(os.environ.get("EVIDENCE_IDENTITY_SOURCE_WINDOW_MAX_ROWS", 100_000)),
+    1,
+)
+DEFAULT_SOURCE_WINDOW_MIN_SECONDS = max(
+    int(os.environ.get("EVIDENCE_IDENTITY_SOURCE_WINDOW_MIN_SECONDS", 60)),
+    1,
+)
 DEFAULT_COPY_WORKERS = max(int(os.environ.get("EVIDENCE_IDENTITY_COPY_WORKERS", 1)), 1)
 _WORKER_MIGRATION_CLIENT = None
 
@@ -356,12 +364,79 @@ def _distinct_case_ids(client) -> List[int]:
     return [int(row[0]) for row in result.result_rows]
 
 
-def _case_source_windows(client, case_id: int, *, window_seconds: int) -> List[tuple]:
+def _source_window_row_count(client, case_id: int, window_start_ms: int, window_end_ms: int) -> int:
+    result = client.query(
+        """
+        SELECT count()
+        FROM events
+        WHERE case_id = {case_id:UInt32}
+          AND timestamp_utc >= fromUnixTimestamp64Milli({window_start_ms:Int64})
+          AND timestamp_utc < fromUnixTimestamp64Milli({window_end_ms:Int64})
+        """,
+        parameters={
+            "case_id": int(case_id),
+            "window_start_ms": int(window_start_ms),
+            "window_end_ms": int(window_end_ms),
+        },
+    )
+    return int(result.result_rows[0][0]) if result.result_rows else 0
+
+
+def _split_dense_source_window(
+    client,
+    *,
+    case_id: int,
+    window_start_ms: int,
+    window_end_ms: int,
+    row_count: Optional[int],
+    max_rows: int,
+    min_seconds: int,
+) -> List[tuple]:
+    duration_ms = int(window_end_ms) - int(window_start_ms)
+    if row_count is None:
+        row_count = _source_window_row_count(client, case_id, window_start_ms, window_end_ms)
+    if row_count <= int(max_rows) or duration_ms <= int(min_seconds) * 1000:
+        return [(int(window_start_ms), int(window_end_ms))]
+
+    midpoint_ms = int(window_start_ms) + max(duration_ms // 2, 1)
+    left_count = _source_window_row_count(client, case_id, int(window_start_ms), midpoint_ms)
+    right_count = max(int(row_count) - int(left_count), 0)
+    return (
+        _split_dense_source_window(
+            client,
+            case_id=case_id,
+            window_start_ms=int(window_start_ms),
+            window_end_ms=midpoint_ms,
+            row_count=left_count,
+            max_rows=max_rows,
+            min_seconds=min_seconds,
+        )
+        + _split_dense_source_window(
+            client,
+            case_id=case_id,
+            window_start_ms=midpoint_ms,
+            window_end_ms=int(window_end_ms),
+            row_count=right_count,
+            max_rows=max_rows,
+            min_seconds=min_seconds,
+        )
+    )
+
+
+def _case_source_windows(
+    client,
+    case_id: int,
+    *,
+    window_seconds: int,
+    max_rows: int = DEFAULT_SOURCE_WINDOW_MAX_ROWS,
+    min_seconds: int = DEFAULT_SOURCE_WINDOW_MIN_SECONDS,
+) -> List[tuple]:
     result = client.query(
         f"""
         SELECT
             toUnixTimestamp(toStartOfInterval(timestamp_utc, INTERVAL {int(window_seconds)} SECOND)) * 1000
-                AS bucket_start_ms
+                AS bucket_start_ms,
+            count() AS rows
         FROM events
         WHERE case_id = {{case_id:UInt32}}
         GROUP BY bucket_start_ms
@@ -369,13 +444,22 @@ def _case_source_windows(client, case_id: int, *, window_seconds: int) -> List[t
         """,
         parameters={"case_id": int(case_id)},
     )
-    return [
-        (
-            int(row[0]),
-            int(row[0]) + int(window_seconds) * 1000,
+    windows = []
+    for row in result.result_rows:
+        bucket_start_ms = int(row[0])
+        row_count = int(row[1]) if len(row) > 1 else None
+        windows.extend(
+            _split_dense_source_window(
+                client,
+                case_id=int(case_id),
+                window_start_ms=bucket_start_ms,
+                window_end_ms=bucket_start_ms + int(window_seconds) * 1000,
+                row_count=row_count,
+                max_rows=int(max_rows),
+                min_seconds=int(min_seconds),
+            )
         )
-        for row in result.result_rows
-    ]
+    return windows
 
 
 def _count_case_partitions(client) -> Optional[int]:
@@ -548,6 +632,8 @@ def _print_dry_run_plan(
     recompute_existing: bool,
     batch_size: int,
     source_window_seconds: int,
+    source_window_max_rows: int,
+    source_window_min_seconds: int,
     copy_workers: int,
     total_rows: int,
     scoped_rows: int,
@@ -600,6 +686,8 @@ def _print_dry_run_plan(
     print(f"  migration send_receive_timeout: {migration_settings['send_receive_timeout']}")
     print(f"  Python insert batch size: {int(batch_size)}")
     print(f"  source window seconds: {int(source_window_seconds)}")
+    print(f"  source window max rows: {int(source_window_max_rows)}")
+    print(f"  source window min seconds: {int(source_window_min_seconds)}")
     print(f"  copy workers: {int(copy_workers)}")
     print(f"  full v2 recompute requested: {_format_bool(bool(recompute_existing))}")
     print("- Dry run only; no ClickHouse DDL or data writes were executed")
@@ -756,6 +844,8 @@ def _rewrite_rows_to_shadow(
     recompute_existing: bool,
     progress_interval: int = DEFAULT_PROGRESS_INTERVAL_ROWS,
     source_window_seconds: int = DEFAULT_SOURCE_WINDOW_SECONDS,
+    source_window_max_rows: int = DEFAULT_SOURCE_WINDOW_MAX_ROWS,
+    source_window_min_seconds: int = DEFAULT_SOURCE_WINDOW_MIN_SECONDS,
     copy_workers: int = DEFAULT_COPY_WORKERS,
     rewrite_lease: Any = None,
 ) -> int:
@@ -777,6 +867,8 @@ def _rewrite_rows_to_shadow(
             client,
             int(current_case_id),
             window_seconds=int(source_window_seconds),
+            max_rows=int(source_window_max_rows),
+            min_seconds=int(source_window_min_seconds),
         )
         case_totals[int(current_case_id)] = 0
         print(
@@ -948,6 +1040,8 @@ def backfill_identity_columns(
     *,
     batch_size: int = DEFAULT_INSERT_BATCH_SIZE,
     source_window_seconds: int = DEFAULT_SOURCE_WINDOW_SECONDS,
+    source_window_max_rows: int = DEFAULT_SOURCE_WINDOW_MAX_ROWS,
+    source_window_min_seconds: int = DEFAULT_SOURCE_WINDOW_MIN_SECONDS,
     copy_workers: int = DEFAULT_COPY_WORKERS,
     case_id: Optional[int] = None,
     dry_run: bool = False,
@@ -966,6 +1060,8 @@ def backfill_identity_columns(
             recompute_existing=recompute_existing,
             batch_size=batch_size,
             source_window_seconds=source_window_seconds,
+            source_window_max_rows=source_window_max_rows,
+            source_window_min_seconds=source_window_min_seconds,
             copy_workers=copy_workers,
             total_rows=total_rows,
             scoped_rows=scoped_rows,
@@ -1056,6 +1152,8 @@ def backfill_identity_columns(
                 columns=columns,
                 batch_size=int(batch_size),
                 source_window_seconds=int(source_window_seconds),
+                source_window_max_rows=int(source_window_max_rows),
+                source_window_min_seconds=int(source_window_min_seconds),
                 copy_workers=int(copy_workers),
                 case_id=case_id,
                 recompute_existing=bool(recompute_existing),
@@ -1152,6 +1250,18 @@ def _parse_args(argv: Optional[List[str]] = None) -> argparse.Namespace:
         help="seconds per case-scoped source stream window",
     )
     parser.add_argument(
+        "--source-window-max-rows",
+        type=int,
+        default=DEFAULT_SOURCE_WINDOW_MAX_ROWS,
+        help="maximum target rows per source stream window before timestamp subdivision",
+    )
+    parser.add_argument(
+        "--source-window-min-seconds",
+        type=int,
+        default=DEFAULT_SOURCE_WINDOW_MIN_SECONDS,
+        help="minimum source stream window duration when splitting dense timestamp buckets",
+    )
+    parser.add_argument(
         "--copy-workers",
         type=int,
         default=DEFAULT_COPY_WORKERS,
@@ -1189,6 +1299,8 @@ def migrate(argv: Optional[List[str]] = None) -> None:
             client,
             batch_size=args.batch_size,
             source_window_seconds=args.source_window_seconds,
+            source_window_max_rows=args.source_window_max_rows,
+            source_window_min_seconds=args.source_window_min_seconds,
             copy_workers=args.copy_workers,
             case_id=args.case_id,
             dry_run=True,
@@ -1202,6 +1314,8 @@ def migrate(argv: Optional[List[str]] = None) -> None:
         client,
         batch_size=args.batch_size,
         source_window_seconds=args.source_window_seconds,
+        source_window_max_rows=args.source_window_max_rows,
+        source_window_min_seconds=args.source_window_min_seconds,
         copy_workers=args.copy_workers,
         case_id=args.case_id,
         dry_run=args.dry_run,

@@ -1225,6 +1225,37 @@ class EvidenceIdentityMigrationTestCase(unittest.TestCase):
         self.assertEqual(client.operations.count("window:900000"), 1)
         self.assertNotIn("ORDER BY", client.last_stream_query.upper())
 
+    def test_dense_source_windows_are_split_by_row_count(self):
+        class DenseWindowClient:
+            def query(self, sql, parameters=None):
+                parameters = parameters or {}
+                if "toStartOfInterval(timestamp_utc" in sql:
+                    return SimpleNamespace(result_rows=[(0, 900)])
+                if "timestamp_utc >= fromUnixTimestamp64Milli" in sql:
+                    duration_seconds = (
+                        int(parameters["window_end_ms"]) - int(parameters["window_start_ms"])
+                    ) // 1000
+                    return SimpleNamespace(result_rows=[(duration_seconds,)])
+                return SimpleNamespace(result_rows=[(0,)])
+
+        windows = migration._case_source_windows(
+            DenseWindowClient(),
+            7,
+            window_seconds=900,
+            max_rows=300,
+            min_seconds=225,
+        )
+
+        self.assertEqual(
+            windows,
+            [
+                (0, 225000),
+                (225000, 450000),
+                (450000, 675000),
+                (675000, 900000),
+            ],
+        )
+
     def test_parallel_copy_workers_copy_disjoint_windows(self):
         class CoordinatorClient(_RewriteFakeClient):
             def query(self, sql, parameters=None):
