@@ -204,6 +204,7 @@ class ParsedEvent:
     evidence_record_key: str = ''
     evidence_identity_version: str = ''
     evidence_identity_quality: str = ''
+    native_record_id_authoritative: bool = False
 
     _PROVENANCE_SKIP_FIELDS = {
         'case_id',
@@ -317,6 +318,9 @@ class ParsedEvent:
         existing_field_provenance = payload.get('field_provenance')
         if not isinstance(existing_field_provenance, dict):
             existing_field_provenance = {}
+        if self.native_record_id_authoritative:
+            payload['native_record_id_authoritative'] = True
+            payload.setdefault('record_identity_kind', 'native')
         payload['field_provenance'] = {
             **parser_provenance.get('field_provenance', {}),
             **existing_field_provenance,

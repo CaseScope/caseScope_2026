@@ -170,6 +170,50 @@ def _existing_columns(client, table_name):
     return {row[0] for row in result.result_rows}
 
 
+def _table_exists(client, table_name):
+    result = client.query(
+        """
+        SELECT count()
+        FROM system.tables
+        WHERE database = currentDatabase()
+          AND table = {table_name:String}
+        """,
+        parameters={"table_name": table_name},
+    )
+    return bool(result.result_rows and result.result_rows[0][0])
+
+
+def _table_engine(client, table_name):
+    result = client.query(
+        """
+        SELECT engine
+        FROM system.tables
+        WHERE database = currentDatabase()
+          AND table = {table_name:String}
+        """,
+        parameters={"table_name": table_name},
+    )
+    return str(result.result_rows[0][0]) if result.result_rows else ""
+
+
+def _insertable_columns(client, table_name):
+    result = client.query(
+        """
+        SELECT name, default_kind
+        FROM system.columns
+        WHERE database = currentDatabase()
+          AND table = {table_name:String}
+        ORDER BY position
+        """,
+        parameters={"table_name": table_name},
+    )
+    return [
+        row[0]
+        for row in result.result_rows
+        if str(row[1] or "").upper() not in {"MATERIALIZED", "ALIAS"}
+    ]
+
+
 def _add_missing_columns(client, table_name):
     existing = _existing_columns(client, table_name)
     if not existing:
@@ -184,6 +228,46 @@ def _add_missing_columns(client, table_name):
         print(f"- Added {column_name} to {table_name}")
 
 
+def _ensure_evidence_record_key_index(client):
+    result = client.query(
+        """
+        SELECT name
+        FROM system.data_skipping_indices
+        WHERE database = currentDatabase()
+          AND table = 'events'
+          AND name = 'idx_evidence_record_key'
+        """
+    )
+    if result.result_rows:
+        return
+    client.command(
+        "ALTER TABLE events ADD INDEX IF NOT EXISTS "
+        "idx_evidence_record_key evidence_record_key TYPE bloom_filter(0.01) GRANULARITY 4"
+    )
+    print("- Added idx_evidence_record_key to events")
+
+
+def _ensure_events_buffer_schema(client):
+    if not _table_exists(client, "events_buffer"):
+        client.command(EVENTS_BUFFER_SCHEMA)
+        print("- Created or verified events_buffer table")
+        return
+
+    events_columns = set(_insertable_columns(client, "events"))
+    buffer_columns = set(_insertable_columns(client, "events_buffer"))
+    if events_columns == buffer_columns:
+        print("- Created or verified events_buffer table")
+        return
+
+    if _table_engine(client, "events_buffer").lower() == "buffer":
+        client.command("DROP TABLE IF EXISTS events_buffer")
+        client.command(EVENTS_BUFFER_SCHEMA)
+        print("- Recreated events_buffer table to match events schema")
+        return
+
+    _add_missing_columns(client, "events_buffer")
+
+
 def migrate_clickhouse():
     """Create or update the ClickHouse event tables."""
     _assert_insert_columns_are_defined()
@@ -195,11 +279,9 @@ def migrate_clickhouse():
     print("- Created or verified events table")
 
     _add_missing_columns(client, "events")
+    _ensure_evidence_record_key_index(client)
 
-    client.command(EVENTS_BUFFER_SCHEMA)
-    print("- Created or verified events_buffer table")
-
-    _add_missing_columns(client, "events_buffer")
+    _ensure_events_buffer_schema(client)
 
     result = client.query("DESCRIBE events")
     print(f"- Verified events table has {len(result.result_rows)} columns")

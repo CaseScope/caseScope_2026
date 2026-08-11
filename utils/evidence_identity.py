@@ -41,6 +41,21 @@ SOURCE_IDENTIFIER_KEYS = (
     "uid",
 )
 
+SOURCE_SCOPE_IDENTIFIER_KEYS = (
+    "source_evidence_sha256",
+    "source_file_sha256",
+    "case_file_sha256",
+    "original_file_sha256",
+    "archive_sha256",
+    "sha256_hash",
+)
+
+NATIVE_RECORD_ID_MARKERS = (
+    "native_record_id_authoritative",
+    "record_id_authoritative",
+    "record_id_is_native",
+)
+
 MUTABLE_OR_DERIVED_KEYS = {
     "analyst_tagged",
     "analyst_tags",
@@ -111,7 +126,6 @@ NORMALIZED_FINGERPRINT_FIELDS = (
     "reg_key",
     "reg_value",
     "reg_data",
-    "search_blob",
 )
 
 
@@ -169,10 +183,10 @@ def build_evidence_record_identity(event: Any) -> EvidenceRecordIdentity:
     extra_fields = _parse_jsonish(event_map.get("extra_fields"))
     raw_payload = _parse_jsonish(event_map.get("raw_json"))
 
-    native_record_id = _positive_int(event_map.get("record_id"))
+    native_record_id = _record_id_value(event_map.get("record_id"))
     source_identifier = _first_source_identifier(extra_fields)
 
-    if native_record_id is not None:
+    if native_record_id is not None and _has_authoritative_native_record_id(event_map, extra_fields):
         quality = EvidenceIdentityQuality.NATIVE.value
         identity_payload = {
             "case_scope": _case_scope(event_map),
@@ -211,13 +225,12 @@ def build_evidence_record_identity(event: Any) -> EvidenceRecordIdentity:
             "source_record": _clean_identity_payload(raw_payload)
             if raw_payload not in ({}, "", None)
             else _normalized_record_payload(event_map),
-            "extra_fields": _clean_identity_payload(extra_fields),
         }
 
     serialized = canonical_json_dumps(
         {
             "algorithm": "evidence_identity_v1",
-            "quality": quality,
+            "version": EVIDENCE_IDENTITY_VERSION,
             "payload": identity_payload,
         }
     )
@@ -253,7 +266,7 @@ def build_evidence_record_locator(
         artifact_type=_clean(event_map.get("artifact_type")),
         timestamp=_timestamp_identity_value(event_map.get("timestamp_utc") or event_map.get("timestamp")),
         event_id=_clean(event_map.get("event_id")),
-        record_id=_positive_int(event_map.get("record_id")),
+        record_id=_record_id_value(event_map.get("record_id")),
         parser_version=_clean(event_map.get("parser_version")),
         source_native_identifier=source_identifier,
     )
@@ -264,11 +277,13 @@ def build_identity_from_clickhouse_row(row: Mapping[str, Any]) -> EvidenceRecord
 
     identity = build_evidence_record_identity(row)
     quality = identity.evidence_identity_quality
-    if not _positive_int(row.get("record_id")) and not _first_source_identifier(
-        _parse_jsonish(row.get("extra_fields"))
+    extra_fields = _parse_jsonish(row.get("extra_fields"))
+    if (
+        not _has_authoritative_native_record_id(row, extra_fields)
+        and not _first_source_identifier(extra_fields)
     ):
         raw_payload = _parse_jsonish(row.get("raw_json"))
-        if raw_payload in ({}, "", None) and not row.get("search_blob"):
+        if raw_payload in ({}, "", None) and not _normalized_record_payload(row):
             quality = EvidenceIdentityQuality.LEGACY_FALLBACK.value
     return EvidenceRecordIdentity(
         evidence_record_key=identity.evidence_record_key,
@@ -321,7 +336,9 @@ def _canonicalize(value: Any) -> Any:
 
 
 def _clean(value: Any) -> str:
-    normalized = str(value or "").strip()
+    if value is None:
+        return ""
+    normalized = str(value).strip()
     return "" if normalized == "-" else normalized
 
 
@@ -333,6 +350,13 @@ def _positive_int(value: Any) -> Optional[int]:
     return number if number > 0 else None
 
 
+def _record_id_value(value: Any) -> Optional[int]:
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None
+
+
 def _timestamp_identity_value(value: Any) -> str:
     if value in (None, ""):
         return ""
@@ -340,8 +364,16 @@ def _timestamp_identity_value(value: Any) -> str:
         timestamp = value
         if timestamp.tzinfo is not None:
             timestamp = timestamp.astimezone(timezone.utc).replace(tzinfo=None)
-        return timestamp.isoformat(timespec="microseconds")
-    return str(value).strip()
+        millisecond = (timestamp.microsecond // 1000) * 1000
+        return timestamp.replace(microsecond=millisecond).isoformat(timespec="milliseconds")
+    text = str(value).strip()
+    if not text:
+        return ""
+    try:
+        parsed = datetime.fromisoformat(text.replace("Z", "+00:00"))
+    except ValueError:
+        return text
+    return _timestamp_identity_value(parsed)
 
 
 def _case_scope(event_map: Mapping[str, Any]) -> Dict[str, Any]:
@@ -349,13 +381,24 @@ def _case_scope(event_map: Mapping[str, Any]) -> Dict[str, Any]:
 
 
 def _source_scope(event_map: Mapping[str, Any]) -> Dict[str, Any]:
-    return {
-        "case_file_id": _positive_int(event_map.get("case_file_id")),
-        "source_file": _clean(event_map.get("source_file")),
-        "source_path": _clean(event_map.get("source_path")),
+    case_file_id = _positive_int(event_map.get("case_file_id"))
+    if case_file_id is not None:
+        return {"case_file_id": case_file_id}
+
+    extra_fields = _parse_jsonish(event_map.get("extra_fields"))
+    source_scope_identifier = _first_source_scope_identifier(extra_fields)
+    if source_scope_identifier:
+        return {"source_identifier": source_scope_identifier}
+
+    source_file = _clean(event_map.get("source_file"))
+    source_scope = {
+        "source_file": source_file,
         "source_host": _clean(event_map.get("source_host")),
-        "parser_version": _clean(event_map.get("parser_version")),
+        "artifact_type": _clean(event_map.get("artifact_type")),
     }
+    if not source_file:
+        source_scope["source_path_fallback"] = _clean(event_map.get("source_path"))
+    return source_scope
 
 
 def _first_source_identifier(extra_fields: Any) -> str:
@@ -366,6 +409,40 @@ def _first_source_identifier(extra_fields: Any) -> str:
         if value not in (None, "", "-", []):
             return f"{key}:{_clean(value)}"
     return ""
+
+
+def _first_source_scope_identifier(extra_fields: Any) -> str:
+    if not isinstance(extra_fields, Mapping):
+        return ""
+    for key in SOURCE_SCOPE_IDENTIFIER_KEYS:
+        value = extra_fields.get(key)
+        if value not in (None, "", "-", []):
+            return f"{key}:{_clean(value)}"
+    return ""
+
+
+def _has_authoritative_native_record_id(
+    event_map: Mapping[str, Any],
+    extra_fields: Any,
+) -> bool:
+    if _clean(event_map.get("artifact_type")).lower() == "evtx":
+        return True
+    for key in NATIVE_RECORD_ID_MARKERS:
+        if _truthy_marker(event_map.get(key)):
+            return True
+    if isinstance(extra_fields, Mapping):
+        for key in NATIVE_RECORD_ID_MARKERS:
+            if _truthy_marker(extra_fields.get(key)):
+                return True
+        if _clean(extra_fields.get("record_identity_kind")).lower() == "native":
+            return True
+    return False
+
+
+def _truthy_marker(value: Any) -> bool:
+    if isinstance(value, bool):
+        return value
+    return _clean(value).lower() in {"1", "true", "yes", "native", "authoritative"}
 
 
 def _clean_identity_payload(value: Any) -> Any:

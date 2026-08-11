@@ -1,18 +1,52 @@
+import importlib.util
 import json
+import os
+import sys
+import types
 import unittest
 from datetime import datetime
+from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import Mock
 
 from parsers.base import ParsedEvent
-from utils.clickhouse import get_event_by_evidence_record_key
-from utils.event_selector import build_event_selector_key
-from utils.evidence_identity import (
-    EVIDENCE_IDENTITY_VERSION,
-    EvidenceIdentityQuality,
-    build_evidence_record_identity,
-    build_evidence_record_locator,
-)
+
+
+os.environ.setdefault("SECRET_KEY", "test-secret")
+REPO_ROOT = Path(__file__).resolve().parent.parent
+
+
+def _load_module(module_name, relative_path):
+    spec = importlib.util.spec_from_file_location(module_name, REPO_ROOT / relative_path)
+    module = importlib.util.module_from_spec(spec)
+    assert spec.loader is not None
+    sys.modules[module_name] = module
+    spec.loader.exec_module(module)
+    return module
+
+
+evidence_identity = _load_module("evidence_identity_under_test", "utils/evidence_identity.py")
+EVIDENCE_IDENTITY_VERSION = evidence_identity.EVIDENCE_IDENTITY_VERSION
+EvidenceIdentityQuality = evidence_identity.EvidenceIdentityQuality
+build_evidence_record_identity = evidence_identity.build_evidence_record_identity
+build_identity_from_clickhouse_row = evidence_identity.build_identity_from_clickhouse_row
+build_evidence_record_locator = evidence_identity.build_evidence_record_locator
+event_selector = _load_module("event_selector_under_test", "utils/event_selector.py")
+build_event_selector_key = event_selector.build_event_selector_key
+
+sys.modules.setdefault("clickhouse_connect", types.SimpleNamespace(get_client=lambda *args, **kwargs: None))
+if "config" not in sys.modules:
+    config_module = types.ModuleType("config")
+    config_module.Config = types.SimpleNamespace(
+        CLICKHOUSE_HOST="localhost",
+        CLICKHOUSE_PORT=8123,
+        CLICKHOUSE_DATABASE="casescope",
+        CLICKHOUSE_USER="default",
+        CLICKHOUSE_PASSWORD="",
+    )
+    sys.modules["config"] = config_module
+clickhouse_module = _load_module("clickhouse_under_test", "utils/clickhouse.py")
+get_event_by_evidence_record_key = clickhouse_module.get_event_by_evidence_record_key
 
 
 class EvidenceIdentityTestCase(unittest.TestCase):
@@ -72,14 +106,65 @@ class EvidenceIdentityTestCase(unittest.TestCase):
         )
 
     def test_native_record_id_is_scoped_to_source_evidence(self):
-        first = self._event(record_id=55, source_file="Security.evtx")
-        second = self._event(record_id=55, source_file="ForwardedEvents.evtx")
+        first = self._event(artifact_type="evtx", record_id=55, source_file="Security.evtx", case_file_id=101)
+        second = self._event(artifact_type="evtx", record_id=55, source_file="Security.evtx", case_file_id=202)
 
         first_identity = build_evidence_record_identity(first)
         second_identity = build_evidence_record_identity(second)
 
         self.assertEqual(first_identity.evidence_identity_quality, EvidenceIdentityQuality.NATIVE.value)
         self.assertNotEqual(first_identity.evidence_record_key, second_identity.evidence_record_key)
+
+    def test_parser_version_change_does_not_change_evidence_key(self):
+        first = self._event(parser_version="Parser-1.0")
+        second = self._event(parser_version="Parser-2.0")
+
+        self.assertEqual(
+            build_evidence_record_identity(first).evidence_record_key,
+            build_evidence_record_identity(second).evidence_record_key,
+        )
+
+    def test_retained_source_path_change_does_not_change_key_with_case_file_scope(self):
+        first = self._event(source_path="/originals/foo.evtx", case_file_id=42)
+        second = self._event(source_path="/archive/reindexed/foo.evtx", case_file_id=42)
+
+        self.assertEqual(
+            build_evidence_record_identity(first).evidence_record_key,
+            build_evidence_record_identity(second).evidence_record_key,
+        )
+
+    def test_evtx_record_id_is_authoritative_native_identity(self):
+        identity = build_evidence_record_identity(
+            self._event(artifact_type="evtx", record_id=100, raw_json="{}")
+        )
+
+        self.assertEqual(identity.evidence_identity_quality, EvidenceIdentityQuality.NATIVE.value)
+
+    def test_positive_non_native_record_id_is_not_native_identity(self):
+        identity = build_evidence_record_identity(
+            self._event(record_id=100, raw_json=json.dumps({"message": "same"}))
+        )
+
+        self.assertEqual(identity.evidence_identity_quality, EvidenceIdentityQuality.FINGERPRINTED.value)
+
+    def test_acquisition_records_with_same_count_remain_distinct(self):
+        first = self._event(
+            artifact_type="cylr_acquisition",
+            event_id="archive_extracted",
+            record_id=100,
+            raw_json=json.dumps({"archive_name": "a.zip", "extracted_file_count": 100}),
+        )
+        second = self._event(
+            artifact_type="cylr_acquisition",
+            event_id="archive_extracted",
+            record_id=100,
+            raw_json=json.dumps({"archive_name": "b.zip", "extracted_file_count": 100}),
+        )
+
+        self.assertNotEqual(
+            build_evidence_record_identity(first).evidence_record_key,
+            build_evidence_record_identity(second).evidence_record_key,
+        )
 
     def test_cross_case_records_have_distinct_keys(self):
         case_a = self._event(case_id=1)
@@ -104,18 +189,67 @@ class EvidenceIdentityTestCase(unittest.TestCase):
             build_evidence_record_identity(mutated).evidence_record_key,
         )
 
-    def test_timestamp_precision_is_preserved_for_fingerprints(self):
+    def test_search_blob_changes_do_not_change_identity(self):
+        baseline = self._event(search_blob="original search text")
+        mutated = self._event(search_blob="new enrichment search text")
+
+        self.assertEqual(
+            build_evidence_record_identity(baseline).evidence_record_key,
+            build_evidence_record_identity(mutated).evidence_record_key,
+        )
+
+    def test_enrichment_and_provenance_changes_do_not_change_identity(self):
+        baseline = self._event()
+        mutated = self._event(
+            rule_title="Suspicious Thing",
+            rule_level="high",
+            mitre_tactics=["Execution"],
+            mitre_tags=["T1059"],
+            mitre_attack_ids=["T1059"],
+            mitre_attack_tactics=["Execution"],
+            mitre_attack_sources=["hayabusa"],
+            mitre_mapping_max_confidence=90,
+            extra_fields=json.dumps({
+                "field_provenance": {"command_line": "MODEL_SYNTHESIZED"},
+                "emitted_provenance": "MODEL_SYNTHESIZED",
+                "hayabusa_detections": [{"rule": "new"}],
+                "model_name": "new-model",
+                "ai_summary": "new summary",
+            }),
+        )
+
+        self.assertEqual(
+            build_evidence_record_identity(baseline).evidence_record_key,
+            build_evidence_record_identity(mutated).evidence_record_key,
+        )
+
+    def test_timestamp_precision_is_millisecond_for_fingerprints(self):
         first = self._event(
-            timestamp=datetime(2026, 4, 21, 12, 0, 0, 100000),
-            timestamp_utc=datetime(2026, 4, 21, 12, 0, 0, 100000),
+            timestamp=datetime(2026, 4, 21, 12, 0, 0, 123456),
+            timestamp_utc=datetime(2026, 4, 21, 12, 0, 0, 123456),
             raw_json="{}",
-            search_blob="same content",
         )
         second = self._event(
-            timestamp=datetime(2026, 4, 21, 12, 0, 0, 900000),
-            timestamp_utc=datetime(2026, 4, 21, 12, 0, 0, 900000),
+            timestamp=datetime(2026, 4, 21, 12, 0, 0, 123000),
+            timestamp_utc=datetime(2026, 4, 21, 12, 0, 0, 123000),
             raw_json="{}",
-            search_blob="same content",
+        )
+
+        self.assertEqual(
+            build_evidence_record_identity(first).evidence_record_key,
+            build_evidence_record_identity(second).evidence_record_key,
+        )
+
+    def test_millisecond_timestamp_difference_changes_fingerprint(self):
+        first = self._event(
+            timestamp=datetime(2026, 4, 21, 12, 0, 0, 123000),
+            timestamp_utc=datetime(2026, 4, 21, 12, 0, 0, 123000),
+            raw_json="{}",
+        )
+        second = self._event(
+            timestamp=datetime(2026, 4, 21, 12, 0, 0, 124000),
+            timestamp_utc=datetime(2026, 4, 21, 12, 0, 0, 124000),
+            raw_json="{}",
         )
 
         self.assertNotEqual(
@@ -141,6 +275,42 @@ class EvidenceIdentityTestCase(unittest.TestCase):
             build_evidence_record_identity(second).evidence_record_key,
         )
 
+    def test_zero_valued_source_identifier_is_not_erased(self):
+        identity = build_evidence_record_identity(
+            self._event(raw_json="{}", extra_fields=json.dumps({"row_id": 0}))
+        )
+        locator = build_evidence_record_locator(
+            self._event(raw_json="{}", extra_fields=json.dumps({"row_id": 0})),
+            evidence_record_key=identity.evidence_record_key,
+        )
+
+        self.assertEqual(identity.evidence_identity_quality, EvidenceIdentityQuality.SOURCE_IDENTIFIER.value)
+        self.assertEqual(locator.source_native_identifier, "row_id:0")
+
+    def test_legacy_fallback_quality_does_not_change_key_material(self):
+        row = {
+            "case_id": 7,
+            "artifact_type": "",
+            "timestamp": "",
+            "timestamp_utc": "",
+            "source_file": "",
+            "source_path": "",
+            "source_host": "",
+            "case_file_id": None,
+            "event_id": "",
+            "record_id": None,
+            "raw_json": "{}",
+            "search_blob": "",
+            "extra_fields": "{}",
+            "parser_version": "old-parser",
+        }
+
+        generic = build_evidence_record_identity(row)
+        backfilled = build_identity_from_clickhouse_row(row)
+
+        self.assertEqual(generic.evidence_record_key, backfilled.evidence_record_key)
+        self.assertEqual(backfilled.evidence_identity_quality, EvidenceIdentityQuality.LEGACY_FALLBACK.value)
+
     def test_existing_selector_behavior_still_uses_second_precision_fallback(self):
         selector = build_event_selector_key(
             event_id="4104",
@@ -164,9 +334,31 @@ class EvidenceIdentityTestCase(unittest.TestCase):
         self.assertEqual(client.query.call_args.kwargs["parameters"]["case_id"], 2)
         self.assertEqual(client.query.call_args.kwargs["parameters"]["evidence_record_key"], key)
 
+    def test_empty_evidence_key_lookup_returns_none_without_query(self):
+        client = Mock()
+
+        self.assertIsNone(get_event_by_evidence_record_key(1, "", client=client))
+        client.query.assert_not_called()
+
     def test_parsed_event_row_includes_identity_columns(self):
         event = self._event()
-        row = event.to_clickhouse_row()
+        original_utils = sys.modules.get("utils")
+        original_evidence_identity = sys.modules.get("utils.evidence_identity")
+        utils_package = types.ModuleType("utils")
+        utils_package.evidence_identity = evidence_identity
+        sys.modules["utils"] = utils_package
+        sys.modules["utils.evidence_identity"] = evidence_identity
+        try:
+            row = event.to_clickhouse_row()
+        finally:
+            if original_utils is None:
+                sys.modules.pop("utils", None)
+            else:
+                sys.modules["utils"] = original_utils
+            if original_evidence_identity is None:
+                sys.modules.pop("utils.evidence_identity", None)
+            else:
+                sys.modules["utils.evidence_identity"] = original_evidence_identity
         columns = {name: index for index, name in enumerate(ParsedEvent.clickhouse_columns())}
 
         self.assertTrue(row[columns["evidence_record_key"]].startswith("erk:v1:"))
@@ -174,7 +366,11 @@ class EvidenceIdentityTestCase(unittest.TestCase):
         self.assertEqual(row[columns["evidence_identity_quality"]], EvidenceIdentityQuality.FINGERPRINTED.value)
 
     def test_locator_carries_future_provenance_context(self):
-        event = self._event(extra_fields=json.dumps({"entry_id": "abc"}))
+        event = self._event(
+            extra_fields=json.dumps({"entry_id": "abc"}),
+            parser_version="Parser-2.0",
+            source_path="/archive/reindexed/source.log",
+        )
         identity = build_evidence_record_identity(event)
         locator = build_evidence_record_locator(
             event,
@@ -187,6 +383,8 @@ class EvidenceIdentityTestCase(unittest.TestCase):
         self.assertEqual(locator.selector_key, "selector")
         self.assertEqual(locator.case_file_id, 99)
         self.assertEqual(locator.source_native_identifier, "entry_id:abc")
+        self.assertEqual(locator.parser_version, "Parser-2.0")
+        self.assertEqual(locator.source_path, "/archive/reindexed/source.log")
 
 
 if __name__ == "__main__":

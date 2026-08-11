@@ -1,6 +1,14 @@
 {
-  "version": "4.12.5",
+  "version": "4.12.6",
   "changelog": [
+    {
+      "version": "4.12.6",
+      "date": "2026-08-10",
+      "changes": [
+        "Evidence Identity v1 now excludes parser version, mutable retained paths, search blobs, enrichment, and analyst state from permanent record identity while preserving locator provenance",
+        "ClickHouse Evidence Identity backfill now uses a restartable shadow-table rewrite with index and Buffer-table safeguards instead of per-event synchronous mutations"
+      ]
+    },
     {
       "version": "4.12.5",
       "date": "2026-08-10",

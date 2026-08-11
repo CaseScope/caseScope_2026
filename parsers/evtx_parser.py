@@ -910,6 +910,7 @@ class EvtxECmdParser(BaseParser):
                 search_blob=search_blob,
                 extra_fields=json.dumps(extra_fields, default=str),
                 parser_version=self.parser_version,
+                native_record_id_authoritative=True,
             )
             
         except Exception as e:
@@ -1130,6 +1131,7 @@ class EvtxFallbackParser(BaseParser):
                         search_blob=search_blob,
                         extra_fields=json.dumps(extra_fields, default=str),
                         parser_version=self.parser_version,
+                        native_record_id_authoritative=True,
                     )
                     
                 except Exception as e:
