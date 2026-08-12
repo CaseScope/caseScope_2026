@@ -1928,6 +1928,18 @@ def case_indexing_complete_task(self, case_id: int, case_uuid: str, _retry_count
         logger.warning(f"Automatic high-priority event embedding queue failed: {e}")
         results['auto_embedding_queued'] = False
         results['auto_embedding_error'] = str(e)
+
+    # Step 5.7: Queue deterministic investigation graph materialization.
+    try:
+        graph_task = materialize_case_graph_task.apply_async(
+            kwargs={'case_id': case_id, 'case_uuid': case_uuid}
+        )
+        results['graph_materialization_queued'] = True
+        results['graph_materialization_task_id'] = graph_task.id
+    except Exception as e:
+        logger.warning(f"Graph materialization queue failed: {e}")
+        results['graph_materialization_queued'] = False
+        results['graph_materialization_error'] = str(e)
     finally:
         # Always clear progress tracking once completion work finishes so the UI
         # returns to an idle state and relies on the durable ingest summary.
@@ -1936,6 +1948,24 @@ def case_indexing_complete_task(self, case_id: int, case_uuid: str, _retry_count
     logger.info(f"Completion tasks finished for case {case_uuid}: {results}")
     
     return results
+
+
+@celery_app.task(bind=True, name='tasks.materialize_case_graph')
+def materialize_case_graph_task(self, case_id: int, case_uuid: str = '') -> Dict[str, Any]:
+    """Materialize deterministic graph facts from retained normalized evidence."""
+    logger.info(f"Starting graph materialization for case {case_id} ({case_uuid})")
+    app = get_flask_app()
+    with app.app_context():
+        try:
+            from utils.graph_materializer import materialize_events_for_case
+
+            result = materialize_events_for_case(case_id)
+            result['success'] = result.get('errors', 0) == 0
+            logger.info(f"Graph materialization complete for case {case_id}: {result}")
+            return result
+        except Exception as exc:
+            logger.warning(f"Graph materialization failed for case {case_id}: {exc}")
+            return {'success': False, 'case_id': case_id, 'case_uuid': case_uuid, 'error': str(exc)}
 
 
 @celery_app.task(bind=True, name='tasks.discover_known_systems')

@@ -60,6 +60,10 @@ from models.hunt import (
     HuntNegativeFindingType, HuntRun, HuntSourceAvailabilityStatus, HuntStep,
     HuntStepStatus
 )
+from models.graph import (
+    GraphEntity, GraphEntityObservation, GraphRelationship,
+    GraphRelationshipEvidence
+)
 
 __all__ = [
     'db', 'User', 'Client', 'Agent', 'AgentStatus', 'AgentOS',
@@ -100,5 +104,7 @@ __all__ = [
     'HuntDecisionEvidenceLink', 'HuntDecisionEvidenceRole', 'HuntDecisionScope',
     'HuntDecisionState', 'HuntEvidenceRef', 'HuntHypothesis',
     'HuntNegativeFinding', 'HuntNegativeFindingState', 'HuntNegativeFindingType',
-    'HuntRun', 'HuntSourceAvailabilityStatus', 'HuntStep', 'HuntStepStatus'
+    'HuntRun', 'HuntSourceAvailabilityStatus', 'HuntStep', 'HuntStepStatus',
+    'GraphEntity', 'GraphEntityObservation', 'GraphRelationship',
+    'GraphRelationshipEvidence'
 ]

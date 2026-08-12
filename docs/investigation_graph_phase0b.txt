@@ -1,0 +1,118 @@
+CaseScope Investigation Graph Phase 0B
+
+Purpose
+The Phase 0B graph is a PostgreSQL-backed investigative fact store. It records
+canonical entities, deterministic relationships, and evidence provenance so
+analysts can answer why a graph edge exists, which retained evidence supports
+it, and which extractor version created it.
+
+Authority Model
+Authoritative extraction may create only OBSERVED or DETERMINISTIC
+relationships. ANALYST_ASSERTED, INFERRED, and MODEL_SUGGESTED are reserved for
+future work. AI summaries, IOC classifications, and MITRE tags are ignored by
+Phase 0B extractors and cannot author authoritative edges.
+
+Storage Responsibilities
+PostgreSQL stores graph_entities, graph_entity_observations,
+graph_relationships, and graph_relationship_evidence. ClickHouse remains the
+high-volume evidence and event store. Graph provenance stores case_id plus
+evidence_record_key and source_table; it does not duplicate full ClickHouse
+rows. Redis is not graph authority.
+
+Entity Identity Rules
+HOST: Prefer a case-scoped KnownSystem match when available, keyed as
+known_system:<id>. If no KnownSystem is available, create an observed host
+identifier scoped by evidence source context. Hostname alone is not treated as
+global machine identity.
+
+USER: SID is the strongest identity and is keyed as sid:<SID>. Without SID, the
+fallback is authority/domain plus username. Host-local username fallback is
+available only with a host scope. Bare username alone is rejected.
+
+PROCESS: A process is an execution instance, not a PID. Identity requires host
+identity, PID, and either process start time or the durable evidence_record_key
+as an execution anchor. Same PID alone never merges process executions.
+
+FILE_PATH: File paths are path observations, separate from content. Windows
+paths normalize separators, repeated slashes, drive-letter case, and case for
+the initial Windows evidence sources. Host scope is included when available.
+
+FILE_HASH: Hash identity is algorithm plus normalized digest, such as
+sha256:<digest>. MD5, SHA1, and SHA256 are distinct identities and lengths are
+validated.
+
+IP_ADDRESS: IP identity uses Python IP parsing for deterministic IPv4 and IPv6
+normalization. IP value does not imply host ownership.
+
+DOMAIN: Domains are lowercased and terminal dots are stripped. Ownership is not
+inferred.
+
+URL: Scheme and host are lowercased and path encoding is normalized
+conservatively. Query ordering and fragments are preserved.
+
+REGISTRY_KEY: Registry roots such as HKLM and HKEY_LOCAL_MACHINE normalize to a
+single root. WOW64 redirection is not inferred.
+
+SERVICE: Service identity is service name scoped by host when host context is
+available. No service relationship extractor is enabled in Phase 0B.
+
+LOGON_SESSION: Logon sessions are scoped by host and logon_id, with user key
+included when present to reduce collisions.
+
+Relationship Rules Implemented
+PROCESS RUNS_IMAGE FILE_PATH: Created only from process creation records that
+co-locate source_host, process_id, process_path, and Evidence Identity v2 key.
+Initial sources are Windows 4688, Sysmon 1, and CrowdStrike ProcessRollup2.
+
+PROCESS CONNECTED_TO IP_ADDRESS: Created only when one network event co-locates
+process_id and dst_ip. Initial sources are Sysmon 3 and CrowdStrike
+NetworkConnectIP4.
+
+FILE_PATH HAD_CONTENT FILE_HASH: Created only when one event co-locates a path
+and one or more file hash columns. This is a time-sensitive observation.
+
+HOST OWNS_IP IP_ADDRESS: Created only from explicit host_ip inventory metadata
+in extra_fields with source_host present. Network src_ip is explicitly not used
+for ownership.
+
+USER LOGGED_ON_TO HOST, LOGON_SESSION LOGON_AS USER, LOGON_SESSION ON_HOST HOST:
+Created only from Windows Security logon events 4624, 4625, 4634, 4647, or 4648
+with source_host, logon_id, and SID or scoped username authority.
+
+Anti-Inference Rules
+Phase 0B does not infer same PID means same process, same username means same
+account, same path means same content, temporal proximity means causation,
+source_host means network source, IOC classification means a graph edge, MITRE
+similarity means related entities, AI semantic similarity means authoritative
+relationship, same IP means same host, or DNS resolution means permanent
+ownership.
+
+Provenance
+Every relationship created by deterministic extraction has one canonical edge
+and one or more graph_relationship_evidence rows. Evidence rows store case_id,
+evidence_record_key, source_table, evidence_role, extractor_name,
+extractor_version, observed_at, and minimal metadata. The primary evidence
+locator is case_id plus evidence_record_key.
+
+Idempotency and Rebuildability
+Database uniqueness enforces one canonical entity per case/type/key, one
+canonical edge per case/source/type/target/derivation/extractor/version, and
+one provenance row per relationship/evidence/role/extractor/version.
+GraphMaterializer uses these constraints for get-or-create behavior. A case
+graph can be cleared and regenerated from retained ClickHouse events with
+Evidence Identity v2 keys.
+
+Phase 0A Dependency
+Evidence Identity v2, EvidenceRecordLocator, selector_key, parser identity
+rules, ClickHouse evidence migration, and raw canonicalization are treated as
+locked. Phase 0B only consumes evidence_record_key values that begin with
+erk:v2:.
+
+Known Limitations
+SPAWNED is not implemented because parent PID alone is insufficient and current
+normalized records do not safely resolve both executions. DNS RESOLVED_TO is
+not implemented because network_logs currently lacks Evidence Identity v2
+provenance. SERVICE_RUNS_IMAGE and SERVICE_RAN_AS are not implemented because
+service account/image fields are not normalized strongly enough for a generic
+authoritative extractor. HOST OWNS_IP is limited to explicit host_ip metadata
+and KnownSystem-backed identity resolution during materialization.

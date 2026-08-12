@@ -719,6 +719,7 @@ def create_app(run_startup_bootstrap: bool = True, register_blueprints: bool = T
             from models.memory_job import MemoryJob
             from models.pcap_file import PcapFile
             from models.license import LicenseActivation, ActivationAuditLog
+            from models.graph import GraphEntity, GraphEntityObservation, GraphRelationship, GraphRelationshipEvidence
             db.create_all()
             
             # Run schema migrations for new columns

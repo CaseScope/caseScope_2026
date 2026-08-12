@@ -26,6 +26,12 @@ from models.database import db
 from models.evidence_file import EvidenceFile
 from models.file_audit_log import FileAuditLog
 from models.ioc import IOC, IOCAudit, IOCCase, IOCSystemSighting
+from models.graph import (
+    GraphEntity,
+    GraphEntityObservation,
+    GraphRelationship,
+    GraphRelationshipEvidence,
+)
 from models.known_system import (
     KnownSystem,
     KnownSystemAlias,
@@ -231,6 +237,10 @@ def delete_case_permanently(case: Case) -> Dict[str, int]:
         )
 
         case_id_models = [
+            GraphRelationshipEvidence,
+            GraphEntityObservation,
+            GraphRelationship,
+            GraphEntity,
             MemoryProcess,
             MemoryNetwork,
             MemoryService,

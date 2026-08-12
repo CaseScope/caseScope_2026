@@ -1,6 +1,13 @@
 {
-  "version": "4.12.18",
+  "version": "4.13.0",
   "changelog": [
+    {
+      "version": "4.13.0",
+      "date": "2026-08-12",
+      "changes": [
+        "Added Phase 0B evidence-backed investigation graph foundation with canonical entities, deterministic extractors, provenance, migration, and rebuild support"
+      ]
+    },
     {
       "version": "4.12.18",
       "date": "2026-08-11",
