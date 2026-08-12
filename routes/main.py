@@ -365,6 +365,15 @@ def case_hunting():
     )
 
 
+@main_bp.route('/case/graph')
+@login_required
+@case_required
+def case_graph():
+    """Investigation Graph - bounded reader over canonical graph facts."""
+    case = get_active_case()
+    return render_template('case_graph.html', page_title='Investigation Graph', case=case)
+
+
 @main_bp.route('/case/hunting/functions')
 @login_required
 @case_required

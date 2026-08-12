@@ -3000,6 +3000,7 @@ document.addEventListener('DOMContentLoaded', function() {
     const urlParams = new URLSearchParams(window.location.search);
     const searchParam = urlParams.get('search');
     const tabParam = urlParams.get('tab');
+    const selectorKeyParam = urlParams.get('selector_key');
     
     // Pre-populate search if provided in URL
     if (searchParam) {
@@ -3011,8 +3012,9 @@ document.addEventListener('DOMContentLoaded', function() {
     }
     
     // Switch to specified tab if provided
-    if (tabParam) {
-        const targetTab = document.querySelector(`.hunting-tab[data-tab="${tabParam}"]`);
+    if (tabParam || selectorKeyParam) {
+        const targetTabName = selectorKeyParam ? 'events' : tabParam;
+        const targetTab = document.querySelector(`.hunting-tab[data-tab="${targetTabName}"]`);
         if (targetTab) {
             targetTab.click();
         }
@@ -3095,9 +3097,12 @@ document.addEventListener('DOMContentLoaded', function() {
     
     // Load events on page load
     loadEvents();
+    if (selectorKeyParam) {
+        openEventDetailBySelectorKey(selectorKeyParam);
+    }
     
     // Clear URL params after loading (so refresh doesn't re-apply)
-    if (searchParam || tabParam) {
+    if (searchParam || tabParam || selectorKeyParam) {
         window.history.replaceState({}, '', window.location.pathname);
     }
     
@@ -4623,6 +4628,28 @@ function openMitreMatchEvent(index) {
         })
         .catch(err => {
             showToast(`Unable to load event: ${err.message || 'Unknown error'}`, 'error');
+        });
+}
+
+function openEventDetailBySelectorKey(selectorKey) {
+    const cleanSelectorKey = String(selectorKey || '').trim();
+    if (!cleanSelectorKey) return;
+
+    const detailParams = new URLSearchParams({
+        selector_key: cleanSelectorKey
+    });
+
+    fetch(`/api/hunting/event/detail/${caseId}?${detailParams.toString()}`)
+        .then(r => r.json())
+        .then(data => {
+            if (!data.success) {
+                showToast(`Unable to load linked event: ${data.error || 'Unknown error'}`, 'error');
+                return;
+            }
+            openEventDetailModal(data.event);
+        })
+        .catch(err => {
+            showToast(`Unable to load linked event: ${err.message || 'Unknown error'}`, 'error');
         });
 }
 

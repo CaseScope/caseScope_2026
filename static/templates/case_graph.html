@@ -1,0 +1,559 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="page-header">
+    <div class="page-title-section">
+        <h1 class="page-title">
+            <span class="page-title-icon">🕸️</span>
+            Investigation Graph
+        </h1>
+        <p class="page-subtitle">{{ case.name }} - {{ case.company }}</p>
+    </div>
+</div>
+
+<div class="graph-workspace" data-case-uuid="{{ case.uuid }}">
+    <section class="tile graph-search-panel">
+        <div class="tile-header">
+            <div class="tile-title">Entity Search</div>
+            <div class="graph-summary" id="graph-summary">Loading summary...</div>
+        </div>
+        <div class="tile-body">
+            <div class="graph-search-controls">
+                <input type="text" id="graph-search-input" class="form-control" placeholder="Search display, canonical value, or entity key">
+                <select id="graph-type-filter" class="form-control">
+                    <option value="">All entity types</option>
+                    <option value="HOST">Host</option>
+                    <option value="USER">User</option>
+                    <option value="PROCESS">Process</option>
+                    <option value="FILE_PATH">File path</option>
+                    <option value="FILE_HASH">File hash</option>
+                    <option value="IP_ADDRESS">IP address</option>
+                    <option value="DOMAIN">Domain</option>
+                    <option value="URL">URL</option>
+                    <option value="REGISTRY_KEY">Registry key</option>
+                    <option value="SERVICE">Service</option>
+                    <option value="LOGON_SESSION">Logon session</option>
+                </select>
+                <button class="btn btn-primary" id="graph-search-button">Search</button>
+            </div>
+            <div class="graph-help-text">Begin by selecting a root entity. The workspace loads one bounded hop at a time and never preloads the full case graph.</div>
+            <div id="graph-search-results" class="graph-search-results"></div>
+        </div>
+    </section>
+
+    <section class="tile graph-main-panel">
+        <div class="graph-canvas-toolbar">
+            <div>
+                <span class="badge badge-info">Graph Path</span>
+                <span class="graph-status" id="graph-status">No root selected</span>
+            </div>
+            <div class="graph-toolbar-actions">
+                <button class="btn btn-secondary btn-sm" id="graph-fit-button">Fit / Reset Layout</button>
+                <button class="btn btn-secondary btn-sm" id="graph-reset-button">Reset Graph</button>
+            </div>
+        </div>
+        <div class="graph-layout">
+            <div class="graph-canvas-wrap">
+                <svg id="graph-canvas" class="graph-canvas" role="img" aria-label="Investigation graph canvas">
+                    <defs>
+                        <marker id="graph-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+                            <path d="M 0 0 L 10 5 L 0 10 z"></path>
+                        </marker>
+                    </defs>
+                    <g id="graph-edge-layer"></g>
+                    <g id="graph-node-layer"></g>
+                </svg>
+                <div id="graph-empty-state" class="graph-empty-state">
+                    Search for an entity, then select it as the investigation root.
+                </div>
+            </div>
+            <aside class="graph-inspector">
+                <div class="graph-inspector-section">
+                    <h3>Selected Item</h3>
+                    <div id="graph-inspector-content" class="graph-inspector-content text-muted">Select a node or relationship.</div>
+                    <div class="graph-inspector-actions">
+                        <button class="btn btn-secondary btn-sm" id="graph-expand-button" disabled>Expand</button>
+                        <button class="btn btn-secondary btn-sm" id="graph-load-more-button" disabled>Load More</button>
+                        <button class="btn btn-secondary btn-sm" id="graph-path-start-button" disabled>Set as Path Start</button>
+                        <button class="btn btn-primary btn-sm" id="graph-find-path-button" disabled>Find Path to Selected</button>
+                    </div>
+                </div>
+                <div class="graph-inspector-section">
+                    <h3>Evidence / Provenance</h3>
+                    <div id="graph-evidence-panel" class="graph-evidence-panel text-muted">Select a relationship to list supporting evidence records.</div>
+                </div>
+                <div class="graph-inspector-section">
+                    <h3>Source Event</h3>
+                    <div id="graph-event-panel" class="graph-event-panel text-muted">Click an evidence record to resolve the exact source event by ERK.</div>
+                </div>
+                <div class="graph-inspector-section">
+                    <h3>Legend</h3>
+                    <div class="graph-legend">
+                        <span><i class="graph-legend-node"></i> Entity</span>
+                        <span><i class="graph-legend-edge"></i> Directed relationship</span>
+                    </div>
+                </div>
+            </aside>
+        </div>
+    </section>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+const graphCaseUuid = "{{ case.uuid }}";
+const graphApiBase = `/api/graph/${encodeURIComponent(graphCaseUuid)}`;
+const graphState = {
+    nodes: new Map(),
+    edges: new Map(),
+    rootId: null,
+    selectedNodeId: null,
+    selectedEdgeId: null,
+    pathStartId: null,
+    nextCursorByNode: new Map(),
+    lastPathEdgeIds: new Set()
+};
+
+function graphText(value, fallback = "-") {
+    const text = value === null || value === undefined ? "" : String(value);
+    return text.trim() ? text : fallback;
+}
+
+function graphShortLabel(value, maxLength = 34) {
+    const text = graphText(value);
+    return text.length > maxLength ? `${text.slice(0, maxLength - 1)}...` : text;
+}
+
+function graphClear(element) {
+    while (element.firstChild) element.removeChild(element.firstChild);
+}
+
+function graphAppendText(parent, className, text) {
+    const el = document.createElement("div");
+    if (className) el.className = className;
+    el.textContent = text;
+    parent.appendChild(el);
+    return el;
+}
+
+function graphField(label, value) {
+    const row = document.createElement("div");
+    row.className = "graph-field";
+    const key = document.createElement("span");
+    key.className = "graph-field-key";
+    key.textContent = label;
+    const val = document.createElement("span");
+    val.className = "graph-field-value";
+    val.textContent = graphText(value);
+    row.appendChild(key);
+    row.appendChild(val);
+    return row;
+}
+
+function graphSetStatus(message) {
+    document.getElementById("graph-status").textContent = message;
+}
+
+async function graphFetch(url, options = {}) {
+    const response = await fetch(url, options);
+    const data = await response.json();
+    if (!data.success) {
+        throw new Error(data.error || "Graph request failed");
+    }
+    return data;
+}
+
+async function loadGraphSummary() {
+    const summaryEl = document.getElementById("graph-summary");
+    try {
+        const data = await graphFetch(`${graphApiBase}/summary`);
+        const relTotal = data.total_relationships || 0;
+        summaryEl.textContent = `${data.total_entities || 0} entities, ${relTotal} relationships`;
+    } catch (err) {
+        summaryEl.textContent = err.message || "Unable to load summary";
+    }
+}
+
+async function searchGraphEntities() {
+    const q = document.getElementById("graph-search-input").value.trim();
+    const type = document.getElementById("graph-type-filter").value;
+    const resultsEl = document.getElementById("graph-search-results");
+    graphClear(resultsEl);
+    if (!q) {
+        graphAppendText(resultsEl, "graph-empty-results", "Enter a search term. Empty search does not load entities.");
+        return;
+    }
+    graphAppendText(resultsEl, "graph-empty-results", "Searching...");
+    try {
+        const params = new URLSearchParams({ q, limit: "25" });
+        if (type) params.set("type", type);
+        const data = await graphFetch(`${graphApiBase}/entities/search?${params.toString()}`);
+        renderSearchResults(data.entities || [], data.has_more);
+    } catch (err) {
+        graphClear(resultsEl);
+        graphAppendText(resultsEl, "graph-error", err.message || "Search failed");
+    }
+}
+
+function renderSearchResults(entities, hasMore) {
+    const resultsEl = document.getElementById("graph-search-results");
+    graphClear(resultsEl);
+    if (!entities.length) {
+        graphAppendText(resultsEl, "graph-empty-results", "No matching entities.");
+        return;
+    }
+    entities.forEach(entity => {
+        const button = document.createElement("button");
+        button.type = "button";
+        button.className = "graph-search-result";
+        button.addEventListener("click", () => selectRootEntity(entity.id));
+        graphAppendText(button, "graph-result-title", graphText(entity.display_value));
+        graphAppendText(button, "graph-result-meta", `${entity.entity_type} | ${graphText(entity.canonical_value)}`);
+        resultsEl.appendChild(button);
+    });
+    if (hasMore) {
+        graphAppendText(resultsEl, "graph-truncated-note", "More matches exist. Refine the search to narrow results.");
+    }
+}
+
+async function selectRootEntity(entityId) {
+    resetGraph(false);
+    graphState.rootId = entityId;
+    graphSetStatus("Loading bounded neighborhood...");
+    await expandNode(entityId, true);
+}
+
+function mergeGraphPayload(data) {
+    (data.nodes || []).forEach(node => graphState.nodes.set(Number(node.id), node));
+    (data.edges || []).forEach(edge => graphState.edges.set(Number(edge.id), edge));
+    if (data.pagination && data.pagination.has_more && data.root) {
+        graphState.nextCursorByNode.set(Number(data.root.id), data.pagination.next_cursor);
+    } else if (data.root) {
+        graphState.nextCursorByNode.delete(Number(data.root.id));
+    }
+}
+
+async function expandNode(entityId, initial = false) {
+    try {
+        const cursor = initial ? "" : (graphState.nextCursorByNode.get(Number(entityId)) || "");
+        const params = new URLSearchParams({ direction: "both", limit: "100" });
+        if (cursor) params.set("cursor", cursor);
+        const data = await graphFetch(`${graphApiBase}/entities/${entityId}/neighbors?${params.toString()}`);
+        mergeGraphPayload(data);
+        graphState.selectedNodeId = Number(entityId);
+        graphState.selectedEdgeId = null;
+        renderGraph();
+        renderNodeInspector(graphState.nodes.get(Number(entityId)) || data.root, data);
+        graphSetStatus(data.truncated ? "Neighborhood page loaded. More relationships are available." : "Neighborhood loaded.");
+    } catch (err) {
+        graphSetStatus(err.message || "Expansion failed");
+    }
+}
+
+function resetGraph(clearRoot = true) {
+    graphState.nodes.clear();
+    graphState.edges.clear();
+    graphState.nextCursorByNode.clear();
+    graphState.lastPathEdgeIds.clear();
+    graphState.selectedNodeId = null;
+    graphState.selectedEdgeId = null;
+    if (clearRoot) graphState.rootId = null;
+    renderGraph();
+    const inspector = document.getElementById("graph-inspector-content");
+    graphClear(inspector);
+    inspector.classList.add("text-muted");
+    inspector.textContent = "Select a node or relationship.";
+    graphClear(document.getElementById("graph-evidence-panel"));
+    document.getElementById("graph-evidence-panel").textContent = "Select a relationship to list supporting evidence records.";
+    graphClear(document.getElementById("graph-event-panel"));
+    document.getElementById("graph-event-panel").textContent = "Click an evidence record to resolve the exact source event by ERK.";
+    updateGraphButtons();
+    graphSetStatus(clearRoot ? "No root selected" : "Graph reset for selected root");
+}
+
+function graphPositions(width, height) {
+    const ids = Array.from(graphState.nodes.keys()).sort((a, b) => a - b);
+    const positions = new Map();
+    if (!ids.length) return positions;
+    const rootIndex = graphState.rootId ? ids.indexOf(Number(graphState.rootId)) : -1;
+    if (rootIndex >= 0) {
+        positions.set(Number(graphState.rootId), { x: width / 2, y: height / 2 });
+    }
+    const others = ids.filter(id => id !== Number(graphState.rootId));
+    const radius = Math.max(120, Math.min(width, height) * 0.35);
+    others.forEach((id, index) => {
+        const angle = (Math.PI * 2 * index) / Math.max(1, others.length) - Math.PI / 2;
+        positions.set(id, {
+            x: width / 2 + Math.cos(angle) * radius,
+            y: height / 2 + Math.sin(angle) * radius
+        });
+    });
+    if (!positions.has(ids[0])) positions.set(ids[0], { x: width / 2, y: height / 2 });
+    return positions;
+}
+
+function renderGraph() {
+    const svg = document.getElementById("graph-canvas");
+    const edgeLayer = document.getElementById("graph-edge-layer");
+    const nodeLayer = document.getElementById("graph-node-layer");
+    const empty = document.getElementById("graph-empty-state");
+    graphClear(edgeLayer);
+    graphClear(nodeLayer);
+    empty.style.display = graphState.nodes.size ? "none" : "flex";
+    const rect = svg.getBoundingClientRect();
+    const positions = graphPositions(rect.width || 800, rect.height || 520);
+    graphState.edges.forEach(edge => {
+        const source = positions.get(Number(edge.source_entity_id));
+        const target = positions.get(Number(edge.target_entity_id));
+        if (!source || !target) return;
+        const line = document.createElementNS("http://www.w3.org/2000/svg", "line");
+        line.setAttribute("x1", source.x);
+        line.setAttribute("y1", source.y);
+        line.setAttribute("x2", target.x);
+        line.setAttribute("y2", target.y);
+        line.setAttribute("class", `graph-edge${graphState.selectedEdgeId === Number(edge.id) ? " selected" : ""}${graphState.lastPathEdgeIds.has(Number(edge.id)) ? " path" : ""}`);
+        line.setAttribute("marker-end", "url(#graph-arrow)");
+        line.addEventListener("click", event => {
+            event.stopPropagation();
+            selectEdge(Number(edge.id));
+        });
+        edgeLayer.appendChild(line);
+        const label = document.createElementNS("http://www.w3.org/2000/svg", "text");
+        label.setAttribute("x", (source.x + target.x) / 2);
+        label.setAttribute("y", (source.y + target.y) / 2 - 6);
+        label.setAttribute("class", "graph-edge-label");
+        label.textContent = graphShortLabel(edge.relationship_type, 24);
+        edgeLayer.appendChild(label);
+    });
+    graphState.nodes.forEach(node => {
+        const pos = positions.get(Number(node.id));
+        if (!pos) return;
+        const group = document.createElementNS("http://www.w3.org/2000/svg", "g");
+        group.setAttribute("class", `graph-node${graphState.selectedNodeId === Number(node.id) ? " selected" : ""}`);
+        group.setAttribute("transform", `translate(${pos.x}, ${pos.y})`);
+        group.addEventListener("click", event => {
+            event.stopPropagation();
+            selectNode(Number(node.id));
+        });
+        const circle = document.createElementNS("http://www.w3.org/2000/svg", "circle");
+        circle.setAttribute("r", node.id === graphState.rootId ? "28" : "22");
+        group.appendChild(circle);
+        const type = document.createElementNS("http://www.w3.org/2000/svg", "text");
+        type.setAttribute("class", "graph-node-type");
+        type.setAttribute("y", "-2");
+        type.textContent = graphShortLabel(node.entity_type, 14);
+        group.appendChild(type);
+        const label = document.createElementNS("http://www.w3.org/2000/svg", "text");
+        label.setAttribute("class", "graph-node-label");
+        label.setAttribute("y", "38");
+        label.textContent = graphShortLabel(node.display_value || node.canonical_value, 28);
+        group.appendChild(label);
+        nodeLayer.appendChild(group);
+    });
+    updateGraphButtons();
+}
+
+function selectNode(entityId) {
+    graphState.selectedNodeId = entityId;
+    graphState.selectedEdgeId = null;
+    graphState.lastPathEdgeIds.clear();
+    renderGraph();
+    renderNodeInspector(graphState.nodes.get(entityId));
+}
+
+async function selectEdge(edgeId) {
+    graphState.selectedEdgeId = edgeId;
+    graphState.selectedNodeId = null;
+    graphState.lastPathEdgeIds.clear();
+    renderGraph();
+    try {
+        const data = await graphFetch(`${graphApiBase}/relationships/${edgeId}`);
+        renderRelationshipInspector(data.relationship);
+        await loadRelationshipEvidence(edgeId);
+    } catch (err) {
+        graphSetStatus(err.message || "Unable to load relationship");
+    }
+}
+
+function renderNodeInspector(node, neighborhoodData = null) {
+    const inspector = document.getElementById("graph-inspector-content");
+    graphClear(inspector);
+    inspector.classList.remove("text-muted");
+    if (!node) {
+        inspector.textContent = "Node not found in current workspace.";
+        return;
+    }
+    graphAppendText(inspector, "graph-inspector-title", graphText(node.display_value));
+    inspector.appendChild(graphField("Entity type", node.entity_type));
+    inspector.appendChild(graphField("Canonical value", node.canonical_value));
+    inspector.appendChild(graphField("First seen", node.first_seen_at));
+    inspector.appendChild(graphField("Last seen", node.last_seen_at));
+    if (neighborhoodData && neighborhoodData.truncated) {
+        graphAppendText(inspector, "graph-truncated-note", "This expansion was truncated. Use Load More for the next bounded page.");
+    }
+    updateGraphButtons();
+}
+
+function renderRelationshipInspector(relationship) {
+    const inspector = document.getElementById("graph-inspector-content");
+    graphClear(inspector);
+    inspector.classList.remove("text-muted");
+    graphAppendText(inspector, "graph-inspector-title", graphText(relationship.relationship_type));
+    inspector.appendChild(graphField("Derivation", relationship.derivation_type));
+    inspector.appendChild(graphField("Validation", relationship.validation_state));
+    inspector.appendChild(graphField("Confidence", relationship.confidence));
+    inspector.appendChild(graphField("Supported by", `${relationship.support_count || 0} evidence records`));
+    inspector.appendChild(graphField("Source", relationship.source_entity ? relationship.source_entity.display_value : relationship.source_entity_id));
+    inspector.appendChild(graphField("Target", relationship.target_entity ? relationship.target_entity.display_value : relationship.target_entity_id));
+    updateGraphButtons();
+}
+
+async function loadRelationshipEvidence(edgeId, cursor = "") {
+    const panel = document.getElementById("graph-evidence-panel");
+    graphClear(panel);
+    panel.classList.remove("text-muted");
+    graphAppendText(panel, "graph-empty-results", "Loading provenance...");
+    try {
+        const params = new URLSearchParams({ limit: "50" });
+        if (cursor) params.set("cursor", cursor);
+        const data = await graphFetch(`${graphApiBase}/relationships/${edgeId}/evidence?${params.toString()}`);
+        renderEvidenceRows(edgeId, data.evidence || [], data.pagination || {});
+    } catch (err) {
+        graphClear(panel);
+        graphAppendText(panel, "graph-error", err.message || "Unable to load provenance");
+    }
+}
+
+function renderEvidenceRows(edgeId, rows, pagination) {
+    const panel = document.getElementById("graph-evidence-panel");
+    graphClear(panel);
+    if (!rows.length) {
+        graphAppendText(panel, "graph-empty-results", "No provenance rows found.");
+        return;
+    }
+    rows.forEach(row => {
+        const button = document.createElement("button");
+        button.type = "button";
+        button.className = "graph-evidence-row";
+        button.addEventListener("click", () => loadExactEvidence(row.evidence_record_key));
+        graphAppendText(button, "graph-result-title", graphText(row.evidence_record_key));
+        graphAppendText(button, "graph-result-meta", `${graphText(row.evidence_role)} | ${graphText(row.extractor_name)} v${graphText(row.extractor_version)} | ${graphText(row.observed_at)}`);
+        panel.appendChild(button);
+    });
+    if (pagination.has_more) {
+        const more = document.createElement("button");
+        more.type = "button";
+        more.className = "btn btn-secondary btn-sm";
+        more.textContent = "Load More Evidence";
+        more.addEventListener("click", () => loadRelationshipEvidence(edgeId, pagination.next_cursor || ""));
+        panel.appendChild(more);
+    }
+}
+
+async function loadExactEvidence(erk) {
+    const panel = document.getElementById("graph-event-panel");
+    graphClear(panel);
+    panel.classList.remove("text-muted");
+    graphAppendText(panel, "graph-empty-results", "Resolving exact evidence record...");
+    try {
+        const data = await graphFetch(`${graphApiBase}/evidence/${encodeURIComponent(erk)}`);
+        renderExactEvidence(data);
+    } catch (err) {
+        graphClear(panel);
+        graphAppendText(panel, "graph-error", err.message || "Unable to resolve evidence");
+    }
+}
+
+function renderExactEvidence(data) {
+    const panel = document.getElementById("graph-event-panel");
+    const event = data.event || {};
+    graphClear(panel);
+    graphAppendText(panel, "graph-inspector-title", "Exact Source Event");
+    panel.appendChild(graphField("Evidence record key", data.evidence_record_key));
+    panel.appendChild(graphField("Selector key", event.selector_key || "Unavailable"));
+    panel.appendChild(graphField("Timestamp", event.timestamp_utc || event.timestamp));
+    panel.appendChild(graphField("Source host", event.source_host));
+    panel.appendChild(graphField("Artifact", event.artifact_type));
+    panel.appendChild(graphField("Event ID", event.event_id));
+    panel.appendChild(graphField("Provider", event.provider || event.channel));
+    panel.appendChild(graphField("User", event.username));
+    panel.appendChild(graphField("Process", event.process_name || event.process_path));
+    panel.appendChild(graphField("Target path", event.target_path));
+    panel.appendChild(graphField("Evidence identity", `${graphText(event.evidence_identity_version)} / ${graphText(event.evidence_identity_quality)}`));
+    if (data.duplicates_detected) {
+        graphAppendText(panel, "graph-truncated-note", data.duplicate_policy || "Duplicate physical rows detected for this ERK.");
+    }
+    if (event.selector_key) {
+        const link = document.createElement("a");
+        link.className = "btn btn-primary btn-sm graph-hunt-link";
+        link.href = `/case/hunting?tab=events&selector_key=${encodeURIComponent(event.selector_key)}`;
+        link.textContent = "Open in Hunt Artifacts";
+        panel.appendChild(link);
+    }
+}
+
+function updateGraphButtons() {
+    const selectedNode = graphState.selectedNodeId !== null;
+    const hasMore = selectedNode && graphState.nextCursorByNode.has(Number(graphState.selectedNodeId));
+    document.getElementById("graph-expand-button").disabled = !selectedNode;
+    document.getElementById("graph-load-more-button").disabled = !hasMore;
+    document.getElementById("graph-path-start-button").disabled = !selectedNode;
+    document.getElementById("graph-find-path-button").disabled = !(selectedNode && graphState.pathStartId && graphState.pathStartId !== graphState.selectedNodeId);
+}
+
+async function findPathToSelected() {
+    if (!graphState.pathStartId || !graphState.selectedNodeId) return;
+    graphSetStatus("Searching bounded graph path...");
+    try {
+        const data = await graphFetch(`${graphApiBase}/paths`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+                source_entity_id: graphState.pathStartId,
+                target_entity_id: graphState.selectedNodeId,
+                direction: "both",
+                max_depth: 3,
+                max_paths: 3,
+                relationship_types: []
+            })
+        });
+        mergeGraphPayload({ nodes: data.nodes || [], edges: data.edges || [] });
+        graphState.lastPathEdgeIds = new Set((data.paths || []).flatMap(path => path.edge_ids || []).map(Number));
+        renderGraph();
+        graphSetStatus(data.result_statement || "Graph path search complete.");
+    } catch (err) {
+        graphSetStatus(err.message || "Path search failed");
+    }
+}
+
+document.addEventListener("DOMContentLoaded", () => {
+    loadGraphSummary();
+    document.getElementById("graph-search-button").addEventListener("click", searchGraphEntities);
+    document.getElementById("graph-search-input").addEventListener("keyup", event => {
+        if (event.key === "Enter") searchGraphEntities();
+    });
+    document.getElementById("graph-expand-button").addEventListener("click", () => {
+        if (graphState.selectedNodeId !== null) expandNode(graphState.selectedNodeId);
+    });
+    document.getElementById("graph-load-more-button").addEventListener("click", () => {
+        if (graphState.selectedNodeId !== null) expandNode(graphState.selectedNodeId);
+    });
+    document.getElementById("graph-path-start-button").addEventListener("click", () => {
+        if (graphState.selectedNodeId !== null) {
+            graphState.pathStartId = graphState.selectedNodeId;
+            graphSetStatus(`Path start set to entity ${graphState.pathStartId}. Select another node and choose Find Path to Selected.`);
+            updateGraphButtons();
+        }
+    });
+    document.getElementById("graph-find-path-button").addEventListener("click", findPathToSelected);
+    document.getElementById("graph-fit-button").addEventListener("click", renderGraph);
+    document.getElementById("graph-reset-button").addEventListener("click", () => resetGraph(true));
+    document.getElementById("graph-canvas").addEventListener("click", () => {
+        graphState.selectedNodeId = null;
+        graphState.selectedEdgeId = null;
+        renderGraph();
+    });
+    window.addEventListener("resize", renderGraph);
+});
+</script>
+{% endblock %}

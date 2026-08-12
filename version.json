@@ -1,6 +1,13 @@
 {
-  "version": "4.13.2",
+  "version": "4.14.0",
   "changelog": [
+    {
+      "version": "4.14.0",
+      "date": "2026-08-12",
+      "changes": [
+        "Added Phase 0C read-only investigation graph APIs and analyst workspace with bounded graph navigation, relationship provenance, exact ERK drilldown, and Hunt Artifacts selector deep links"
+      ]
+    },
     {
       "version": "4.13.2",
       "date": "2026-08-12",

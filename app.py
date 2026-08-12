@@ -650,6 +650,7 @@ def create_app(run_startup_bootstrap: bool = True, register_blueprints: bool = T
         from routes.activation import activation_bp
         from routes.chat import chat_bp
         from routes.hunt import hunt_bp
+        from routes.graph import graph_bp
 
         app.register_blueprint(main_bp)
         app.register_blueprint(auth_bp)
@@ -679,6 +680,7 @@ def create_app(run_startup_bootstrap: bool = True, register_blueprints: bool = T
         app.register_blueprint(activation_bp)
         app.register_blueprint(chat_bp)
         app.register_blueprint(hunt_bp)
+        app.register_blueprint(graph_bp)
     
     # Create database tables and run startup bootstrap for the web app only
     if run_startup_bootstrap:

@@ -1,0 +1,123 @@
+CaseScope Investigation Graph Phase 0C
+
+Phase 0C adds a read-only analyst workspace and bounded API over the accepted
+Phase 0B canonical graph.
+
+Forensic contract:
+
+PostgreSQL tells us what the canonical investigative graph contains.
+ClickHouse proves why an evidence-backed relationship exists.
+
+Architecture:
+
+- PostgreSQL graph tables remain authoritative for entities, observations,
+  relationships, and relationship provenance.
+- GraphQueryService in utils/graph_query.py owns graph read and traversal
+  behavior outside Flask route functions.
+- Flask routes in routes/graph.py expose case-UUID scoped JSON endpoints.
+- The Investigation Graph page is a Flask/Jinja page with vanilla JavaScript
+  and SVG rendering. The renderer is not authoritative state.
+- ClickHouse is queried only for an explicit one-record ERK drilldown.
+
+API endpoints:
+
+- GET /api/graph/<case_uuid>/summary
+- GET /api/graph/<case_uuid>/entities/search?q=&type=&limit=
+- GET /api/graph/<case_uuid>/entities/<entity_id>
+- GET /api/graph/<case_uuid>/entities/<entity_id>/neighbors
+- GET /api/graph/<case_uuid>/relationships/<relationship_id>
+- GET /api/graph/<case_uuid>/relationships/<relationship_id>/evidence
+- GET /api/graph/<case_uuid>/evidence/<evidence_record_key>
+- POST /api/graph/<case_uuid>/paths
+- GET /case/graph
+
+Hard limits:
+
+- Entity search defaults to 25 results and is capped at 50.
+- Empty entity search returns no entities.
+- Neighborhood expansion defaults to 100 relationships and is capped at 200.
+- Relationship evidence listing defaults to 50 rows and is capped at 200.
+- Path search is capped at depth 4, 10 paths, 2000 visited nodes, 500 frontier
+  entries, and 250 edge expansions per node.
+
+Neighborhood pagination:
+
+Neighborhood expansion is always one hop. The server orders relationships by
+relationship ID and returns a cursor for the next bounded page. Analysts must
+explicitly choose Load More to retrieve more relationships for a high-degree
+node. Returned edges preserve their canonical source and target direction even
+when direction=both is requested.
+
+Path-search semantics:
+
+Path search traverses existing ACTIVE canonical graph relationships only. It is
+navigation, not inference. Returned paths are graph paths or relationship paths,
+not attack chains, compromise paths, or causal findings. If a traversal ceiling
+is reached, the response is marked truncated and must be read as no path found
+within the current limits, not no path exists.
+
+Evidence provenance workflow:
+
+Relationship evidence listing reads GraphRelationshipEvidence from PostgreSQL
+only. It returns ERK, observed time, source table, evidence role, extractor
+name/version, and metadata. It does not fetch source ClickHouse events and does
+not perform N+1 raw evidence lookups.
+
+Exact ERK lookup behavior:
+
+The source-event drilldown validates evidence_record_key with:
+
+^erk:v2:[0-9a-f]{64}$
+
+Lookup uses both case_id and evidence_record_key:
+
+WHERE case_id = ?
+  AND evidence_record_key = ?
+
+The drilldown may include raw_json because it is a one-record analyst action.
+If multiple physical ClickHouse rows share the same valid ERK, the API reports
+duplicates_detected and returns the bounded duplicate rows. The ERK still
+identifies one evidence record; duplicate physical rows are not treated as
+separate graph evidence.
+
+selector_key versus evidence_record_key:
+
+selector_key = UI/workflow locator.
+evidence_record_key = immutable evidence identity/provenance locator.
+
+The graph provenance workflow resolves exact evidence by ERK. If the resolved
+event contains selector_key, the UI offers Open in Hunt Artifacts using:
+
+/case/hunting?tab=events&selector_key=<encoded selector>
+
+Hunt Artifacts preserves selector_key-based event detail behavior and now opens
+the existing event-detail modal when selector_key is supplied in the URL.
+
+Authorization:
+
+All graph API endpoints require login. Case resolution uses Case.get_by_uuid,
+which preserves the existing case access model. Viewers may read graph data for
+cases they are authorized to access. Phase 0C does not add graph writes, so POST
+/paths is permitted as a read/navigation operation.
+
+High-degree node handling:
+
+High-degree nodes are handled with hard page limits, has_more/truncated state,
+and explicit Load More behavior. The UI does not request all relationships for
+layout.
+
+Known limitations:
+
+- No graph editing or analyst-authored graph facts.
+- No saved graph views.
+- No Investigation Threads.
+- No causal, attack-chain, compromise-chain, or AI-authored graph reasoning.
+- No CONNECTED_TO re-enablement.
+- The initial SVG renderer is intentionally basic and bounded to the analyst's
+  current working set.
+
+Deferred functionality:
+
+Investigation Threads, notes, analyst conclusions, snapshots, saved selections,
+report generation from graph selections, and graph validation workflows are
+deferred to a separately reviewed phase.
