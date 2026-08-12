@@ -732,6 +732,7 @@ def create_app(run_startup_bootstrap: bool = True, register_blueprints: bool = T
                 InvestigationThreadFinding,
                 InvestigationThreadIOC,
                 InvestigationThreadNote,
+                InvestigationThreadReportSnapshot,
                 InvestigationThreadRelationship,
             )
             db.create_all()

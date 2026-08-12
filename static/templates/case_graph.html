@@ -23,8 +23,8 @@
         </div>
         <div class="tile-body">
             <div class="graph-search-controls">
-                <input type="text" id="graph-search-input" class="form-control" placeholder="Search display, canonical value, or entity key">
-                <select id="graph-type-filter" class="form-control">
+                <input type="text" id="graph-search-input" class="form-input" placeholder="Search display, canonical value, or entity key">
+                <select id="graph-type-filter" class="form-select">
                     <option value="">All entity types</option>
                     <option value="HOST">Host</option>
                     <option value="USER">User</option>
@@ -52,8 +52,8 @@
                 <span class="graph-status" id="graph-status">No root selected</span>
             </div>
             <div class="graph-toolbar-actions">
-                <input type="text" id="graph-view-title-input" class="form-control graph-view-title-input" placeholder="Saved view title">
-                <select id="graph-view-select" class="form-control graph-view-select">
+                <input type="text" id="graph-view-title-input" class="form-input graph-view-title-input" placeholder="Saved view title">
+                <select id="graph-view-select" class="form-select graph-view-select">
                     <option value="">Saved views...</option>
                 </select>
                 <button class="btn btn-secondary btn-sm" id="graph-save-view-button">Save View</button>
@@ -99,6 +99,25 @@
                     <div id="graph-event-panel" class="graph-event-panel text-muted">Click an evidence record to resolve the exact source event by ERK.</div>
                 </div>
                 <div class="graph-inspector-section">
+                    <h3>Timeline / Context</h3>
+                    <div class="graph-toolbar-actions">
+                        <select id="graph-context-window" class="form-select">
+                            <option value="1s">±1 second</option>
+                            <option value="30s" selected>±30 seconds</option>
+                            <option value="5m">±5 minutes</option>
+                            <option value="1h">±1 hour</option>
+                        </select>
+                        <select id="graph-context-mode" class="form-select">
+                            <option value="relative">Relative time</option>
+                            <option value="same_host">Same host</option>
+                            <option value="same_user">Same user</option>
+                            <option value="process_lifetime">Process lifetime</option>
+                            <option value="logon_session">Logon session</option>
+                        </select>
+                    </div>
+                    <div id="graph-context-panel" class="graph-event-panel text-muted">Choose an exact evidence record to load bounded context.</div>
+                </div>
+                <div class="graph-inspector-section">
                     <h3>Legend</h3>
                     <div class="graph-legend">
                         <span><i class="graph-legend-node"></i> Entity</span>
@@ -110,7 +129,7 @@
                 <div class="graph-inspector-section">
                     <h3>Investigation Thread</h3>
                     <div class="thread-drawer-controls">
-                        <select id="graph-thread-select" class="form-control">
+                        <select id="graph-thread-select" class="form-select">
                             <option value="">Select existing thread...</option>
                         </select>
                         <a id="graph-open-thread-link" class="btn btn-secondary btn-sm" href="/case/investigation-threads">Open full Thread</a>
@@ -130,8 +149,8 @@
                 </div>
                 <div class="graph-inspector-section">
                     <h3>Create Thread from Selection</h3>
-                    <input type="text" id="graph-new-thread-title" class="form-control" maxlength="255" placeholder="Thread title">
-                    <textarea id="graph-new-thread-description" class="form-control" rows="3" maxlength="20000" placeholder="Description"></textarea>
+                    <input type="text" id="graph-new-thread-title" class="form-input" maxlength="255" placeholder="Thread title">
+                    <textarea id="graph-new-thread-description" class="form-input form-textarea" rows="3" maxlength="20000" placeholder="Description"></textarea>
                     <button class="btn btn-primary btn-sm" id="graph-create-thread-button">Create Thread from Selection</button>
                     <button class="btn btn-secondary btn-sm" id="graph-add-selection-thread-button" disabled>Add Selection to Existing Thread</button>
                     <div id="graph-thread-action-status" class="graph-status"></div>
@@ -578,7 +597,10 @@ function renderEvidenceRows(edgeId, rows, pagination, append = false) {
         button.className = "graph-evidence-row";
         button.addEventListener("click", () => loadExactEvidence(row.evidence_record_key));
         graphAppendText(button, "graph-result-title", graphText(row.evidence_record_key));
-        graphAppendText(button, "graph-result-meta", `${graphText(row.evidence_role)} | ${graphText(row.extractor_name)} v${graphText(row.extractor_version)} | ${graphText(row.observed_at)}`);
+        graphAppendText(button, "graph-result-meta", `${graphText(row.support_state)} | ${graphText(row.evidence_role)} | ${graphText(row.extractor_name)} v${graphText(row.extractor_version)} | ${graphText(row.observed_at)}`);
+        if (row.support_state_reason) {
+            graphAppendText(button, "graph-truncated-note", row.support_state_reason);
+        }
         panel.appendChild(button);
     });
     if (pagination.has_more) {
@@ -632,6 +654,87 @@ function renderExactEvidence(data) {
         link.href = `/case/hunting?tab=events&selector_key=${encodeURIComponent(event.selector_key)}`;
         link.textContent = "Open in Hunt Artifacts";
         panel.appendChild(link);
+    }
+    const contextButton = document.createElement("button");
+    contextButton.type = "button";
+    contextButton.className = "btn btn-secondary btn-sm graph-hunt-link";
+    contextButton.textContent = "Load Bounded Context";
+    contextButton.addEventListener("click", () => loadInvestigationContext(data.evidence_record_key));
+    panel.appendChild(contextButton);
+}
+
+async function loadInvestigationContext(erk, cursor = "") {
+    const panel = document.getElementById("graph-context-panel");
+    graphClear(panel);
+    panel.classList.remove("text-muted");
+    graphAppendText(panel, "graph-empty-results", "Loading bounded context...");
+    try {
+        const params = new URLSearchParams({
+            anchor_erk: erk,
+            window: document.getElementById("graph-context-window").value,
+            mode: document.getElementById("graph-context-mode").value,
+            limit: "100"
+        });
+        if (cursor) params.set("cursor", cursor);
+        const data = await graphFetch(`/api/investigation/${encodeURIComponent(graphCaseUuid)}/context?${params.toString()}`);
+        renderInvestigationContext(data);
+    } catch (err) {
+        graphClear(panel);
+        graphAppendText(panel, "graph-error", err.message || "Unable to load context");
+    }
+}
+
+function renderInvestigationContext(data) {
+    const panel = document.getElementById("graph-context-panel");
+    graphClear(panel);
+    graphAppendText(panel, "graph-inspector-title", `Context: ${graphText(data.mode)} ${graphText(data.window)}`);
+    const resolution = data.identity_resolution || {};
+    panel.appendChild(graphField("Resolution", `${graphText(resolution.status)} / ${graphText(resolution.basis)}`));
+    if (resolution.warning) graphAppendText(panel, "graph-truncated-note", resolution.warning);
+    (data.records || []).forEach(record => {
+        const row = document.createElement("div");
+        row.className = "graph-evidence-row";
+        graphAppendText(row, "graph-result-title", `${graphText(record.timestamp)} | ${graphText(record.event_id)} | ${graphText(record.source_host)}`);
+        graphAppendText(row, "graph-result-meta", `${graphText(record.summary)} | ${graphText(record.evidence_record_key)}`);
+        const actions = document.createElement("div");
+        actions.className = "graph-toolbar-actions";
+        const exactButton = document.createElement("button");
+        exactButton.type = "button";
+        exactButton.className = "btn btn-secondary btn-sm";
+        exactButton.textContent = "Open Evidence";
+        exactButton.addEventListener("click", () => loadExactEvidence(record.evidence_record_key));
+        const pivotButton = document.createElement("button");
+        pivotButton.type = "button";
+        pivotButton.className = "btn btn-secondary btn-sm";
+        pivotButton.textContent = "Pivot to Graph";
+        pivotButton.addEventListener("click", () => pivotContextEvidence(record.evidence_record_key));
+        actions.appendChild(exactButton);
+        actions.appendChild(pivotButton);
+        row.appendChild(actions);
+        panel.appendChild(row);
+    });
+    if (data.truncated) {
+        graphAppendText(panel, "graph-truncated-note", "Context response was truncated. Refine the window or use the next page.");
+    }
+}
+
+async function pivotContextEvidence(erk) {
+    graphSetStatus("Resolving timeline evidence pivot...");
+    try {
+        const data = await graphFetch(`${graphApiBase}/pivot`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ kind: "evidence", reference: { evidence_record_key: erk } })
+        });
+        const roots = data.roots || [];
+        if (roots.length && roots[0].entity_id) {
+            await selectRootEntity(roots[0].entity_id);
+            graphSetStatus(data.message || (data.ambiguous ? "Evidence pivot resolved to multiple graph roots; first root selected." : "Evidence pivot resolved to graph."));
+        } else {
+            graphSetStatus(data.message || "Evidence pivot unresolved.");
+        }
+    } catch (err) {
+        graphSetStatus(err.message || "Evidence pivot failed");
     }
 }
 

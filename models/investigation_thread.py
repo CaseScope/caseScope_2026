@@ -347,3 +347,61 @@ class InvestigationThreadNote(db.Model):
     __table_args__ = (
         db.Index("idx_thread_note_thread_order", "thread_id", "sequence_order"),
     )
+
+
+class InvestigationThreadReportSnapshot(db.Model):
+    """Immutable report-time copy of one Investigation Thread section."""
+
+    __tablename__ = "investigation_thread_report_snapshots"
+
+    id = db.Column(db.Integer, primary_key=True)
+    uuid = db.Column(db.String(36), unique=True, nullable=False, index=True, default=lambda: str(uuid.uuid4()))
+
+    case_id = db.Column(db.Integer, db.ForeignKey("cases.id", ondelete="CASCADE"), nullable=False, index=True)
+    case_report_id = db.Column(
+        db.Integer,
+        db.ForeignKey("case_reports.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
+    report_generation_uuid = db.Column(db.String(36), nullable=False, index=True)
+
+    thread_uuid = db.Column(db.String(36), nullable=False, index=True)
+    thread_version = db.Column(db.Integer, nullable=False)
+
+    saved_view_uuid = db.Column(db.String(36), nullable=True, index=True)
+    saved_view_version = db.Column(db.Integer, nullable=True)
+
+    evidence_set_fingerprint = db.Column(db.String(96), nullable=False)
+    snapshot_schema_version = db.Column(db.Integer, nullable=False, default=1)
+    snapshot_json = db.Column(db.JSON, nullable=False, default=dict)
+    snapshot_sha256 = db.Column(db.String(96), nullable=False, index=True)
+
+    graph_render_format = db.Column(db.String(20), nullable=True)
+    graph_render_path = db.Column(db.String(1024), nullable=True)
+    graph_render_sha256 = db.Column(db.String(96), nullable=True)
+
+    ai_used = db.Column(db.Boolean, nullable=False, default=False)
+    ai_provider = db.Column(db.String(120), nullable=True)
+    ai_model = db.Column(db.String(200), nullable=True)
+    ai_generated_at = db.Column(db.DateTime, nullable=True)
+    ai_provenance_json = db.Column(db.JSON, nullable=False, default=dict)
+
+    created_by_user_id = db.Column(db.Integer, nullable=True)
+    created_by_username = db.Column(db.String(80), nullable=True)
+    created_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow, index=True)
+
+    case = db.relationship("Case", backref=db.backref("thread_report_snapshots", lazy="dynamic"))
+    case_report = db.relationship(
+        "CaseReport",
+        backref=db.backref("thread_snapshots", lazy="dynamic"),
+    )
+
+    __table_args__ = (
+        db.Index("idx_thread_report_snapshot_case_uuid", "case_id", "uuid"),
+        db.Index("idx_thread_report_snapshot_case_generation", "case_id", "report_generation_uuid"),
+        db.Index("idx_thread_report_snapshot_case_thread_version", "case_id", "thread_uuid", "thread_version"),
+    )
+
+    def __repr__(self):
+        return f"<InvestigationThreadReportSnapshot {self.uuid} thread={self.thread_uuid} v{self.thread_version}>"

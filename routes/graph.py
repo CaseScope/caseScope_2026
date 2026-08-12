@@ -192,6 +192,9 @@ def graph_paths(case_uuid):
             max_depth=data.get("max_depth", 3),
             max_paths=data.get("max_paths", 3),
             relationship_types=data.get("relationship_types") or [],
+            derivation_types=data.get("derivation_types") or [],
+            time_start=data.get("time_start"),
+            time_end=data.get("time_end"),
         )
         return jsonify({"success": True, **payload})
     except Exception as exc:

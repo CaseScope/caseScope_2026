@@ -1,0 +1,174 @@
+CaseScope Investigation Graph Phase 0F
+
+Accepted baseline
+- Version: 4.16.4
+- Commit: 92dd19ae1d72b77589359be473e59033dca33c64
+- Locked phases: 0A Evidence Identity v2, 0B Canonical Evidence-Backed Graph, 0C Graph Query API + Analyst Workspace, 0D Investigation Threads + Saved Graph Views, 0E Existing-Surface Integration + Support Lifecycle Expansion.
+
+Phase 0F scope
+- Adds bounded temporal context, graph/timeline synchronization, path filters, and immutable Investigation Thread report snapshots.
+- Does not make time proximity graph authority.
+- Does not make AI authoritative.
+- Does not complete Phase 0G scale/reproducibility certification.
+
+Context service
+- utils/investigation_context.py defines InvestigationContextService.
+- It is case-scoped, bounded, read-only, deterministic, and independent of graph rendering.
+- It never invokes AI and never writes graph tables.
+
+Evidence anchor contract
+- Preferred anchor is case_id + ERK v2.
+- ERK must match ^erk:v2:[0-9a-f]{64}$.
+- The exact case_id + ERK query resolves the anchor.
+- Duplicate physical rows for one ERK are reported as duplicate state but are returned as one logical record in context.
+- Cross-case ERK access fails as not found.
+
+Relative-time windows
+- Supported windows: 1s, 30s, 5m, 1h.
+- UTC is used internally.
+- Boundary is inclusive: anchor_time - window <= timestamp <= anchor_time + window.
+- Ordering is timestamp plus ERK for deterministic pagination.
+
+Host context
+- Same-host context filters by exact source_host.
+- Relative context defaults to the anchor source_host when available.
+- All-host relative context requires all_hosts=true.
+- Host context does not create or modify HOST identity.
+
+User identity semantics
+- SID is strongest.
+- Domain/authority plus username is exact.
+- Bare username is host-scoped and marked ambiguous.
+- Bare Administrator is not treated as a global account.
+
+Process-lifetime semantics
+- Process-lifetime mode requires an exact process creation anchor.
+- It uses host + PID + exact creation timestamp and bounds PID reuse by the next creation event for the same host/PID.
+- If termination evidence is absent, status is partial.
+- PID alone is never treated as a process execution identity.
+
+PID reuse protection
+- A later process creation for the same host/PID becomes the upper bound for the earlier partial lifetime.
+- Evidence belonging only to the later execution is excluded.
+
+Logon-session semantics
+- Logon-session mode requires explicit source_host + logon_id.
+- Logon IDs are host-scoped.
+- Same logon ID across different hosts is not merged.
+
+Paging and bounds
+- Default context limit: 100.
+- Max context limit: 500.
+- Cursor pagination is keyset-style over timestamp + ERK.
+- No unlimited whole-case dump exists.
+
+Graph/timeline synchronization
+- static/templates/case_graph.html adds a Timeline / Context panel.
+- Exact relationship support rows can anchor context by ERK.
+- Timeline ERKs pivot through GraphPivotService.
+- Unresolved pivots report unresolved and do not create graph facts.
+
+Path filtering
+- utils/graph_query.py extends existing path_search.
+- Existing hard limits are preserved: depth <= 4, paths <= 10, visited <= 2000, frontier <= 500, edges/node <= 250.
+- Filters: relationship_types, derivation_types, time_start, time_end.
+- Time filters qualify relationships only through at least one ACTIVE support row with observed_at in range.
+- Null-time or inactive support does not qualify.
+- The UI and API use graph path / filtered graph path language, not attack chain.
+
+Why time is not graph authority
+- Temporal proximity is context evidence only.
+- Context, co-occurrence, report inclusion, and Thread membership do not author GraphRelationship rows.
+- Authoritative graph derivation remains OBSERVED or DETERMINISTIC only.
+
+Existing reporting architecture
+- CaseReport persists case_id, filename, file_path, file_size, report_type, ai_model, mutable notes, file timestamps, and creator.
+- Report templates are ReportTemplate rows pointing to .docx files under static/templates/report_templates.
+- Deterministic report generation uses routes/reports.py, utils/report_generator.py, docxtpl, and generated files under storage/<case_uuid>/reports.
+- AI reporting uses routes/ai.py, tasks/report_tasks.py, AIReportGenerator, and AITimelineGenerator.
+
+AI license architecture
+- Existing license feature gate is LicenseManager.is_feature_activated("ai"), exposed through routes/route_helpers.py and FeatureAvailability.
+- Provider configuration and provider health are separate from feature entitlement.
+- Phase 0F deterministic context, snapshots, graph rendering, and report sections do not call AI and do not require the AI feature.
+- Optional AI enhancement must use the existing AI gate and read frozen snapshot-derived payloads only.
+
+Deterministic report path
+- routes/reports.py freezes included Thread snapshots before rendering.
+- Included Threads are explicitly supplied by thread_uuids or selected by include_in_report=true.
+- InvestigationThreadReportAdapter builds report context from immutable snapshots only.
+- The path works without an AI license or provider.
+
+Immutable snapshot schema
+- models/investigation_thread.py defines InvestigationThreadReportSnapshot.
+- It persists case_id, case_report_id, report_generation_uuid, thread_uuid/version, saved_view_uuid/version, evidence_set_fingerprint, snapshot_json, snapshot_sha256, graph_render metadata, creation actor/time, and separate AI provenance fields.
+
+Snapshot hash
+- Format: report-snapshot:v1:<sha256>.
+- Hash is based on canonical JSON serialization of frozen report-facing state.
+- Transient row IDs are not used as durable identity.
+
+Atomic snapshot capture
+- InvestigationThreadReportSnapshotService locks the Thread and Saved View rows where supported, verifies expected versions, copies membership and view state, captures source availability, hashes, persists, audits, and commits.
+- Stale Thread or Saved View versions return conflict errors through routes.
+
+Asynchronous report safety
+- Snapshot creation happens at HTTP request time before rendering.
+- Snapshot rows are identified by report_generation_uuid and snapshot UUID.
+- Workers or renderers must consume snapshot UUIDs, not mutable Thread UUIDs, for Thread sections.
+
+Saved View freezing
+- Snapshot JSON stores Saved View UUID/version, projection version, state JSON, frozen entity display data, frozen relationship display data, coordinates, filters, pins, hidden state, selected refs, and live availability at snapshot time.
+
+Graph rendering
+- Snapshot capture renders a deterministic SVG from frozen Saved View state.
+- It uses frozen visible nodes, relationships, labels, and coordinates.
+- It does not query live neighborhoods and does not add newly discovered neighbors.
+
+Source-unavailability behavior
+- Thread evidence snapshots remain frozen.
+- Report snapshot separately records whether original source was retrievable at snapshot time.
+- Later source deletion does not mutate old snapshot JSON, hash, or graph render.
+
+Regeneration behavior
+- Each generation uses a new report_generation_uuid and new immutable snapshots.
+- Older snapshots are never overwritten.
+
+AI enhancement behavior
+- AI is optional licensed presentation.
+- AI input for Thread sections must be derived from immutable snapshot JSON.
+- AI output may add prose and provenance, but cannot mutate snapshot JSON, hashes, Thread fields, graph facts, memberships, findings, IOCs, or evidence fingerprints.
+
+Permissions and case isolation
+- Context and snapshot reads are case-scoped.
+- Snapshot creation reuses viewer write denial.
+- Snapshot lookup resolves case first, then snapshot UUID.
+
+Audit
+- Snapshot creation uses unified AuditLog with entity_type investigation_thread_report_snapshot and operation_id.
+- No separate audit table is introduced.
+
+Migration
+- migrations/add_investigation_thread_report_snapshots.py creates the new PostgreSQL table.
+- Existing reports predating Phase 0F are not assigned fabricated snapshots.
+
+Known limitations
+- Final large-scale certification remains Phase 0G.
+- AI Thread-section integration for async AI reports requires external review against the existing AI generator templates.
+- Process lifetime is partial when no exact termination record is available.
+
+Phase 0G boundary
+- Final coverage, scale, migration, security, reproducibility, and release-gate certification remain Phase 0G.
+
+Coverage matrix
+Requirement ID | Phase | Capability | Authoritative contract | Implementation files | Migration | Tests | Scale impact | Security/case isolation | Audit impact | Reprojection impact | Snapshot impact | License requirement | Status | Limitations
+0F-CTX-REL | 0F | Relative context | Context only, no graph authority | utils/investigation_context.py, routes/investigation_threads.py | none | tests/test_investigation_context.py | bounded CH query | case + ERK | none | none | none | none | implemented | Phase 0G scale not certified
+0F-CTX-HOST | 0F | Host context | exact source_host context only | utils/investigation_context.py | none | tests/test_investigation_context.py | bounded | case-scoped | none | none | none | none | implemented | source_host is not network endpoint identity
+0F-CTX-USER | 0F | User context | SID/domain strongest, bare username host-scoped | utils/investigation_context.py | none | tests/test_investigation_context.py | bounded | case-scoped | none | none | none | none | implemented | bare username ambiguous
+0F-CTX-PROC | 0F | Process lifetime | host + PID + creation anchor, not PID alone | utils/investigation_context.py | none | tests/test_investigation_context.py | bounded by next creation | case-scoped | none | none | none | none | implemented | partial without termination
+0F-CTX-LOGON | 0F | Logon session | host + logon_id only | utils/investigation_context.py | none | tests/test_investigation_context.py | bounded | case-scoped | none | none | none | none | implemented | requires explicit logon_id
+0F-GRAPH-TIME | 0F | Graph/timeline sync | pivot existing graph facts only | static/templates/case_graph.html | none | UI contract pending | paginated | viewer read allowed | none | no mutation | none | none | implemented | focused browser test pending
+0F-PATH | 0F | Path filters | existing traversal, ACTIVE support in time range | utils/graph_query.py, routes/graph.py | none | tests/test_graph_query.py | hard limits unchanged | case-scoped | none | none | none | none | implemented | UI controls minimal
+0F-REPORT-DET | 0F | Deterministic Thread report | snapshot-derived only | utils/investigation_thread_report_adapter.py, routes/reports.py | snapshots table | tests/test_investigation_thread_report_snapshots.py | selected Threads only | viewer denied creation | snapshot creation audited | stable refs | immutable | none | implemented | template placeholder coverage depends on templates
+0F-SNAPSHOT | 0F | Immutable snapshot | copied state, not version reference only | models/investigation_thread.py, utils/investigation_thread_report_snapshots.py | add_investigation_thread_report_snapshots.py | tests/test_investigation_thread_report_snapshots.py | selected material only | case-scoped | unified AuditLog | survives graph rebuild | exact hash | none | implemented | external review needed
+0F-AI | 0F | Licensed AI enhancement | optional presentation only | existing AI gate docs, snapshot AI provenance fields | snapshots table | matrix partially pending | no core dependency | existing gate | provenance separate | no mutation | no hash mutation | AI license only for AI | partial | async AI Thread-section integration pending external review

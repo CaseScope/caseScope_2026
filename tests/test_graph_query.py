@@ -7,7 +7,7 @@ from flask import Flask
 from models.case import Case
 from models.database import db
 from models.graph import GraphEntity, GraphEntityObservation, GraphRelationship, GraphRelationshipEvidence
-from utils.graph_identity import GraphDerivationType, GraphEntityType, GraphRelationshipType, GraphValidationState
+from utils.graph_identity import GraphDerivationType, GraphEntityType, GraphRelationshipType, GraphSupportState, GraphValidationState
 from utils.graph_query import GraphNotFoundError, GraphQueryError, GraphQueryService
 
 
@@ -40,6 +40,7 @@ class _FakeClickHouse:
                 "domain",
                 "sid",
                 "logon_type",
+                "logon_id",
                 "process_name",
                 "process_path",
                 "process_id",
@@ -115,7 +116,7 @@ class GraphQueryServiceTestCase(unittest.TestCase):
         db.session.flush()
         return entity
 
-    def relationship(self, case_id, source, relationship_type, target, *, state=GraphValidationState.ACTIVE):
+    def relationship(self, case_id, source, relationship_type, target, *, state=GraphValidationState.ACTIVE, derivation_type=GraphDerivationType.OBSERVED):
         relationship = GraphRelationship(
             case_id=case_id,
             source_entity_id=source.id,
@@ -124,7 +125,7 @@ class GraphQueryServiceTestCase(unittest.TestCase):
             first_seen_at=datetime(2026, 1, 1, 12, 0, 0),
             last_seen_at=datetime(2026, 1, 1, 12, 1, 0),
             confidence=1.0,
-            derivation_type=GraphDerivationType.OBSERVED,
+            derivation_type=derivation_type,
             extractor_name="test",
             extractor_version="1",
             validation_state=state,
@@ -134,7 +135,7 @@ class GraphQueryServiceTestCase(unittest.TestCase):
         db.session.flush()
         return relationship
 
-    def evidence(self, case_id, relationship, key):
+    def evidence(self, case_id, relationship, key, *, observed_at=datetime(2026, 1, 1, 12, 0, 0), support_state=GraphSupportState.ACTIVE):
         evidence = GraphRelationshipEvidence(
             case_id=case_id,
             relationship_id=relationship.id,
@@ -143,8 +144,9 @@ class GraphQueryServiceTestCase(unittest.TestCase):
             evidence_role="supporting_record",
             extractor_name="test",
             extractor_version="1",
-            observed_at=datetime(2026, 1, 1, 12, 0, 0),
+            observed_at=observed_at,
             metadata_json={},
+            support_state=support_state,
         )
         db.session.add(evidence)
         db.session.flush()
@@ -270,6 +272,61 @@ class GraphQueryServiceTestCase(unittest.TestCase):
         with self.assertRaises(GraphQueryError):
             self.service.path_search(1, source_entity_id=a.id, target_entity_id=b.id, max_paths="banana")
 
+    def test_path_filters_relationship_derivation_and_active_support_time(self):
+        a = self.entity(1, GraphEntityType.HOST, "a", "A")
+        b = self.entity(1, GraphEntityType.HOST, "b", "B")
+        c = self.entity(1, GraphEntityType.HOST, "c", "C")
+        d = self.entity(1, GraphEntityType.HOST, "d", "D")
+        observed = self.relationship(1, a, GraphRelationshipType.REFERENCES, b, derivation_type=GraphDerivationType.OBSERVED)
+        deterministic = self.relationship(1, a, GraphRelationshipType.OWNS_IP, c, derivation_type=GraphDerivationType.DETERMINISTIC)
+        inactive = self.relationship(1, a, GraphRelationshipType.REFERENCES, d, derivation_type=GraphDerivationType.OBSERVED)
+        self.evidence(1, observed, evidence_key("a"), observed_at=datetime(2026, 1, 1, 12, 15, 0))
+        self.evidence(1, deterministic, evidence_key("b"), observed_at=datetime(2026, 1, 1, 12, 15, 0))
+        self.evidence(1, inactive, evidence_key("c"), observed_at=datetime(2026, 1, 1, 12, 15, 0), support_state=GraphSupportState.INVALIDATED)
+        db.session.commit()
+
+        rel_filter = self.service.path_search(
+            1,
+            source_entity_id=a.id,
+            target_entity_id=b.id,
+            direction="out",
+            relationship_types=[GraphRelationshipType.REFERENCES],
+            time_start="2026-01-01T12:00:00Z",
+            time_end="2026-01-01T12:30:00Z",
+        )
+        derivation_filter = self.service.path_search(
+            1,
+            source_entity_id=a.id,
+            target_entity_id=c.id,
+            direction="out",
+            derivation_types=[GraphDerivationType.DETERMINISTIC],
+            time_start="2026-01-01T12:00:00Z",
+            time_end="2026-01-01T12:30:00Z",
+        )
+        inactive_filter = self.service.path_search(
+            1,
+            source_entity_id=a.id,
+            target_entity_id=d.id,
+            direction="out",
+            time_start="2026-01-01T12:00:00Z",
+            time_end="2026-01-01T12:30:00Z",
+        )
+        outside_filter = self.service.path_search(
+            1,
+            source_entity_id=a.id,
+            target_entity_id=b.id,
+            direction="out",
+            time_start="2026-01-01T13:00:00Z",
+            time_end="2026-01-01T14:00:00Z",
+        )
+
+        self.assertEqual(rel_filter["paths"][0]["edge_ids"], [observed.id])
+        self.assertEqual(derivation_filter["paths"][0]["edge_ids"], [deterministic.id])
+        self.assertEqual(inactive_filter["paths"], [])
+        self.assertEqual(outside_filter["paths"], [])
+        self.assertEqual(rel_filter["effective_limits"]["max_depth"], 3)
+        self.assertEqual(rel_filter["effective_limits"]["max_paths"], 3)
+
     def test_path_response_contains_only_returned_path_union_not_traversal_workspace(self):
         a = self.entity(1, GraphEntityType.HOST, "a", "A")
         b = self.entity(1, GraphEntityType.HOST, "b", "B")
@@ -326,6 +383,7 @@ class GraphQueryServiceTestCase(unittest.TestCase):
             "CONTOSO",
             "S-1",
             "2",
+            "0x3e7",
             "cmd.exe",
             "C:/Windows/cmd.exe",
             42,

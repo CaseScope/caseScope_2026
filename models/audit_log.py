@@ -117,6 +117,7 @@ class AuditEntityType:
     # Investigation graph (Phase 0D)
     INVESTIGATION_THREAD = 'investigation_thread'
     GRAPH_SAVED_VIEW = 'graph_saved_view'
+    INVESTIGATION_THREAD_REPORT_SNAPSHOT = 'investigation_thread_report_snapshot'
 
     # RAG/AI
     ATTACK_PATTERN = 'attack_pattern'
@@ -136,6 +137,7 @@ class AuditEntityType:
             cls.SYSTEM_USER, cls.SETTING, cls.NOISE_RULE, cls.CLIENT,
             cls.EVIDENCE_FILE, cls.EVENT,
             cls.INVESTIGATION_THREAD, cls.GRAPH_SAVED_VIEW,
+            cls.INVESTIGATION_THREAD_REPORT_SNAPSHOT,
             cls.ATTACK_PATTERN, cls.AI_AUDIT,
             cls.AUDIT_LOG, cls.SESSION
         ]

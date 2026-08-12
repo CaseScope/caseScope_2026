@@ -721,6 +721,7 @@ def generate_ai_report(case_uuid):
 
         report_type = template.report_type or ReportType.DFIR
         report_kind = "timeline" if report_type == ReportType.TIMELINE else "dfir"
+        selected_negative_finding_ids=data.get("negative_finding_ids", [])
 
         # Drop any stale cancel token from a previous run
         from tasks.report_tasks import AI_REPORT_CANCEL_SCOPE
@@ -743,7 +744,7 @@ def generate_ai_report(case_uuid):
             case_id=case.id,
             case_uuid=case_uuid,
             template_id=template.id,
-            negative_finding_ids=data.get("negative_finding_ids", []),
+            negative_finding_ids=selected_negative_finding_ids,
             username=current_user.username,
             report_kind=report_kind,
         )

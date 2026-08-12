@@ -4,7 +4,7 @@ from __future__ import annotations
 import json
 import re
 from collections import deque
-from datetime import date, datetime
+from datetime import date, datetime, timezone
 from typing import Any, Iterable
 
 from sqlalchemy import and_, case, func, or_
@@ -46,6 +46,7 @@ EVIDENCE_EVENT_COLUMNS = (
     "domain",
     "sid",
     "logon_type",
+    "logon_id",
     "process_name",
     "process_path",
     "process_id",
@@ -168,6 +169,30 @@ def _validate_relationship_types(values: Any) -> list[str]:
     if invalid:
         raise GraphQueryError(f"Invalid relationship type: {invalid[0]}")
     return sorted(set(relationship_types))
+
+
+def _validate_derivation_types(values: Any) -> list[str]:
+    derivation_types = _split_filter_values(values)
+    allowed = {"OBSERVED", "DETERMINISTIC"}
+    invalid = [value for value in derivation_types if value not in allowed]
+    if invalid:
+        raise GraphQueryError(f"Invalid derivation type: {invalid[0]}")
+    return sorted(set(derivation_types))
+
+
+def _parse_time_filter(value: Any, *, name: str) -> datetime | None:
+    if value in (None, ""):
+        return None
+    if isinstance(value, datetime):
+        return value
+    text = str(value).strip().replace("Z", "+00:00")
+    try:
+        parsed = datetime.fromisoformat(text)
+    except ValueError as exc:
+        raise GraphQueryError(f"Invalid {name}") from exc
+    if parsed.tzinfo is not None:
+        parsed = parsed.astimezone(timezone.utc).replace(tzinfo=None)
+    return parsed
 
 
 def _validate_direction(direction: Any) -> str:
@@ -526,6 +551,9 @@ class GraphQueryService:
         max_depth: Any = 3,
         max_paths: Any = 3,
         relationship_types: Any = None,
+        derivation_types: Any = None,
+        time_start: Any = None,
+        time_end: Any = None,
     ) -> dict[str, Any]:
         try:
             source_id = int(source_entity_id)
@@ -538,6 +566,11 @@ class GraphQueryService:
         requested_depth = _bounded_int(max_depth, name="max_depth", default=3, minimum=1, maximum=MAX_PATH_DEPTH)
         requested_paths = _bounded_int(max_paths, name="max_paths", default=3, minimum=1, maximum=MAX_PATHS)
         relationship_type_values = _validate_relationship_types(relationship_types)
+        derivation_type_values = _validate_derivation_types(derivation_types)
+        support_time_start = _parse_time_filter(time_start, name="time_start")
+        support_time_end = _parse_time_filter(time_end, name="time_end")
+        if support_time_start and support_time_end and support_time_start > support_time_end:
+            raise GraphQueryError("time_start must be before or equal to time_end")
 
         if source_id == target_id:
             node = self._get_entity(case_id, source_id)
@@ -578,6 +611,9 @@ class GraphQueryService:
                 current_id,
                 direction=effective_direction,
                 relationship_types=relationship_type_values,
+                derivation_types=derivation_type_values,
+                time_start=support_time_start,
+                time_end=support_time_end,
             )
             if node_truncated:
                 truncated = True
@@ -632,6 +668,13 @@ class GraphQueryService:
             "truncated": truncated,
             "truncation_reason": truncation_reason,
             "result_statement": statement,
+            "filters": {
+                "relationship_types": relationship_type_values,
+                "derivation_types": derivation_type_values,
+                "time_start": _json_safe(support_time_start),
+                "time_end": _json_safe(support_time_end),
+                "support_time_semantics": "A relationship qualifies only when at least one ACTIVE supporting record has observed_at inside the requested interval.",
+            },
         }
 
     def _get_entity(self, case_id: int, entity_id: int) -> GraphEntity:
@@ -684,6 +727,9 @@ class GraphQueryService:
         *,
         direction: str,
         relationship_types: list[str],
+        derivation_types: list[str],
+        time_start: datetime | None,
+        time_end: datetime | None,
     ) -> tuple[list[GraphRelationship], bool]:
         query = GraphRelationship.query.filter(
             GraphRelationship.case_id == case_id,
@@ -691,6 +737,19 @@ class GraphQueryService:
         )
         if relationship_types:
             query = query.filter(GraphRelationship.relationship_type.in_(relationship_types))
+        if derivation_types:
+            query = query.filter(GraphRelationship.derivation_type.in_(derivation_types))
+        if time_start or time_end:
+            support_query = GraphRelationshipEvidence.query.with_entities(GraphRelationshipEvidence.relationship_id).filter(
+                GraphRelationshipEvidence.case_id == case_id,
+                GraphRelationshipEvidence.support_state == GraphSupportState.ACTIVE,
+                GraphRelationshipEvidence.observed_at.isnot(None),
+            )
+            if time_start:
+                support_query = support_query.filter(GraphRelationshipEvidence.observed_at >= time_start)
+            if time_end:
+                support_query = support_query.filter(GraphRelationshipEvidence.observed_at <= time_end)
+            query = query.filter(GraphRelationship.id.in_(support_query))
         if direction == "out":
             query = query.filter(GraphRelationship.source_entity_id == entity_id)
         elif direction == "in":

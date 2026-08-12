@@ -25,7 +25,7 @@
             <div id="thread-summary" class="thread-summary-grid"></div>
             <div class="thread-editor-grid">
                 <label class="form-label" for="thread-status-select">Status</label>
-                <select id="thread-status-select" class="form-control">
+                <select id="thread-status-select" class="form-select">
                     <option value="draft">Draft</option>
                     <option value="investigating">Investigating</option>
                     <option value="supported">Supported</option>
@@ -36,9 +36,9 @@
                     Include in report
                 </label>
                 <label class="form-label" for="thread-description-editor">Description</label>
-                <textarea id="thread-description-editor" class="form-control" rows="4" maxlength="20000"></textarea>
+                <textarea id="thread-description-editor" class="form-input form-textarea" rows="4" maxlength="20000"></textarea>
                 <label class="form-label" for="thread-conclusion-editor">Analyst Conclusion</label>
-                <textarea id="thread-conclusion-editor" class="form-control" rows="6" maxlength="50000"></textarea>
+                <textarea id="thread-conclusion-editor" class="form-input form-textarea" rows="6" maxlength="50000"></textarea>
                 <button id="thread-save-button" type="button" class="btn btn-primary">Save Thread Updates</button>
             </div>
         </div>
@@ -60,7 +60,7 @@
         </div>
         <div class="tile-body">
             <form id="thread-note-form" class="thread-note-form">
-                <textarea id="thread-note-input" class="form-control" rows="3" maxlength="20000" placeholder="Add an analyst note"></textarea>
+                <textarea id="thread-note-input" class="form-input form-textarea" rows="3" maxlength="20000" placeholder="Add an analyst note"></textarea>
                 <button class="btn btn-primary" type="submit">Add Note</button>
             </form>
             <div id="thread-notes" class="thread-notes"></div>
@@ -227,7 +227,7 @@ function renderNotes(notes) {
         card.appendChild(detailField("Author", note.author_username));
         card.appendChild(detailField("Updated", note.updated_at || note.created_at));
         const textarea = document.createElement("textarea");
-        textarea.className = "form-control";
+        textarea.className = "form-input form-textarea";
         textarea.rows = 3;
         textarea.maxLength = 20000;
         textarea.value = note.body || "";

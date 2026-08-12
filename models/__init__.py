@@ -64,6 +64,7 @@ from models.graph import (
     GraphEntity, GraphEntityObservation, GraphRelationship,
     GraphRelationshipEvidence
 )
+from models.investigation_thread import InvestigationThreadReportSnapshot
 from models.ioc_evidence_match import IOCEvidenceMatch
 
 __all__ = [
@@ -108,5 +109,6 @@ __all__ = [
     'HuntRun', 'HuntSourceAvailabilityStatus', 'HuntStep', 'HuntStepStatus',
     'GraphEntity', 'GraphEntityObservation', 'GraphRelationship',
     'GraphRelationshipEvidence',
-    'IOCEvidenceMatch'
+    'IOCEvidenceMatch',
+    'InvestigationThreadReportSnapshot',
 ]

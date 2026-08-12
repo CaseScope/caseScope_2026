@@ -40,6 +40,7 @@ from models.investigation_thread import (
     InvestigationThreadFinding,
     InvestigationThreadIOC,
     InvestigationThreadNote,
+    InvestigationThreadReportSnapshot,
     InvestigationThreadRelationship,
 )
 from models.known_system import (
@@ -247,6 +248,7 @@ def delete_case_permanently(case: Case) -> Dict[str, int]:
         )
 
         case_id_models = [
+            InvestigationThreadReportSnapshot,
             InvestigationThreadNote,
             InvestigationThreadFinding,
             InvestigationThreadIOC,

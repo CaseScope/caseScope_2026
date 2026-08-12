@@ -11,6 +11,7 @@ from flask_login import LoginManager, login_user
 from config import PermissionLevel
 from models.audit_log import AuditLog
 from models.case import Case
+from models.case_report import CaseReport
 from models.client import Client
 from models.database import db
 from models.graph import GraphEntity, GraphEntityObservation, GraphRelationship, GraphRelationshipEvidence
@@ -22,6 +23,7 @@ from models.investigation_thread import (
     InvestigationThreadFinding,
     InvestigationThreadIOC,
     InvestigationThreadNote,
+    InvestigationThreadReportSnapshot,
     InvestigationThreadRelationship,
 )
 from models.ioc import IOC, IOCSystemSighting
@@ -72,13 +74,16 @@ class Phase0DSQLiteTestCase(unittest.TestCase):
         self.audit_log_patch = None
         self.audit_log_many_patch = None
         self.view_audit_log_patch = None
+        self.snapshot_audit_log_patch = None
         if self.patch_audit:
             self.audit_log_patch = patch("utils.investigation_threads.AuditLog.log", classmethod(fake_log))
             self.audit_log_many_patch = patch("utils.investigation_threads.AuditLog.log_many", classmethod(fake_log_many))
             self.view_audit_log_patch = patch("utils.graph_saved_views.AuditLog.log", classmethod(fake_log))
+            self.snapshot_audit_log_patch = patch("utils.investigation_thread_report_snapshots.AuditLog.log", classmethod(fake_log))
             self.audit_log_patch.start()
             self.audit_log_many_patch.start()
             self.view_audit_log_patch.start()
+            self.snapshot_audit_log_patch.start()
         if self.include_users:
             self._init_login()
 
@@ -86,7 +91,7 @@ class Phase0DSQLiteTestCase(unittest.TestCase):
         if hasattr(self, "client"):
             with self.client.session_transaction() as sess:
                 sess.clear()
-        for patcher in (self.view_audit_log_patch, self.audit_log_many_patch, self.audit_log_patch):
+        for patcher in (self.snapshot_audit_log_patch, self.view_audit_log_patch, self.audit_log_many_patch, self.audit_log_patch):
             if patcher is not None:
                 patcher.stop()
         db.session.remove()
@@ -100,6 +105,7 @@ class Phase0DSQLiteTestCase(unittest.TestCase):
             Case.__table__,
             AuditLog.__table__,
             KnownSystem.__table__,
+            CaseReport.__table__,
             GraphSavedView.__table__,
             InvestigationThread.__table__,
             InvestigationThreadEntity.__table__,
@@ -108,6 +114,7 @@ class Phase0DSQLiteTestCase(unittest.TestCase):
             InvestigationThreadIOC.__table__,
             InvestigationThreadFinding.__table__,
             InvestigationThreadNote.__table__,
+            InvestigationThreadReportSnapshot.__table__,
             GraphEntity.__table__,
             GraphRelationship.__table__,
             GraphEntityObservation.__table__,

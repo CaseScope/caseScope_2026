@@ -2,6 +2,8 @@
 
 import logging
 import os
+import uuid
+from datetime import datetime
 
 from flask import Blueprint, jsonify, request, send_file
 from flask_login import current_user, login_required
@@ -281,8 +283,12 @@ def generate_report(case_uuid):
     """Generate a report for a case."""
     try:
         from models.report_template import ReportTemplate
+        from models.case_report import CaseReport
+        from models.investigation_thread import InvestigationThread
         from utils.report_generator import generate_case_report, get_base_case_context
         from utils.hunt_negative_report_adapter import build_negative_findings_report_context
+        from utils.investigation_thread_report_adapter import InvestigationThreadReportAdapter
+        from utils.investigation_thread_report_snapshots import InvestigationThreadReportSnapshotService
 
         if current_user.permission_level == "viewer":
             return _viewer_write_error("Viewers cannot generate reports")
@@ -338,6 +344,58 @@ def generate_report(case_uuid):
                 if key not in reserved_negative_finding_keys
             })
 
+        report_generation_uuid = str(uuid.uuid4())
+        snapshot_service = InvestigationThreadReportSnapshotService()
+        requested_thread_uuids = data.get("thread_uuids")
+        try:
+            if requested_thread_uuids:
+                thread_query = InvestigationThread.query.filter(
+                    InvestigationThread.case_id == case.id,
+                    InvestigationThread.uuid.in_([str(value) for value in requested_thread_uuids]),
+                )
+            else:
+                thread_query = InvestigationThread.query.filter_by(case_id=case.id, include_in_report=True)
+            threads_for_report = thread_query.order_by(InvestigationThread.updated_at.asc(), InvestigationThread.id.asc()).all()
+        except RuntimeError as exc:
+            if "not registered with this 'SQLAlchemy' instance" not in str(exc):
+                raise
+            logger.debug("Skipping Thread snapshot lookup in unregistered test app context")
+            threads_for_report = []
+        snapshot_payloads = []
+        operation_id = str(uuid.uuid4())
+        expected_versions = data.get("thread_versions") or {}
+        expected_view_versions = data.get("saved_view_versions") or {}
+        for thread in threads_for_report:
+            snapshot_payloads.append(
+                snapshot_service.create_snapshot(
+                    case.id,
+                    thread_uuid=thread.uuid,
+                    expected_thread_version=expected_versions.get(thread.uuid, thread.version),
+                    expected_saved_view_version=(
+                        expected_view_versions.get(thread.current_saved_view.uuid)
+                        if thread.current_saved_view is not None
+                        else None
+                    ),
+                    report_generation_uuid=report_generation_uuid,
+                    actor={
+                        "user_id": getattr(current_user, "id", None),
+                        "username": getattr(current_user, "username", None),
+                    },
+                    operation_id=operation_id,
+                )
+            )
+        if snapshot_payloads:
+            context.update(InvestigationThreadReportAdapter().build_context(snapshot_payloads))
+        else:
+            context.update(
+                {
+                    "investigation_threads_included": False,
+                    "investigation_thread_sections": [],
+                    "investigation_thread_report_section": "No Investigation Threads were selected for this report.",
+                    "investigation_thread_snapshot_hashes": [],
+                }
+            )
+
         report_path = generate_case_report(
             case_uuid=case_uuid,
             template_id=template.id,
@@ -348,6 +406,29 @@ def generate_report(case_uuid):
             return jsonify({"success": False, "error": "Failed to generate report"}), 500
 
         filename = os.path.basename(report_path)
+        try:
+            stat = os.stat(report_path)
+            report_record = CaseReport(
+                case_id=case.id,
+                filename=filename,
+                file_path=report_path,
+                file_size=stat.st_size,
+                report_type=CaseReport.extract_report_type(filename),
+                file_created_at=datetime.fromtimestamp(stat.st_mtime),
+                created_by=current_user.username if current_user.is_authenticated else "system",
+            )
+            db.session.add(report_record)
+            db.session.flush()
+            for snapshot in snapshot_payloads:
+                row = snapshot_service.get_snapshot(case.id, snapshot["uuid"])
+                from models.investigation_thread import InvestigationThreadReportSnapshot
+                snapshot_row = InvestigationThreadReportSnapshot.query.filter_by(case_id=case.id, uuid=row["uuid"]).first()
+                if snapshot_row:
+                    snapshot_row.case_report_id = report_record.id
+            db.session.commit()
+        except Exception:
+            db.session.rollback()
+            logger.warning("Could not create CaseReport record for deterministic report", exc_info=True)
         safe_log_case_work_activity(
             case_uuid,
             CaseWorkActivityType.REPORT_ACTION,

@@ -118,6 +118,11 @@ def generate_ai_report_task(self, case_id: int, case_uuid: str, template_id=None
         try:
             if is_cancellation_requested(AI_REPORT_CANCEL_SCOPE, case_uuid):
                 raise ReportGenerationCancelled('Report generation cancelled before start')
+            from utils.feature_availability import FeatureAvailability
+            if not FeatureAvailability.is_ai_enabled():
+                message = 'AI features are not currently available'
+                set_ai_report_status(case_uuid, status='failed', error=message, message=message)
+                return {'success': False, 'error': message}
             if report_kind == 'timeline':
                 from utils.ai_timeline_generator import AITimelineGenerator
                 generator = AITimelineGenerator(case_id, template_id, progress_callback=_progress)

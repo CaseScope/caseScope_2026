@@ -1,6 +1,15 @@
 {
-  "version": "4.16.4",
+  "version": "4.17.0",
   "changelog": [
+    {
+      "version": "4.17.0",
+      "date": "2026-08-12",
+      "changes": [
+        "Added Phase 0F bounded Investigation Context with ERK anchors, UTC relative windows, host/user/process/logon modes, and keyset pagination",
+        "Extended graph path search with relationship, derivation, and active support-time filters while preserving existing hard traversal limits",
+        "Added immutable Investigation Thread report snapshots with exact Thread/View version pinning, evidence-set fingerprints, deterministic hashes, frozen Saved View SVG rendering, source-availability warnings, and deterministic non-AI report context"
+      ]
+    },
     {
       "version": "4.16.4",
       "date": "2026-08-12",

@@ -16,6 +16,11 @@ from utils.investigation_threads import (
     InvestigationThreadNotFoundError,
     InvestigationThreadService,
 )
+from utils.investigation_context import InvestigationContextError, InvestigationContextService
+from utils.investigation_thread_report_snapshots import (
+    InvestigationThreadReportSnapshotError,
+    InvestigationThreadReportSnapshotService,
+)
 
 
 logger = logging.getLogger(__name__)
@@ -52,7 +57,7 @@ def _error_response(exc: Exception):
         }), 409
     if isinstance(exc, InvestigationThreadNotFoundError):
         return jsonify({"success": False, "error": str(exc)}), 404
-    if isinstance(exc, (InvestigationThreadError, InvestigationReferenceError, GraphQueryError)):
+    if isinstance(exc, (InvestigationThreadError, InvestigationContextError, InvestigationThreadReportSnapshotError, InvestigationReferenceError, GraphQueryError)):
         return jsonify({"success": False, "error": str(exc)}), 400
     if isinstance(exc, GraphNotFoundError):
         return jsonify({"success": False, "error": str(exc)}), 404
@@ -64,6 +69,68 @@ def _expected_version_from_payload(payload: dict):
     if "expected_version" in payload:
         return payload.get("expected_version")
     return payload.get("version")
+
+
+@investigation_threads_bp.route("/investigation/<case_uuid>/context", methods=["GET"])
+@login_required
+def investigation_context(case_uuid):
+    case, error = _load_case(case_uuid)
+    if error:
+        return error
+    try:
+        payload = InvestigationContextService().context(
+            case.id,
+            anchor_erk=request.args.get("anchor_erk"),
+            anchor_timestamp=request.args.get("anchor_timestamp"),
+            window=request.args.get("window", "30s"),
+            mode=request.args.get("mode", "relative"),
+            source_types=request.args.getlist("source_types") or request.args.get("source_types"),
+            all_hosts=request.args.get("all_hosts", "false"),
+            limit=request.args.get("limit"),
+            cursor=request.args.get("cursor"),
+        )
+        return jsonify({"success": True, **payload})
+    except Exception as exc:
+        return _error_response(exc)
+
+
+@investigation_threads_bp.route("/investigation/<case_uuid>/report-snapshots", methods=["POST"])
+@login_required
+def create_thread_report_snapshot(case_uuid):
+    case, error = _load_case(case_uuid)
+    if error:
+        return error
+    denied = _require_case_write_access(current_user, "Viewers cannot create report snapshots")
+    if denied:
+        return denied
+    payload = request.get_json(silent=True) or {}
+    try:
+        snapshot = InvestigationThreadReportSnapshotService().create_snapshot(
+            case.id,
+            thread_uuid=payload.get("thread_uuid"),
+            expected_thread_version=payload.get("expected_thread_version", payload.get("thread_version")),
+            expected_saved_view_version=payload.get("expected_saved_view_version", payload.get("saved_view_version")),
+            case_report_id=payload.get("case_report_id"),
+            report_generation_uuid=payload.get("report_generation_uuid"),
+            actor=_actor(),
+            operation_id=payload.get("operation_id"),
+        )
+        return jsonify({"success": True, "snapshot": snapshot}), 201
+    except Exception as exc:
+        return _error_response(exc)
+
+
+@investigation_threads_bp.route("/investigation/<case_uuid>/report-snapshots/<snapshot_uuid>", methods=["GET"])
+@login_required
+def get_thread_report_snapshot(case_uuid, snapshot_uuid):
+    case, error = _load_case(case_uuid)
+    if error:
+        return error
+    try:
+        snapshot = InvestigationThreadReportSnapshotService().get_snapshot(case.id, snapshot_uuid)
+        return jsonify({"success": True, "snapshot": snapshot})
+    except Exception as exc:
+        return _error_response(exc)
 
 
 @investigation_threads_bp.route("/investigation-threads/<case_uuid>", methods=["GET"])
