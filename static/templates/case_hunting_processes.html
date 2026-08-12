@@ -149,7 +149,10 @@
     <div class="modal-container modal-xl" onclick="event.stopPropagation()">
         <div class="modal-header">
             <h3 class="modal-title" id="modalTitle">Process Tree</h3>
-            <button class="modal-close" onclick="closeProcessModal()">&times;</button>
+            <div class="modal-header-actions">
+                <button class="btn btn-secondary btn-sm" id="processGraphPivotBtn" onclick="openProcessInGraph()">🕸️ Open in Relationship Graph</button>
+                <button class="modal-close" onclick="closeProcessModal()">&times;</button>
+            </div>
         </div>
         <div class="modal-body">
             <!-- Parent Link -->
@@ -215,6 +218,7 @@
     </div>
 </div>
 
+<script src="{{ url_for('static', filename='js/graph_pivot.js') }}"></script>
 <script>
 const caseId = {{ case.id }};
 const caseUuid = '{{ case.uuid }}';
@@ -224,6 +228,33 @@ let perPage = 50;
 let searchTimeout = null;
 let currentProcess = null;
 let parentChain = [];
+let selectedProcessRow = null;
+
+// Pivot the currently opened process row into the relationship graph.
+// Memory rows (mem_<id>) resolve an authoritative memory PROCESS; event rows
+// only carry hostname+PID, which the server treats as HOST-only/unresolved
+// (PID-only is never a defensible graph PROCESS identity).
+function openProcessInGraph() {
+    const proc = selectedProcessRow;
+    if (!proc) return;
+    const erk = String(proc.evidence_record_key || '').trim();
+    if (erk) {
+        openGraphPivot(caseUuid, 'evidence', { evidence_record_key: erk });
+        return;
+    }
+    const rowId = String(proc.id || '');
+    if (proc.source === 'memory' && rowId.indexOf('mem_') === 0) {
+        const memId = parseInt(rowId.slice(4), 10);
+        if (Number.isFinite(memId)) {
+            openGraphPivot(caseUuid, 'memory_process', { memory_process_id: memId });
+            return;
+        }
+    }
+    openGraphPivot(caseUuid, 'process_hunt', {
+        hostname: proc.hostname || '',
+        pid: proc.pid,
+    });
+}
 
 function renderProcessUnifiedFindings(findings) {
     const list = document.getElementById('processUnifiedList');
@@ -408,6 +439,7 @@ function renderProcessTable(processes) {
 
 // Show process tree modal
 async function showProcessTree(proc) {
+    selectedProcessRow = proc;
     const modal = document.getElementById('processTreeModal');
     const modalLoading = document.getElementById('modalLoading');
     const currentProcessInfo = document.getElementById('currentProcessInfo');

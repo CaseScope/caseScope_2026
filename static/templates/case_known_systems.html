@@ -474,6 +474,7 @@ Write-Host "Exported to: $OutputPath" -ForegroundColor Green</pre>
 {% endblock %}
 
 {% block scripts %}
+<script src="{{ url_for('static', filename='js/graph_pivot.js') }}"></script>
 <script>
 const caseUuid = '{{ case.uuid }}';
 const caseId = {{ case.id }};
@@ -547,6 +548,7 @@ function renderSystems(systems) {
             <td class="hidden-cell" onclick="openSystemModal(${s.id})">${s.hidden ? '<span class="badge badge-warning">Hidden</span>' : ''}</td>
             <td class="actions-cell">
                 <button class="btn btn-sm btn-secondary" onclick="event.stopPropagation(); openSystemModal(${s.id})">Edit</button>
+                <button class="btn btn-sm btn-secondary" onclick="event.stopPropagation(); openGraphPivot(caseUuid, 'known_system', { known_system_id: ${s.id} })" title="Open in Relationship Graph">🕸️</button>
             </td>
         </tr>
     `).join('');

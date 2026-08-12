@@ -879,6 +879,7 @@
 }
 </style>
 
+<script src="{{ url_for('static', filename='js/graph_pivot.js') }}"></script>
 <script>
 const caseId = {{ case.id }};
 const caseUuid = '{{ case.uuid }}';
@@ -1157,6 +1158,7 @@ function buildProcessTreeHTML(nodes, isRoot = false) {
                     <div class="process-badges">
                         ${crossBadge}
                         <button class="pivot-btn" onclick="pivotToEvents(event, '${escapeHtml(node.name)}')" title="Search in Events">🔍 Case</button>
+                        <button class="pivot-btn" onclick="event.stopPropagation(); openGraphPivot(caseUuid, 'memory_process', { memory_process_id: ${node.id} })" title="Open in Relationship Graph">🕸️</button>
                     </div>
                 </div>
                 ${hasChildren ? `<div class="process-children" style="${childrenStyle}">${buildProcessTreeHTML(node.children)}</div>` : ''}
@@ -1237,6 +1239,7 @@ function renderProcessList() {
                         <td>
                             ${p.cross_memory_count > 1 ? `<span class="cross-mem-badge" onclick="showCrossRefs(event, 'process', '${p.name}', ${currentJobId})">🧠×${p.cross_memory_count}</span>` : ''}
                             <button class="pivot-btn" onclick="pivotToEvents(event, '${escapeHtml(p.name)}')">🔍</button>
+                            <button class="pivot-btn" onclick="openGraphPivot(caseUuid, 'memory_process', { memory_process_id: ${p.id} })" title="Open in Relationship Graph">🕸️</button>
                         </td>
                     </tr>
                 `).join('')}
@@ -1316,6 +1319,7 @@ function renderNetwork(connections) {
                         <td>
                             ${c.cross_memory_count > 1 ? `<span class="cross-mem-badge" onclick="showCrossRefs(event, 'ip', '${c.foreign_addr}', ${currentJobId})">🧠×${c.cross_memory_count}</span>` : ''}
                             <button class="pivot-btn" onclick="pivotToEvents(event, '${c.foreign_addr}')" title="Search IP in Events">🔍</button>
+                            <button class="pivot-btn" onclick="openGraphPivot(caseUuid, 'memory_network', { memory_network_id: ${c.id} })" title="Open in Relationship Graph">🕸️</button>
                         </td>
                     </tr>
                 `).join('')}
@@ -1381,6 +1385,7 @@ function renderServices(services) {
                         <td>
                             ${s.cross_memory_count > 1 ? `<span class="cross-mem-badge" onclick="showCrossRefs(event, 'service', '${s.name}', ${currentJobId})">🧠×${s.cross_memory_count}</span>` : ''}
                             <button class="pivot-btn" onclick="pivotToEvents(event, '${escapeHtml(s.name)}')">🔍</button>
+                            <button class="pivot-btn" onclick="openGraphPivot(caseUuid, 'memory_service', { memory_service_id: ${s.id} })" title="Open in Relationship Graph">🕸️</button>
                         </td>
                     </tr>
                 `).join('')}

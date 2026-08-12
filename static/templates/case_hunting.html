@@ -304,7 +304,10 @@
     <div class="modal-container modal-event-detail" onclick="event.stopPropagation()">
         <div class="modal-header">
             <h3 class="modal-title" id="event-modal-title">Event Details</h3>
-            <button class="modal-close" onclick="closeEventModal()">&times;</button>
+            <div class="modal-header-actions">
+                <button class="btn btn-secondary btn-sm" id="event-graph-pivot-btn" onclick="openEventInGraph()">🕸️ Open in Relationship Graph</button>
+                <button class="modal-close" onclick="closeEventModal()">&times;</button>
+            </div>
         </div>
         <div class="event-modal-tabs">
             <button class="event-modal-tab active" data-tab="info" onclick="switchEventModalTab('info')">
@@ -471,6 +474,7 @@
 {% endblock %}
 
 {% block scripts %}
+<script src="{{ url_for('static', filename='js/graph_pivot.js') }}"></script>
 <script>
 const caseId = {{ case.id }};
 const CASE_ID = caseId;
@@ -4562,6 +4566,18 @@ function showEventDetail(index) {
     const event = currentEventsData[index];
     if (!event) return;
     openEventDetailModal(event);
+}
+
+function openEventInGraph() {
+    if (!currentModalEvent) return;
+    const erk = String(currentModalEvent.evidence_record_key || '').trim();
+    if (!erk) {
+        if (typeof showToast === 'function') {
+            showToast('This event has no Evidence Identity v2 record key; cannot pivot to graph.', 'error');
+        }
+        return;
+    }
+    openGraphPivot(caseUuid, 'evidence', { evidence_record_key: erk });
 }
 
 function openEventDetailModal(event) {

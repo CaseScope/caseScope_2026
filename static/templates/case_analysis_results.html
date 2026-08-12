@@ -295,7 +295,10 @@
     <div class="modal-content" style="width: 900px; max-width: 95vw; max-height: 90vh; overflow-y: auto; background: var(--bg-secondary); border-radius: 8px; box-shadow: 0 4px 20px rgba(0,0,0,0.5); margin: 20px auto;">
         <div class="modal-header">
             <h3 class="modal-title" id="finding-title">Finding Detail</h3>
-            <button class="modal-close" onclick="closeFindingModal()">&times;</button>
+            <div class="modal-header-actions">
+                <button class="btn btn-secondary btn-sm" onclick="openFindingInGraph()" title="Graph Supporting Evidence">🕸️ Graph Supporting Evidence</button>
+                <button class="modal-close" onclick="closeFindingModal()">&times;</button>
+            </div>
         </div>
         <div class="modal-body" id="finding-detail-content" style="padding: 25px;">
             <!-- Populated dynamically -->
@@ -457,6 +460,7 @@
 }
 </style>
 
+<script src="{{ url_for('static', filename='js/graph_pivot.js') }}"></script>
 <script>
 const CASE_ID = {{ case.id }};
 const CASE_UUID = '{{ case.uuid }}';
@@ -464,6 +468,35 @@ const ANALYSIS_ID = '{{ analysis.analysis_id }}';
 let currentView = 'summary';
 let resultsData = {};
 let activeFinding = null;
+
+// Pivot the open finding into the relationship graph. Only typed identity is
+// used: an explicit pattern_match_id, a full unified-finding identity
+// (source_system + dedup_key + finding_id under this analysis), or the
+// finding's own evidence_record_keys. Compact unified-findings previews on the
+// hunting pages are intentionally NOT wired here because they do not expose a
+// defensible typed identity (no dedup_key/finding_id/ERKs), so they would
+// always resolve to "unresolved" and are skipped.
+function openFindingInGraph() {
+    const f = activeFinding;
+    if (!f) return;
+    if (f.pattern_match_id) {
+        openGraphPivot(CASE_UUID, 'pattern_match', { pattern_match_id: f.pattern_match_id });
+        return;
+    }
+    const erks = [];
+    if (Array.isArray(f.evidence_record_keys)) {
+        f.evidence_record_keys.forEach(e => { if (e) erks.push(String(e)); });
+    }
+    if (f.evidence_record_key) erks.push(String(f.evidence_record_key));
+    openGraphPivot(CASE_UUID, 'case_analysis_finding', {
+        analysis_id: ANALYSIS_ID,
+        source_system: f.source_system,
+        dedup_key: f.dedup_key,
+        finding_id: f.finding_id || f.id,
+        finding_type: f.finding_type || f.detail_type || f.type,
+        evidence_record_keys: erks,
+    });
+}
 
 function getUnifiedSourceBadge(source) {
     const sourceKey = String(source || '').toLowerCase();

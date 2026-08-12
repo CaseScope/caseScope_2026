@@ -64,6 +64,7 @@ from models.graph import (
     GraphEntity, GraphEntityObservation, GraphRelationship,
     GraphRelationshipEvidence
 )
+from models.ioc_evidence_match import IOCEvidenceMatch
 
 __all__ = [
     'db', 'User', 'Client', 'Agent', 'AgentStatus', 'AgentOS',
@@ -106,5 +107,6 @@ __all__ = [
     'HuntNegativeFinding', 'HuntNegativeFindingState', 'HuntNegativeFindingType',
     'HuntRun', 'HuntSourceAvailabilityStatus', 'HuntStep', 'HuntStepStatus',
     'GraphEntity', 'GraphEntityObservation', 'GraphRelationship',
-    'GraphRelationshipEvidence'
+    'GraphRelationshipEvidence',
+    'IOCEvidenceMatch'
 ]

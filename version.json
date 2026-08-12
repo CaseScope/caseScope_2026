@@ -1,6 +1,16 @@
 {
-  "version": "4.15.1",
+  "version": "4.16.0",
   "changelog": [
+    {
+      "version": "4.16.0",
+      "date": "2026-08-12",
+      "changes": [
+        "Phase 0E: existing-surface Relationship Graph pivots via centralized GraphPivotService (Hunt, Process, Memory, Network, IOC, Known Systems/Users, Findings)",
+        "Phase 0E: graph support lifecycle with ACTIVE/PENDING/UNAVAILABLE/INVALIDATED support states and UNSUPPORTED relationship validation on CaseFile removal/reprocess",
+        "Phase 0E: exact IOC UUID to ERK match provenance (ioc_evidence_matches); events.ioc_types remains display-only",
+        "Phase 0E: enabled memory CONNECTED_TO/LOADED_MODULE/SERVICE_RUNS_PROCESS/HAS_SECURITY_CONTEXT and Zeek DNS RESOLVED_TO with typed native locators; event PID-only CONNECTED_TO and service/registry/scheduled-task extractors remain disabled"
+      ]
+    },
     {
       "version": "4.15.1",
       "date": "2026-08-12",

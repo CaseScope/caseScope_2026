@@ -15,6 +15,7 @@
 </div>
 
 <div class="graph-workspace" data-case-uuid="{{ case.uuid }}">
+    <div id="graph-pivot-banner" class="graph-pivot-banner" style="display: none;"></div>
     <section class="tile graph-search-panel">
         <div class="tile-header">
             <div class="tile-title">Entity Search</div>
@@ -382,8 +383,15 @@ function renderGraph() {
         line.setAttribute("y1", source.y);
         line.setAttribute("x2", target.x);
         line.setAttribute("y2", target.y);
-        line.setAttribute("class", `graph-edge${graphState.selectedEdgeId === Number(edge.id) ? " selected" : ""}${graphState.lastPathEdgeIds.has(Number(edge.id)) ? " path" : ""}`);
+        const edgeState = String(edge.validation_state || "").toUpperCase();
+        const unsupportedEdge = edgeState === "UNSUPPORTED" || edgeState === "INVALIDATED";
+        line.setAttribute("class", `graph-edge${graphState.selectedEdgeId === Number(edge.id) ? " selected" : ""}${graphState.lastPathEdgeIds.has(Number(edge.id)) ? " path" : ""}${unsupportedEdge ? " unsupported" : ""}`);
         line.setAttribute("marker-end", "url(#graph-arrow)");
+        if (unsupportedEdge) {
+            const titleEl = document.createElementNS("http://www.w3.org/2000/svg", "title");
+            titleEl.textContent = "Unsupported \u2014 current source evidence unavailable";
+            line.appendChild(titleEl);
+        }
         line.addEventListener("click", event => {
             event.stopPropagation();
             selectEdge(Number(edge.id));
@@ -522,6 +530,10 @@ function renderRelationshipInspector(relationship) {
     graphAppendText(inspector, "graph-inspector-title", graphText(relationship.relationship_type));
     inspector.appendChild(graphField("Derivation", relationship.derivation_type));
     inspector.appendChild(graphField("Validation", relationship.validation_state));
+    const relState = String(relationship.validation_state || "").toUpperCase();
+    if (relState === "UNSUPPORTED" || relState === "INVALIDATED") {
+        graphAppendText(inspector, "graph-unsupported-note", "Unsupported \u2014 current source evidence unavailable");
+    }
     inspector.appendChild(graphField("Confidence", relationship.confidence));
     inspector.appendChild(graphField("Supported by", `${relationship.support_count || 0} evidence records`));
     inspector.appendChild(graphField("Source", relationship.source_entity ? relationship.source_entity.display_value : relationship.source_entity_id));
@@ -1079,6 +1091,27 @@ document.addEventListener("DOMContentLoaded", () => {
     document.getElementById("graph-canvas").addEventListener("mouseup", endNodeDrag);
     document.getElementById("graph-canvas").addEventListener("mouseleave", endNodeDrag);
     window.addEventListener("resize", renderGraph);
+
+    applyGraphDeepLink();
 });
+
+function applyGraphDeepLink() {
+    const params = new URLSearchParams(window.location.search);
+    const pivotContext = params.get("pivot_context");
+    if (pivotContext) {
+        const banner = document.getElementById("graph-pivot-banner");
+        if (banner) {
+            banner.textContent = pivotContext;
+            banner.style.display = "block";
+        }
+    }
+    const rootParam = params.get("root_entity_id");
+    if (rootParam) {
+        const rootId = Number(rootParam);
+        if (Number.isFinite(rootId) && rootId > 0) {
+            selectRootEntity(rootId);
+        }
+    }
+}
 </script>
 {% endblock %}

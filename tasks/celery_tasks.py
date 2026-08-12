@@ -340,13 +340,57 @@ def _log_case_file_rebuild(case_uuid: str, entity_name: str, details: Dict[str, 
 
 
 
-def _delete_standard_case_file_scope(case_uuid: str, case_id: int, records: List[Any]) -> Dict[str, int]:
-    """Delete selected CaseFile rows and their indexed events."""
+def _delete_standard_case_file_scope(
+    case_uuid: str,
+    case_id: int,
+    records: List[Any],
+    lifecycle_mode: str = 'removal',
+) -> Dict[str, int]:
+    """Delete selected CaseFile rows and their indexed events.
+
+    lifecycle_mode:
+      'removal'      -> support finalized UNAVAILABLE (permanent delete)
+      'revalidation' -> support finalized INVALIDATED (reprocess/rebuild path)
+    """
+    import itertools
+
     from models.database import db
     from utils.clickhouse import delete_file_events
+    from utils.graph_support_lifecycle import (
+        GraphSupportLifecycleService,
+        stream_case_file_evidence_record_keys,
+    )
+
+    lifecycle = GraphSupportLifecycleService()
+    revalidation = str(lifecycle_mode or 'removal').lower() == 'revalidation'
 
     deleted_ids = set()
     events_deleted = 0
+
+    # Mark graph support pending before destructive delete.
+    for record in records:
+        if not record:
+            continue
+        try:
+            erk_iter = itertools.chain.from_iterable(
+                stream_case_file_evidence_record_keys(record.id)
+            )
+            if revalidation:
+                lifecycle.begin_case_file_revalidation(
+                    case_id=case_id,
+                    case_file_id=record.id,
+                    evidence_record_keys=erk_iter,
+                )
+            else:
+                lifecycle.begin_case_file_removal(
+                    case_id=case_id,
+                    case_file_id=record.id,
+                    evidence_record_keys=erk_iter,
+                )
+        except Exception as exc:
+            logger.warning(
+                f"Graph support pre-{lifecycle_mode} marking failed for CaseFile {record.id}: {exc}"
+            )
 
     for record in records:
         if not record or record.id in deleted_ids:
@@ -356,6 +400,19 @@ def _delete_standard_case_file_scope(case_uuid: str, case_id: int, records: List
             events_deleted += record.events_indexed or 0
         except Exception as exc:
             logger.error(f"Failed to delete ClickHouse events for CaseFile {record.id}: {exc}")
+            # Source still exists: restore ACTIVE support for pending rows.
+            for restore_record in records:
+                if not restore_record:
+                    continue
+                try:
+                    lifecycle.restore_case_file_support_if_source_remains(
+                        case_id=case_id,
+                        case_file_id=restore_record.id,
+                    )
+                except Exception as restore_err:
+                    logger.warning(
+                        f"Graph support restore failed for CaseFile {restore_record.id}: {restore_err}"
+                    )
             raise RuntimeError(
                 f"Failed to delete ClickHouse events for CaseFile {record.id}; rebuild aborted before metadata deletion"
             ) from exc
@@ -363,6 +420,25 @@ def _delete_standard_case_file_scope(case_uuid: str, case_id: int, records: List
         db.session.delete(record)
 
     db.session.commit()
+
+    # CH + PG deletion committed: finalize graph support.
+    for record_id in deleted_ids:
+        try:
+            if revalidation:
+                lifecycle.finalize_case_file_revalidation(
+                    case_id=case_id,
+                    case_file_id=record_id,
+                )
+            else:
+                lifecycle.finalize_case_file_removal(
+                    case_id=case_id,
+                    case_file_id=record_id,
+                )
+        except Exception as exc:
+            logger.warning(
+                f"Graph support finalize-{lifecycle_mode} failed for CaseFile {record_id}: {exc}"
+            )
+
     return {
         'records_deleted': len(deleted_ids),
         'events_deleted': events_deleted,
@@ -1960,7 +2036,30 @@ def materialize_case_graph_task(self, case_id: int, case_uuid: str = '') -> Dict
             from utils.graph_materializer import materialize_events_for_case
 
             result = materialize_events_for_case(case_id)
-            result['success'] = result.get('errors', 0) == 0
+
+            # Phase 0E: materialize native (non-event) sources AFTER events.
+            # Failures in native materialization must not fail event graph facts.
+            try:
+                from utils.graph_memory_extractors import materialize_memory_for_case
+
+                result['memory'] = materialize_memory_for_case(case_id)
+            except Exception as mem_exc:
+                logger.warning(f"Memory graph materialization failed for case {case_id}: {mem_exc}")
+                result['memory'] = {'error': str(mem_exc)}
+
+            try:
+                from utils.graph_network_extractors import materialize_network_for_case
+
+                result['network'] = materialize_network_for_case(case_id)
+            except Exception as net_exc:
+                logger.warning(f"Network graph materialization failed for case {case_id}: {net_exc}")
+                result['network'] = {'error': str(net_exc)}
+
+            native_errors = (
+                int(result.get('memory', {}).get('errors', 0) or 0)
+                + int(result.get('network', {}).get('errors', 0) or 0)
+            )
+            result['success'] = (result.get('errors', 0) == 0) and (native_errors == 0)
             logger.info(f"Graph materialization complete for case {case_id}: {result}")
             return result
         except Exception as exc:
@@ -2185,7 +2284,9 @@ def rebuild_single_case_file_task(
         else:
             delete_records = [case_file]
 
-        delete_summary = _delete_standard_case_file_scope(case_uuid, case_id, delete_records)
+        delete_summary = _delete_standard_case_file_scope(
+            case_uuid, case_id, delete_records, lifecycle_mode='revalidation'
+        )
 
         rebuild_entries: List[Dict[str, Any]] = []
         if target['mode'] == STANDARD_REBUILD_MODE_SINGLE_MEMBER:

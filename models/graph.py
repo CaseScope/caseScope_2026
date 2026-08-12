@@ -153,6 +153,13 @@ class GraphRelationshipEvidence(db.Model):
     observed_at = db.Column(db.DateTime, nullable=True)
     created_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
     metadata_json = db.Column(db.JSON, nullable=False, default=dict)
+    # Phase 0E support lifecycle fields
+    support_state = db.Column(db.String(40), nullable=False, default='ACTIVE', index=True)
+    source_ref_type = db.Column(db.String(40), nullable=True, index=True)
+    source_ref_id = db.Column(db.Integer, nullable=True, index=True)
+    support_locator_json = db.Column(db.JSON, nullable=True)
+    support_state_reason = db.Column(db.String(255), nullable=True)
+    support_state_changed_at = db.Column(db.DateTime, nullable=True)
 
     relationship = db.relationship(
         'GraphRelationship',
@@ -169,6 +176,13 @@ class GraphRelationshipEvidence(db.Model):
             name='uq_graph_relationship_evidence_once',
         ),
         db.Index('idx_graph_relationship_evidence_case_key', 'case_id', 'evidence_record_key'),
+        db.Index('idx_graph_rel_evidence_case_support_state', 'case_id', 'support_state'),
+        db.Index(
+            'idx_graph_rel_evidence_case_source_ref',
+            'case_id',
+            'source_ref_type',
+            'source_ref_id',
+        ),
     )
 
     def __repr__(self):

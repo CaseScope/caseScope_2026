@@ -26,6 +26,8 @@ from utils.graph_identity import (
     EntitySpec,
     GraphDerivationType,
     GraphEntityType,
+    GraphSourceRefType,
+    GraphSupportState,
     GraphValidationState,
     build_domain_entity,
     build_file_hash_entity,
@@ -39,6 +41,7 @@ from utils.graph_identity import (
     build_url_entity,
     build_user_entity,
 )
+from utils.graph_support_locator import validate_support_provenance
 
 logger = logging.getLogger(__name__)
 EVIDENCE_RECORD_KEY_RE = re.compile(r'^erk:v2:[0-9a-f]{64}$')
@@ -177,10 +180,15 @@ class GraphMaterializer:
             raise ValueError('Graph relationship candidate case_id does not match materialization case')
         if candidate.derivation_type not in GraphDerivationType.AUTHORITATIVE_EXTRACTOR_TYPES:
             raise ValueError(f'Authoritative extractor cannot materialize {candidate.derivation_type}')
-        if not EVIDENCE_RECORD_KEY_RE.fullmatch(_clean(candidate.evidence_record_key)):
-            raise ValueError('Graph relationship provenance requires Evidence Identity v2 key')
+        support_locator = dict(candidate.support_locator or {})
+        validate_support_provenance(
+            evidence_record_key=candidate.evidence_record_key,
+            source_table=candidate.source_table,
+            support_locator=support_locator or None,
+        )
 
         observed_at = _coerce_datetime(candidate.observed_at)
+        source_ref_type, source_ref_id = self._resolve_source_ref(candidate, support_locator)
         source_entity = self._get_or_create_entity(
             case_id,
             self.canonicalize_entity_spec(case_id, candidate.source),
@@ -213,6 +221,9 @@ class GraphMaterializer:
             observed_at=observed_at,
             metadata=candidate.metadata,
         )
+        # Reprocessing that recreates equivalent support reactivates the edge.
+        if relationship.validation_state != GraphValidationState.ACTIVE:
+            relationship.validation_state = GraphValidationState.ACTIVE
         self._get_or_create_relationship_evidence(
             case_id=case_id,
             relationship_id=relationship.id,
@@ -223,8 +234,41 @@ class GraphMaterializer:
             extractor_version=candidate.extractor_version,
             observed_at=observed_at,
             metadata=candidate.metadata,
+            source_ref_type=source_ref_type,
+            source_ref_id=source_ref_id,
+            support_locator=support_locator,
         )
         return relationship
+
+    def _resolve_source_ref(
+        self,
+        candidate: GraphRelationshipCandidate,
+        support_locator: Dict[str, Any],
+    ) -> tuple[Optional[str], Optional[int]]:
+        if candidate.source_ref_type and candidate.source_ref_id is not None:
+            return str(candidate.source_ref_type), int(candidate.source_ref_id)
+        meta = candidate.metadata or {}
+        if meta.get('case_file_id') not in (None, ''):
+            try:
+                return GraphSourceRefType.CASE_FILE, int(meta['case_file_id'])
+            except (TypeError, ValueError):
+                pass
+        if _clean(candidate.source_table) == 'events':
+            # Events always prefer CaseFile when present on the candidate/event.
+            raw_case_file = getattr(candidate, 'case_file_id', None)
+            if raw_case_file not in (None, ''):
+                try:
+                    return GraphSourceRefType.CASE_FILE, int(raw_case_file)
+                except (TypeError, ValueError):
+                    pass
+        if support_locator:
+            from utils.graph_support_locator import source_ref_from_locator
+
+            try:
+                return source_ref_from_locator(support_locator)
+            except Exception:
+                return None, None
+        return None, None
 
     def materialize_candidates(self, case_id: int, candidates: Iterable[GraphRelationshipCandidate]) -> int:
         count = 0
@@ -394,6 +438,9 @@ class GraphMaterializer:
         extractor_version: str,
         observed_at: Optional[datetime],
         metadata: Dict[str, Any],
+        source_ref_type: Optional[str] = None,
+        source_ref_id: Optional[int] = None,
+        support_locator: Optional[Dict[str, Any]] = None,
     ) -> GraphRelationshipEvidence:
         evidence = GraphRelationshipEvidence.query.filter_by(
             relationship_id=relationship_id,
@@ -403,7 +450,26 @@ class GraphMaterializer:
             extractor_version=extractor_version,
         ).first()
         if evidence:
+            # Reactivate previously invalidated/unavailable support when equivalent
+            # canonical evidence is rematerialized (reprocess path).
+            if evidence.support_state != GraphSupportState.ACTIVE:
+                evidence.support_state = GraphSupportState.ACTIVE
+                evidence.support_state_reason = 'rematerialized'
+                evidence.support_state_changed_at = datetime.utcnow()
+            if source_ref_type and not evidence.source_ref_type:
+                evidence.source_ref_type = source_ref_type
+                evidence.source_ref_id = source_ref_id
+            if support_locator and not evidence.support_locator_json:
+                evidence.support_locator_json = support_locator
+            evidence.metadata_json = _merge_metadata(evidence.metadata_json, metadata)
             return evidence
+        # Prefer attaching CaseFile from event metadata when present.
+        if not source_ref_type and metadata and metadata.get('case_file_id') not in (None, ''):
+            try:
+                source_ref_type = GraphSourceRefType.CASE_FILE
+                source_ref_id = int(metadata['case_file_id'])
+            except (TypeError, ValueError):
+                pass
         evidence = GraphRelationshipEvidence(
             case_id=case_id,
             relationship_id=relationship_id,
@@ -414,6 +480,11 @@ class GraphMaterializer:
             extractor_version=extractor_version,
             observed_at=observed_at,
             metadata_json=metadata or {},
+            support_state=GraphSupportState.ACTIVE,
+            source_ref_type=source_ref_type,
+            source_ref_id=source_ref_id,
+            support_locator_json=support_locator or None,
+            support_state_changed_at=datetime.utcnow(),
         )
         try:
             with self.session.begin_nested():

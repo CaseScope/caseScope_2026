@@ -926,6 +926,7 @@
 {% endblock %}
 
 {% block scripts %}
+<script src="{{ url_for('static', filename='js/graph_pivot.js') }}"></script>
 <script>
 const caseUuid = '{{ case.uuid }}';
 const caseId = {{ case.id }};
@@ -1114,6 +1115,7 @@ function renderIOCs(iocs) {
             </td>
             <td class="actions-cell">
                 <button class="btn btn-sm btn-secondary" onclick="event.stopPropagation(); openDetailModal(${ioc.id})">View</button>
+                <button class="btn btn-sm btn-secondary" onclick="event.stopPropagation(); openGraphPivot(caseUuid, 'ioc', { ioc_uuid: '${escapeHtml(ioc.uuid)}' })" title="Show Case Relationships">🕸️ Relationships</button>
             </td>
         </tr>
     `).join('');

@@ -9,6 +9,7 @@ from flask_login import current_user, login_required
 from models.case import Case
 from routes.route_helpers import _require_case_write_access
 from utils.graph_query import GraphNotFoundError, GraphQueryError, GraphQueryService
+from utils.graph_pivots import GraphPivotError, GraphPivotService
 from utils.graph_saved_views import (
     GraphSavedViewConflictError,
     GraphSavedViewError,
@@ -41,7 +42,7 @@ def _error_response(exc: Exception):
         return jsonify(payload), 409
     if isinstance(exc, (GraphSavedViewNotFoundError, GraphNotFoundError)):
         return jsonify({"success": False, "error": str(exc)}), 404
-    if isinstance(exc, (GraphSavedViewError, GraphQueryError, InvestigationReferenceError)):
+    if isinstance(exc, (GraphSavedViewError, GraphQueryError, GraphPivotError, InvestigationReferenceError)):
         return jsonify({"success": False, "error": str(exc)}), 400
     logger.exception("Unexpected graph API error")
     return jsonify({"success": False, "error": "Graph query failed"}), 500
@@ -49,6 +50,10 @@ def _error_response(exc: Exception):
 
 def _service() -> GraphQueryService:
     return GraphQueryService()
+
+
+def _pivot_service() -> GraphPivotService:
+    return GraphPivotService()
 
 
 def _view_service() -> GraphSavedViewService:
@@ -317,6 +322,28 @@ def delete_saved_view(case_uuid, view_uuid):
             view_uuid,
             expected_version=expected_version,
             actor=_actor(),
+        )
+        return jsonify({"success": True, **result})
+    except Exception as exc:
+        return _error_response(exc)
+
+
+@graph_bp.route("/graph/<case_uuid>/pivot", methods=["POST"])
+@login_required
+def graph_pivot(case_uuid):
+    """Read-only case-scoped pivot into current graph roots.
+
+    VIEWER may use this endpoint. It never creates graph facts.
+    """
+    case, error = _load_case(case_uuid)
+    if error:
+        return error
+    payload = request.get_json(silent=True) or {}
+    try:
+        result = _pivot_service().resolve(
+            case.id,
+            kind=payload.get("kind"),
+            reference=payload.get("reference") or {},
         )
         return jsonify({"success": True, **result})
     except Exception as exc:

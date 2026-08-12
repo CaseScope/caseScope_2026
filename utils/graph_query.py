@@ -12,7 +12,7 @@ from sqlalchemy.orm import aliased
 
 from models.database import db
 from models.graph import GraphEntity, GraphEntityObservation, GraphRelationship, GraphRelationshipEvidence
-from utils.graph_identity import GraphEntityType, GraphRelationshipType, GraphValidationState
+from utils.graph_identity import GraphEntityType, GraphRelationshipType, GraphSupportState, GraphValidationState
 
 
 EVIDENCE_RECORD_KEY_RE = re.compile(r"^erk:v2:[0-9a-f]{64}$")
@@ -194,7 +194,12 @@ def _entity_dict(entity: GraphEntity) -> dict[str, Any]:
     }
 
 
-def _relationship_dict(relationship: GraphRelationship, support_count: int | None = None) -> dict[str, Any]:
+def _relationship_dict(
+    relationship: GraphRelationship,
+    support_count: int | None = None,
+    *,
+    historical_support_count: int | None = None,
+) -> dict[str, Any]:
     payload = {
         "id": relationship.id,
         "source_entity_id": relationship.source_entity_id,
@@ -208,7 +213,11 @@ def _relationship_dict(relationship: GraphRelationship, support_count: int | Non
         "metadata": _metadata(relationship.metadata_json),
     }
     if support_count is not None:
+        # support_count = CURRENT active support (accepted API contract).
         payload["support_count"] = int(support_count or 0)
+        payload["active_support_count"] = int(support_count or 0)
+    if historical_support_count is not None:
+        payload["historical_support_count"] = int(historical_support_count or 0)
     return payload
 
 
@@ -222,6 +231,11 @@ def _evidence_dict(evidence: GraphRelationshipEvidence) -> dict[str, Any]:
         "evidence_role": evidence.evidence_role,
         "extractor_name": evidence.extractor_name,
         "extractor_version": evidence.extractor_version,
+        "support_state": getattr(evidence, "support_state", GraphSupportState.ACTIVE) or GraphSupportState.ACTIVE,
+        "source_ref_type": getattr(evidence, "source_ref_type", None),
+        "source_ref_id": getattr(evidence, "source_ref_id", None),
+        "support_locator": _metadata(getattr(evidence, "support_locator_json", None) or {}),
+        "support_state_reason": getattr(evidence, "support_state_reason", None),
         "metadata": _metadata(evidence.metadata_json),
     }
 
@@ -412,12 +426,22 @@ class GraphQueryService:
 
     def relationship_detail(self, case_id: int, relationship_id: int) -> dict[str, Any]:
         relationship = self._get_relationship(case_id, relationship_id)
-        support_count = GraphRelationshipEvidence.query.filter_by(
+        active_support_count = GraphRelationshipEvidence.query.filter_by(
             case_id=case_id,
             relationship_id=relationship.id,
+            support_state=GraphSupportState.ACTIVE,
+        ).count()
+        historical_support_count = GraphRelationshipEvidence.query.filter(
+            GraphRelationshipEvidence.case_id == case_id,
+            GraphRelationshipEvidence.relationship_id == relationship.id,
+            GraphRelationshipEvidence.support_state != GraphSupportState.ACTIVE,
         ).count()
         return {
-            **_relationship_dict(relationship, support_count),
+            **_relationship_dict(
+                relationship,
+                active_support_count,
+                historical_support_count=historical_support_count,
+            ),
             "source_entity": _entity_dict(relationship.source_entity),
             "target_entity": _entity_dict(relationship.target_entity),
         }
@@ -646,6 +670,7 @@ class GraphQueryService:
             .filter(
                 GraphRelationshipEvidence.case_id == case_id,
                 GraphRelationshipEvidence.relationship_id.in_(relationship_ids),
+                GraphRelationshipEvidence.support_state == GraphSupportState.ACTIVE,
             )
             .group_by(GraphRelationshipEvidence.relationship_id)
             .all()

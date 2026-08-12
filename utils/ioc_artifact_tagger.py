@@ -778,6 +778,7 @@ def tag_all_iocs_globally(case_id: int, *, updated_by: str = 'system',
         'iocs_with_matches': 0,
         'total_artifact_matches': 0,
         'events_tagged': 0,
+        'ioc_evidence_matches': 0,
         'system_sightings_created': 0,
         'details': []
     }
@@ -869,6 +870,23 @@ def tag_all_iocs_globally(case_id: int, *, updated_by: str = 'system',
                         operation_id=operation_id,
                     )
                     results['events_tagged'] += events_marked
+
+                    # Persist exact IOC -> ERK provenance (Phase 0E). Stores the
+                    # exact ioc.uuid so the specific matching IOC is durable and
+                    # never re-inferred from ioc_types later. Streams ERKs in
+                    # batches to bound memory.
+                    try:
+                        from utils.ioc_match_provenance import record_ioc_evidence_matches
+
+                        provenance = record_ioc_evidence_matches(case_id, ioc)
+                        results['ioc_evidence_matches'] = (
+                            results.get('ioc_evidence_matches', 0)
+                            + provenance.get('matches_recorded', 0)
+                        )
+                    except Exception as prov_exc:
+                        logger.error(
+                            f"Error recording IOC evidence provenance for IOC {ioc.id}: {prov_exc}"
+                        )
 
                     # Get matching systems and create sightings
                     matching_hosts = get_matching_systems_for_ioc(

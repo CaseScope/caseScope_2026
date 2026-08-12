@@ -48,6 +48,12 @@ class GraphRelationshipType:
     ON_HOST = 'ON_HOST'
     HAD_CONTENT = 'HAD_CONTENT'
     REFERENCES = 'REFERENCES'
+    RESOLVED_TO = 'RESOLVED_TO'
+    LOADED_MODULE = 'LOADED_MODULE'
+    SERVICE_RUNS_PROCESS = 'SERVICE_RUNS_PROCESS'
+    SERVICE_RUNS_IMAGE = 'SERVICE_RUNS_IMAGE'
+    SERVICE_RAN_AS = 'SERVICE_RAN_AS'
+    HAS_SECURITY_CONTEXT = 'HAS_SECURITY_CONTEXT'
 
     ALL = {
         RUNS_IMAGE,
@@ -58,6 +64,12 @@ class GraphRelationshipType:
         ON_HOST,
         HAD_CONTENT,
         REFERENCES,
+        RESOLVED_TO,
+        LOADED_MODULE,
+        SERVICE_RUNS_PROCESS,
+        SERVICE_RUNS_IMAGE,
+        SERVICE_RAN_AS,
+        HAS_SECURITY_CONTEXT,
     }
 
 
@@ -73,7 +85,35 @@ class GraphDerivationType:
 
 class GraphValidationState:
     ACTIVE = 'ACTIVE'
+    UNSUPPORTED = 'UNSUPPORTED'
     INVALIDATED = 'INVALIDATED'
+
+    CURRENTLY_AUTHORITATIVE = {ACTIVE}
+    HISTORICAL = {UNSUPPORTED, INVALIDATED}
+
+
+class GraphSupportState:
+    """Per-support-row lifecycle states for GraphRelationshipEvidence."""
+
+    ACTIVE = 'ACTIVE'
+    PENDING_REMOVAL = 'PENDING_REMOVAL'
+    PENDING_REVALIDATION = 'PENDING_REVALIDATION'
+    UNAVAILABLE = 'UNAVAILABLE'
+    INVALIDATED = 'INVALIDATED'
+
+    CURRENTLY_AUTHORITATIVE = {ACTIVE}
+    NON_ACTIVE = {
+        PENDING_REMOVAL,
+        PENDING_REVALIDATION,
+        UNAVAILABLE,
+        INVALIDATED,
+    }
+
+
+class GraphSourceRefType:
+    CASE_FILE = 'CASE_FILE'
+    PCAP_FILE = 'PCAP_FILE'
+    MEMORY_JOB = 'MEMORY_JOB'
 
 
 @dataclass(frozen=True)

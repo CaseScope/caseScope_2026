@@ -173,6 +173,32 @@
   stroke-width: 3;
 }
 
+/* Unsupported / invalidated relationship support (Phase 0E) */
+.graph-edge.unsupported {
+  stroke: var(--accent-danger, #e05260);
+  stroke-dasharray: 6 4;
+  opacity: 0.55;
+  cursor: pointer;
+}
+
+.graph-unsupported-note {
+  margin-top: 8px;
+  color: var(--accent-danger);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.graph-pivot-banner {
+  margin-bottom: 12px;
+  padding: 10px 14px;
+  background-color: var(--bg-secondary);
+  border: 1px solid var(--border-color);
+  border-left: 3px solid var(--accent-info);
+  border-radius: var(--border-radius);
+  color: var(--text-secondary);
+  font-size: 13px;
+}
+
 #graph-arrow path {
   fill: var(--text-muted);
 }
@@ -3103,6 +3129,61 @@ tbody td {
 /* Large modal variant */
 .modal-container.modal-lg {
   max-width: 1000px;
+}
+
+/* Relationship Graph pivot chooser (Phase 0E) */
+.modal-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.graph-pivot-message {
+  color: var(--text-secondary);
+  font-size: 14px;
+  line-height: 1.5;
+  margin: 0 0 12px 0;
+}
+
+.graph-pivot-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.graph-pivot-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  text-align: left;
+  padding: 10px 12px;
+  background-color: var(--bg-secondary);
+  border: 1px solid var(--border-color);
+  border-radius: var(--border-radius);
+  color: var(--text-primary);
+  cursor: pointer;
+  transition: background-color var(--transition-fast), border-color var(--transition-fast);
+}
+
+.graph-pivot-item:hover {
+  background-color: var(--bg-hover);
+  border-color: var(--accent-primary);
+}
+
+.graph-pivot-item-type {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-muted);
+  flex: 0 0 auto;
+}
+
+.graph-pivot-item-value {
+  font-size: 14px;
+  color: var(--text-primary);
+  word-break: break-all;
 }
 
 /* Downloads table styling */

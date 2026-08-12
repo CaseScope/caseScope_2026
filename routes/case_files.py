@@ -1276,8 +1276,14 @@ def recover_stuck_files(case_uuid):
 def delete_case_file(file_id):
     """Delete a case file and all associated data."""
     try:
+        import itertools
+
         from models.file_audit_log import FileAuditLog
         from utils.clickhouse import count_file_events, delete_file_events
+        from utils.graph_support_lifecycle import (
+            GraphSupportLifecycleService,
+            stream_case_file_evidence_record_keys,
+        )
 
         if current_user.permission_level != "administrator":
             return jsonify({"success": False, "error": "Administrator access required"}), 403
@@ -1305,12 +1311,48 @@ def delete_case_file(file_id):
 
         child_files = CaseFile.query.filter_by(parent_id=file_id).all()
         delete_targets = [case_file, *child_files]
+        delete_target_ids = [target.id for target in delete_targets]
+
+        lifecycle = GraphSupportLifecycleService()
+
+        # Mark graph support PENDING_REMOVAL before any destructive delete so it
+        # never counts as authoritative while ClickHouse/PG deletion proceeds.
+        for target in delete_targets:
+            try:
+                erk_iter = itertools.chain.from_iterable(
+                    stream_case_file_evidence_record_keys(target.id)
+                )
+                lifecycle.begin_case_file_removal(
+                    case_id=case.id,
+                    case_file_id=target.id,
+                    evidence_record_keys=erk_iter,
+                )
+            except Exception as e:
+                logger.warning(
+                    "Graph support pre-removal marking failed for file_id=%s: %s",
+                    target.id,
+                    e,
+                )
+
         for target in delete_targets:
             try:
                 delete_file_events(target.id, wait=True)
                 logger.info("Deleted ClickHouse events for file_id=%s", target.id)
             except Exception as e:
                 logger.error("Failed to delete ClickHouse events for file_id=%s: %s", target.id, e)
+                # Source still exists: restore ACTIVE support for any pending rows.
+                for restore_target in delete_targets:
+                    try:
+                        lifecycle.restore_case_file_support_if_source_remains(
+                            case_id=case.id,
+                            case_file_id=restore_target.id,
+                        )
+                    except Exception as restore_err:
+                        logger.warning(
+                            "Graph support restore failed for file_id=%s: %s",
+                            restore_target.id,
+                            restore_err,
+                        )
                 return (
                     jsonify(
                         {
@@ -1356,6 +1398,20 @@ def delete_case_file(file_id):
 
         db.session.delete(case_file)
         db.session.commit()
+
+        # CH + PG deletion committed: finalize graph support as UNAVAILABLE.
+        for target_id in delete_target_ids:
+            try:
+                lifecycle.finalize_case_file_removal(
+                    case_id=case.id,
+                    case_file_id=target_id,
+                )
+            except Exception as e:
+                logger.warning(
+                    "Graph support finalize-removal failed for file_id=%s: %s",
+                    target_id,
+                    e,
+                )
 
         logger.info(
             "User %s deleted file %s (%s) from case %s",

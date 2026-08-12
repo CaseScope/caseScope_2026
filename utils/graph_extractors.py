@@ -4,7 +4,7 @@ from __future__ import annotations
 import json
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Any, Dict, Iterable, List
+from typing import Any, Dict, Iterable, List, Optional
 
 from utils.graph_identity import (
     EntitySpec,
@@ -79,6 +79,9 @@ class GraphRelationshipCandidate:
     extractor_name: str = ''
     extractor_version: str = ''
     metadata: Dict[str, Any] = field(default_factory=dict)
+    source_ref_type: str = ''
+    source_ref_id: Optional[int] = None
+    support_locator: Dict[str, Any] = field(default_factory=dict)
 
 
 def _clean(value: Any) -> str:
@@ -175,9 +178,24 @@ class GraphRelationshipExtractor:
         *,
         evidence_role: str = 'supporting_record',
         metadata: Dict[str, Any] | None = None,
+        source_ref_type: str = '',
+        source_ref_id: Optional[int] = None,
+        support_locator: Dict[str, Any] | None = None,
     ) -> GraphRelationshipCandidate:
         if derivation_type not in GraphDerivationType.AUTHORITATIVE_EXTRACTOR_TYPES:
             raise ValueError(f'Extractor cannot author {derivation_type} graph edges')
+        meta = dict(metadata or {})
+        resolved_source_ref_type = _clean(source_ref_type)
+        resolved_source_ref_id = source_ref_id
+        if not resolved_source_ref_type and event.get('case_file_id') not in (None, ''):
+            try:
+                from utils.graph_identity import GraphSourceRefType
+
+                resolved_source_ref_type = GraphSourceRefType.CASE_FILE
+                resolved_source_ref_id = int(event.get('case_file_id'))
+                meta.setdefault('case_file_id', resolved_source_ref_id)
+            except (TypeError, ValueError):
+                pass
         return GraphRelationshipCandidate(
             case_id=int(event.get('case_id')),
             source=source,
@@ -190,7 +208,10 @@ class GraphRelationshipExtractor:
             evidence_role=evidence_role,
             extractor_name=self.name,
             extractor_version=self.version,
-            metadata=metadata or {},
+            metadata=meta,
+            source_ref_type=resolved_source_ref_type,
+            source_ref_id=resolved_source_ref_id,
+            support_locator=dict(support_locator or {}),
         )
 
 
@@ -374,6 +395,36 @@ class LogonRelationshipsExtractor(GraphRelationshipExtractor):
         )
 
 
+# -----------------------------------------------------------------------------
+# NOT ENABLED FROM EVENTS — INSUFFICIENT SOURCE CONTRACT (Phase 0B/0E review)
+# -----------------------------------------------------------------------------
+# The following relationship types are intentionally NOT authored from the
+# normalized `events` table because the available event fields do not provide a
+# defensible deterministic contract. They remain reserved in
+# GraphRelationshipType for native/other sources (e.g. memory svcscan) but no
+# event extractor is registered for them:
+#
+#   * SERVICE_RUNS_IMAGE (SERVICE -> FILE_PATH): Windows Service Control events
+#     (7045 install / 7036 state) carry a service name and an ImagePath string,
+#     but the ImagePath is an unparsed command line (quoting, args, svchost
+#     grouping, driver vs win32) and there is no normalized column that isolates
+#     the image path. Deriving a FILE_PATH identity would require heuristic
+#     command-line parsing — not deterministic. NOT ENABLED.
+#
+#   * REFERENCES (PROCESS/SERVICE -> REGISTRY_KEY): registry-key context is not
+#     surfaced as a dedicated normalized column across the initial sources; it
+#     only appears inside free-form message/extra_fields text. No reliable
+#     REGISTRY_KEY identity can be extracted deterministically. NOT ENABLED.
+#
+#   * Scheduled-task edges (e.g. task -> image / task -> principal): scheduled
+#     task creation (4698) stores the task definition as embedded XML inside a
+#     message field with no normalized action/principal columns. Extraction
+#     would require XML parsing and heuristics. NOT ENABLED.
+#
+# Event PROCESS -CONNECTED_TO-> IP is likewise disabled (see
+# ProcessConnectedToIpExtractor.supports). The memory-native equivalent IS
+# enabled in utils.graph_memory_extractors because netscan rows carry a durable
+# process anchor.
 DEFAULT_EVENT_EXTRACTORS: tuple[GraphRelationshipExtractor, ...] = (
     ProcessRunsImageExtractor(),
     FilePathHadContentExtractor(),

@@ -1,0 +1,181 @@
+Phase 0E — Existing-Surface Integration + Support Lifecycle Expansion
+=====================================================================
+
+1. Purpose
+----------
+Make the Investigation Graph usable from existing CaseScope analyst surfaces
+and complete current-source support lifecycle so edges cannot remain falsely
+ACTIVE after their supporting evidence is removed.
+
+2. Accepted baseline
+--------------------
+Version: 4.15.1
+Commit:  7740eaea31c24a8006d6ac7b9a0326dd670d9ea7
+Release: 4.16.0
+
+Phases 0A–0D remain ACCEPTED / LOCKED.
+
+3. Surface pivots
+-----------------
+Hunt Artifacts          Open in Relationship Graph   kind=evidence (ERK v2)
+Process Hunting         Open in Relationship Graph   kind=process_hunt | memory_process | evidence
+Memory Hunting          Open in Relationship Graph   kind=memory_process|network|service
+Network Hunting         Open in Relationship Graph   kind=network_ip | network_domain
+IOC Management          Show Case Relationships      kind=ioc (exact ioc_uuid)
+Known Systems           Open in Relationship Graph   kind=known_system
+Known Users             Open in Relationship Graph   kind=known_user
+Findings / Analysis     Graph Supporting Evidence    kind=pattern_match | case_analysis_finding | unified_finding
+
+Memory module list tab: no top-level module surface; deferred UI-only.
+Compact unified-finding previews without typed identity: not pivoted.
+
+4. GraphPivotService contract
+-----------------------------
+File: utils/graph_pivots.py
+API:  POST /api/graph/<case_uuid>/pivot
+Body: { "kind": "...", "reference": { ... } }
+
+Read-only. Never creates GraphEntity / GraphRelationship / GraphRelationshipEvidence.
+Case-scoped via Case.get_by_uuid then server-side native object lookup.
+Bounds: max 25 roots, 50 ERKs, 50 relationship IDs; truncated=true when capped.
+VIEWER may call pivots.
+
+5. Evidence -> graph reverse provenance
+---------------------------------------
+kind=evidence uses GraphEntityObservation.evidence_record_key and
+GraphRelationshipEvidence.evidence_record_key (ACTIVE support only).
+Does not reconstruct facts from event fields.
+
+6. Process Hunting authoritative vs exploratory
+-----------------------------------------------
+Exploratory tree may use hostname+PID.
+Authoritative PROCESS requires ERK, memory_process_id, or other accepted
+execution anchor. PID-only never resolves as PROCESS; HOST may be offered.
+
+7. Memory identity review
+-------------------------
+Within one MemoryJob, parser merges on (job_id, pid).
+Preferred identity: MemoryProcess.id + job_id + pid + create_time (or native
+support key as execution anchor). Memory processes never merge to event
+processes by hostname+PID.
+
+8. Memory relationships ENABLED
+-------------------------------
+CONNECTED_TO          memory_connected_to_ip        same-job unique pid + foreign_addr
+LOADED_MODULE         memory_loaded_module          mapped_path + unique process
+SERVICE_RUNS_PROCESS  memory_service_runs_process   service name+pid + unique process
+HAS_SECURITY_CONTEXT  memory_has_security_context   SID bound to unique process
+
+9. Memory relationships deliberately DISABLED
+---------------------------------------------
+Cross-job PID joins
+Event PID + dst_ip CONNECTED_TO
+Ambiguous duplicate job+pid process rows
+
+10. Network / DNS
+-----------------
+RESOLVED_TO ENABLED for Zeek DNS when query + answers + pcap_id + uid present.
+Typed zeek_dns locator; one edge per IP answer; source_host never becomes owner.
+Event PROCESS CONNECTED_TO remains DISABLED.
+
+11. Exact IOC provenance
+------------------------
+PostgreSQL table ioc_evidence_matches stores case_id, ioc_uuid, ioc_id,
+evidence_record_key, matched_field/value, source_ref, support_state.
+Written during tagging from known IOC object (exact uuid).
+events.ioc_types remains display-only and never proves which IOC matched.
+
+12. KnownSystem / KnownUser
+---------------------------
+HOST = known_system:<KnownSystem.id> (never hostname search as authority).
+USER prefers SID, then authority+username; bare username is ambiguous.
+
+13. Typed finding pivots
+------------------------
+unified_finding pins case/analysis_id/source_system/dedup_key/finding_id.
+pattern_match pins case/pattern_match_id.
+Findings seed pivots; they do not author graph edges.
+
+14–18. Support lifecycle
+------------------------
+Service: utils/graph_support_lifecycle.py
+Support states: ACTIVE, PENDING_REMOVAL, PENDING_REVALIDATION, UNAVAILABLE, INVALIDATED
+Relationship states: ACTIVE, UNSUPPORTED, INVALIDATED
+support_count / active_support_count = ACTIVE supports only
+source_ref_type/id: CASE_FILE | PCAP_FILE | MEMORY_JOB
+
+Removal sequence:
+1) stream ERKs / mark PENDING_REMOVAL
+2) delete ClickHouse/PG source
+3) finalize UNAVAILABLE + revalidate relationships
+On failure: restore ACTIVE if source remains.
+
+Reprocess sequence:
+1) PENDING_REVALIDATION / INVALIDATED for old generation
+2) re-ingest + rematerialize
+3) equivalent support reactivates same canonical edge (extractor version on provenance)
+
+19. Failure / recovery
+----------------------
+PENDING states hide support from active counts before destructive ops.
+Crash-safe preference: falsely non-active over falsely ACTIVE.
+
+20–21. Threads / Saved Views
+----------------------------
+Frozen Thread snapshots and snapshot_sha256 are never rewritten.
+live_source_available updates separately via live ERK lookup.
+Saved View stable relationship refs preserved; unsupported edges warned in UI.
+
+22. New entity / relationship contracts
+---------------------------------------
+No IOC/Finding graph node types added.
+New relationship types: RESOLVED_TO, LOADED_MODULE, SERVICE_RUNS_PROCESS,
+SERVICE_RUNS_IMAGE, SERVICE_RAN_AS, HAS_SECURITY_CONTEXT (last two event
+variants not enabled).
+
+23. Anti-inference
+------------------
+No AI/narrative extractors.
+No PID-only PROCESS / CONNECTED_TO from events.
+No username-only USER merge.
+No source_host as network owner.
+No raw_json path scraping for REFERENCES.
+
+24. Permissions
+---------------
+Pivots: read-only, VIEWER allowed.
+Thread/Saved View mutation: write access unchanged.
+Source removal: existing admin/write gates.
+
+25. Scale limits
+----------------
+Pivot bounds 25/50/50.
+ERK streaming / batched support updates (DEFAULT_BATCH_SIZE=500).
+IOC match streaming LIMIT/OFFSET.
+
+26. Known limitations
+---------------------
+Memory module top-level UI pivot absent.
+Event service/registry/scheduled-task extractors NOT ENABLED — insufficient source contract.
+WAIVER-0C-001 may still apply to baseline IOC queue regression if unchanged.
+
+27. Phase 0F boundary
+---------------------
+No temporal context services, report snapshots, graph image capture, or AI
+summarization over frozen report context.
+
+Coverage matrix (summary)
+-------------------------
+Hunt pivot                 yes  graph_pivots + hunting UI           ENABLED
+Process pivot              yes  process_hunt safeguards            ENABLED
+Memory pivot               yes  memory_* kinds                     ENABLED
+Network pivot              yes  network_ip/domain                  ENABLED
+IOC pivot                  yes  exact uuid                         ENABLED
+KnownSystem/User           yes                                     ENABLED
+Finding pivot              yes  typed refs                         ENABLED
+IOC exact support          yes  ioc_evidence_matches               ENABLED
+Support lifecycle          yes  graph_support_lifecycle            ENABLED
+Memory extractors          yes  graph_memory_extractors            ENABLED
+DNS RESOLVED_TO            yes  graph_network_extractors           ENABLED
+Event CONNECTED_TO         no   insufficient process identity      NOT ENABLED
+Service/registry/task evt  no   insufficient normalized fields     NOT ENABLED — INSUFFICIENT SOURCE CONTRACT

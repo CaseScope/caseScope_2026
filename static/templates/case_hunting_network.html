@@ -75,6 +75,7 @@
 {% endblock %}
 
 {% block scripts %}
+<script src="{{ url_for('static', filename='js/graph_pivot.js') }}"></script>
 <script>
 const caseId = {{ case.id }};
 const caseUuid = '{{ case.uuid }}';
@@ -286,6 +287,10 @@ function renderTable(tab, data) {
         });
         h += `<td><button class="pivot-btn" onclick='showDetail(${JSON.stringify(log)})'>📋</button>`;
         if(log.dst_ip) h+=` <button class="pivot-btn" onclick="pivotToEvents('${log.dst_ip}')" title="Search in Events">🔍</button>`;
+        const gip = log.dst_ip || log.src_ip;
+        if(gip) h+=` <button class="pivot-btn" onclick="openGraphPivot(caseUuid, 'network_ip', { ip: '${escHtml(String(gip))}' })" title="Open IP in Relationship Graph">🕸️</button>`;
+        const gdomain = log.query || log.host || log.server_name;
+        if(gdomain) h+=` <button class="pivot-btn" onclick="openGraphPivot(caseUuid, 'network_domain', { domain: '${escHtml(String(gdomain))}' })" title="Open Domain in Relationship Graph">🌐</button>`;
         h += '</td></tr>';
     });
     h += '</tbody></table>';
