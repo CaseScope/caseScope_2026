@@ -6,14 +6,17 @@ support locator (``utils.graph_support_locator.build_zeek_dns_locator``) and are
 bound to their owning PCAP via ``source_ref_type=PCAP_FILE`` /
 ``source_ref_id=pcap_id``.
 
-ENABLED: DNS RESOLVED_TO
-------------------------
-Zeek ``dns`` rows expose ``query`` (the requested name), ``answers``
-(``Array(String)`` of returned records), plus the durable ``pcap_id`` + ``uid``
-that uniquely identify the response record. That is a sufficient, durable
-contract for a deterministic fact: "in this DNS response, this query resolved to
-this IP". We therefore emit one DOMAIN -RESOLVED_TO-> IP_ADDRESS edge per VALID
-IP answer, keyed by a per-answer ``zeek_dns`` locator.
+NOT ENABLED — INSUFFICIENT SOURCE CONTRACT: DNS RESOLVED_TO
+-----------------------------------------------------------
+CaseScope stores ``query``, ``answers``, ``pcap_id`` and Zeek ``uid`` today, but
+does not retain Zeek ``trans_id`` or another exact DNS transaction/source-record
+identity. Zeek ``uid`` identifies the connection carrying DNS messages, not a
+single DNS exchange. Repeated identical query/answer activity on one connection
+could therefore collapse to one support locator.
+
+Until the parser/storage contract retains exact DNS transaction identity
+(preferably PCAP + uid + trans_id + source-record context), authoritative
+DOMAIN -RESOLVED_TO-> IP_ADDRESS extraction remains disabled.
 
 Hardening rules:
 
@@ -72,7 +75,11 @@ def _valid_query_domain(value: Any) -> Optional[str]:
 
 
 class DomainResolvedToIpExtractor:
-    """DOMAIN -RESOLVED_TO-> IP_ADDRESS from Zeek DNS responses. ENABLED."""
+    """DOMAIN -RESOLVED_TO-> IP_ADDRESS from Zeek DNS responses.
+
+    Disabled for 4.16.1 corrective hardening because current network_logs do not
+    retain Zeek trans_id / exact DNS exchange identity.
+    """
 
     name = 'zeek_dns_resolved_to_ip'
     version = NETWORK_EXTRACTOR_VERSION
@@ -87,6 +94,8 @@ class DomainResolvedToIpExtractor:
         answers: Iterable[Any],
         observed_at: Any = None,
     ) -> Iterable[GraphRelationshipCandidate]:
+        return
+        yield  # pragma: no cover - keeps this an empty generator
         domain = _valid_query_domain(query)
         if not domain:
             return
@@ -130,7 +139,7 @@ class DomainResolvedToIpExtractor:
             )
 
 
-DEFAULT_NETWORK_EXTRACTORS: tuple = (DomainResolvedToIpExtractor(),)
+DEFAULT_NETWORK_EXTRACTORS: tuple = ()
 
 
 def _iter_dns_rows(case_id: int, *, client=None, batch_size: int = 5000):
@@ -177,11 +186,25 @@ def materialize_network_for_case(
     extractors: Iterable = DEFAULT_NETWORK_EXTRACTORS,
     batch_size: int = 5000,
 ) -> Dict[str, int]:
-    """Materialize deterministic DNS RESOLVED_TO facts from Zeek network logs."""
+    """Materialize deterministic network facts.
+
+    DNS RESOLVED_TO is intentionally disabled until exact DNS transaction
+    provenance is retained. Return a bounded no-op summary.
+    """
     from utils.graph_materializer import GraphMaterializer
 
     session = session or db.session
     materializer = GraphMaterializer(session=session)
+
+    if not tuple(extractors or ()):
+        return {
+            'dns_rows_seen': 0,
+            'candidates_seen': 0,
+            'relationships_materialized': 0,
+            'errors': 0,
+            'disabled': True,
+            'reason': 'NOT ENABLED — INSUFFICIENT SOURCE CONTRACT: missing Zeek trans_id/exact DNS exchange identity',
+        }
 
     rows_seen = 0
     candidates_seen = 0

@@ -643,6 +643,7 @@ def delete_pcap_file(pcap_id):
 
         from models.network_log import delete_pcap_logs
         from models.case import Case
+        from utils.graph_support_lifecycle import GraphSupportLifecycleService
         import shutil
         
         pcap_file = _get_pcap_for_user(pcap_id)
@@ -671,12 +672,65 @@ def delete_pcap_file(pcap_id):
         # Delete extracted files if this is an archive
         child_files = list(pcap_file.extracted_files) if pcap_file.is_archive else []
         if case_id:
-            for target in [pcap_file, *child_files]:
+            lifecycle = GraphSupportLifecycleService()
+            pcap_targets = [pcap_file, *child_files]
+            pending_ids = []
+            for target in pcap_targets:
+                try:
+                    lifecycle.begin_pcap_removal(case_id=case_id, pcap_id=target.id)
+                    pending_ids.append(target.id)
+                except Exception as e:
+                    logger.error(f"Graph support pre-removal marking failed for pcap_id={target.id}: {e}")
+                    for restore_id in pending_ids:
+                        try:
+                            lifecycle.restore_source_support_if_source_remains(
+                                case_id=case_id,
+                                source_ref_type='PCAP_FILE',
+                                source_ref_id=restore_id,
+                            )
+                        except Exception as restore_err:
+                            logger.warning(
+                                f"Graph support restore failed for pcap_id={restore_id} after pre-removal failure: {restore_err}"
+                            )
+                    return jsonify({
+                        'success': False,
+                        'error': 'Graph support preparation failed; PCAP evidence was left unchanged',
+                        'failed_pcap_id': target.id,
+                        'details': str(e),
+                    }), 500
+
+            deleted_network_log_ids = set()
+            for target in pcap_targets:
                 try:
                     delete_pcap_logs(target.id, case_id, wait=True)
+                    deleted_network_log_ids.add(target.id)
                     logger.info(f"Deleted ClickHouse network logs for pcap_id={target.id}")
                 except Exception as e:
                     logger.error(f"Failed to delete ClickHouse logs for pcap_id={target.id}: {e}")
+                    for deleted_id in deleted_network_log_ids:
+                        try:
+                            lifecycle.finalize_pcap_removal(
+                                case_id=case_id,
+                                pcap_id=deleted_id,
+                                reason='pcap_partial_delete_completed_before_failure',
+                            )
+                        except Exception as finalize_err:
+                            logger.warning(
+                                f"Graph support finalize failed for already-deleted pcap_id={deleted_id}: {finalize_err}"
+                            )
+                    for restore_target in pcap_targets:
+                        if restore_target.id in deleted_network_log_ids:
+                            continue
+                        try:
+                            lifecycle.restore_source_support_if_source_remains(
+                                case_id=case_id,
+                                source_ref_type='PCAP_FILE',
+                                source_ref_id=restore_target.id,
+                            )
+                        except Exception as restore_err:
+                            logger.warning(
+                                f"Graph support restore failed for pcap_id={restore_target.id}: {restore_err}"
+                            )
                     return jsonify({
                         'success': False,
                         'error': 'ClickHouse network-log deletion failed; PCAP metadata was left unchanged',
@@ -725,6 +779,13 @@ def delete_pcap_file(pcap_id):
         # Delete database record
         db.session.delete(pcap_file)
         db.session.commit()
+
+        if case_id:
+            for target_id in deleted_network_log_ids:
+                try:
+                    lifecycle.finalize_pcap_removal(case_id=case_id, pcap_id=target_id)
+                except Exception as e:
+                    logger.warning(f"Graph support finalize failed for pcap_id={target_id}: {e}")
         
         logger.info(f"PCAP file {pcap_id} ({filename}) fully deleted by {current_user.username}")
         

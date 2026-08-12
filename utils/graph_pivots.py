@@ -5,6 +5,7 @@ roots. Never creates GraphEntity / GraphRelationship / GraphRelationshipEvidence
 """
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional
 
@@ -594,12 +595,21 @@ class GraphPivotService:
             )
         except InvestigationReferenceError as exc:
             raise GraphPivotError(str(exc)) from exc
+        finding = self._load_unified_finding(
+            case_id,
+            typed['analysis_id'],
+            typed['source_system'],
+            typed['dedup_key'],
+            typed['finding_id'],
+        )
+        if finding is None:
+            raise GraphPivotError('Unified finding not found in case')
         return self._pivot_finding_common(
             case_id,
             pivot_type=PIVOT_KIND_UNIFIED_FINDING,
             typed_ref=typed,
-            erks=self._extract_erks_from_ref(ref),
-            title=str(ref.get('title') or typed.get('finding_id') or 'Finding'),
+            erks=self._extract_erks_from_finding_payload(finding),
+            title=str(finding.get('title') or finding.get('name') or typed.get('finding_id') or 'Finding'),
         )
 
     def _pivot_pattern_match(self, case_id: int, ref: Dict[str, Any]) -> GraphPivotResult:
@@ -610,8 +620,8 @@ class GraphPivotService:
         if not match:
             raise GraphPivotError('PatternMatch not found in case')
         typed = build_pattern_match_reference(case_id=case_id, pattern_match_id=match.id)
-        erks = self._extract_erks_from_ref(ref)
-        if not erks and isinstance(match.matched_events, list):
+        erks = []
+        if isinstance(match.matched_events, list):
             for item in match.matched_events:
                 if isinstance(item, dict):
                     erk = str(item.get('evidence_record_key') or '').strip()
@@ -626,21 +636,11 @@ class GraphPivotService:
         )
 
     def _pivot_case_analysis_finding(self, case_id: int, ref: Dict[str, Any]) -> GraphPivotResult:
-        # Prefer explicit unified finding fields when provided; otherwise treat as
-        # typed analysis reference with optional ERK list.
         if ref.get('source_system') and ref.get('dedup_key') and ref.get('finding_id'):
             return self._pivot_unified_finding(case_id, ref)
-        return self._pivot_finding_common(
-            case_id,
-            pivot_type=PIVOT_KIND_CASE_ANALYSIS_FINDING,
-            typed_ref={
-                'case_id': case_id,
-                'analysis_id': ref.get('analysis_id'),
-                'finding_type': ref.get('finding_type'),
-                'finding_id': ref.get('finding_id'),
-            },
-            erks=self._extract_erks_from_ref(ref),
-            title=str(ref.get('title') or ref.get('finding_id') or 'Case Analysis Finding'),
+        raise GraphPivotError(
+            'Case analysis finding pivot requires a server-verifiable typed finding '
+            '(pattern_match_id or analysis_id/source_system/dedup_key/finding_id)'
         )
 
     def _pivot_finding_common(
@@ -852,6 +852,77 @@ class GraphPivotService:
             value = str(item or '').strip()
             if is_evidence_record_key(value):
                 erks.append(value)
+        return erks
+
+    def _load_unified_finding(
+        self,
+        case_id: int,
+        analysis_id: Any,
+        source_system: Any,
+        dedup_key: Any,
+        finding_id: Any,
+    ) -> Optional[Dict[str, Any]]:
+        """Load the exact pinned unified finding before deriving pivot support."""
+        if not all(str(value or '').strip() for value in (analysis_id, source_system, dedup_key, finding_id)):
+            return None
+        from utils.clickhouse import get_client
+        from utils.unified_findings_store import UNIFIED_FINDINGS_TABLE
+
+        result = get_client().query(
+            f"""
+            SELECT legacy_json
+            FROM {UNIFIED_FINDINGS_TABLE}
+            WHERE case_id = {{case_id:UInt32}}
+              AND analysis_id = {{analysis_id:String}}
+              AND source_system = {{source_system:String}}
+              AND dedup_key = {{dedup_key:String}}
+              AND finding_id = {{finding_id:String}}
+            ORDER BY synced_at DESC
+            LIMIT 1
+            """,
+            parameters={
+                'case_id': int(case_id),
+                'analysis_id': str(analysis_id),
+                'source_system': str(source_system),
+                'dedup_key': str(dedup_key),
+                'finding_id': str(finding_id),
+            },
+        )
+        rows = list(getattr(result, 'result_rows', []) or [])
+        if not rows:
+            return None
+        try:
+            parsed = json.loads(rows[0][0] or '{}')
+        except (TypeError, ValueError, json.JSONDecodeError):
+            return None
+        return parsed if isinstance(parsed, dict) else None
+
+    def _extract_erks_from_finding_payload(self, finding: Dict[str, Any]) -> List[str]:
+        """Derive ERKs only from stored finding payload, never from client input."""
+        erks: List[str] = []
+        seen = set()
+
+        def visit(value: Any, depth: int = 0) -> None:
+            if depth > 5 or len(erks) >= MAX_PIVOT_ERKS:
+                return
+            if isinstance(value, str):
+                if is_evidence_record_key(value) and value not in seen:
+                    seen.add(value)
+                    erks.append(value)
+                return
+            if isinstance(value, dict):
+                for key, nested in value.items():
+                    key_text = str(key or '').lower()
+                    if key_text in {'evidence_record_key', 'erk'}:
+                        visit(nested, depth + 1)
+                    elif key_text in {'evidence_record_keys', 'matched_events', 'events', 'supporting_evidence', 'evidence'}:
+                        visit(nested, depth + 1)
+                return
+            if isinstance(value, (list, tuple)):
+                for item in value[:MAX_PIVOT_ERKS]:
+                    visit(item, depth + 1)
+
+        visit(finding)
         return erks
 
     def _dedupe_roots(self, roots: List[Dict[str, Any]]) -> List[Dict[str, Any]]:

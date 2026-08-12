@@ -19,6 +19,7 @@ from utils.graph_support_locator import (
     is_evidence_record_key,
     is_native_support_key,
     support_key_for_locator,
+    validate_support_provenance,
 )
 from utils.ioc_match_provenance import DEFAULT_MATCHED_FIELD
 
@@ -88,19 +89,24 @@ class Phase0EExtractorContractTestCase(unittest.TestCase):
         self.assertIn(GraphRelationshipType.LOADED_MODULE, GraphRelationshipType.ALL)
         self.assertIn(GraphRelationshipType.HAS_SECURITY_CONTEXT, GraphRelationshipType.ALL)
 
-    def test_dns_resolved_to_uses_native_locator(self):
-        locator = build_zeek_dns_locator(
+    def test_dns_resolved_to_disabled_until_exact_transaction_identity(self):
+        with self.assertRaises(ValueError):
+            build_zeek_dns_locator(
+                case_id=1,
+                pcap_id=5,
+                uid='Cabc123',
+                query='example.com',
+                answer='1.2.3.4',
+            )
+        extractor = DomainResolvedToIpExtractor()
+        candidates = list(extractor.extract_row(
             case_id=1,
             pcap_id=5,
             uid='Cabc123',
             query='example.com',
-            answer='1.2.3.4',
-        )
-        self.assertEqual(locator['source_type'], SOURCE_TYPE_ZEEK_DNS)
-        key = support_key_for_locator(locator)
-        self.assertTrue(is_native_support_key(key))
-        self.assertFalse(is_evidence_record_key(key))
-        self.assertTrue(hasattr(DomainResolvedToIpExtractor, 'extract_row'))
+            answers=['1.2.3.4'],
+        ))
+        self.assertEqual(candidates, [])
 
     def test_memory_locator_is_not_erk(self):
         locator = build_memory_locator(
@@ -112,6 +118,26 @@ class Phase0EExtractorContractTestCase(unittest.TestCase):
         key = support_key_for_locator(locator)
         self.assertTrue(key.startswith('native:v1:'))
         self.assertFalse(is_evidence_record_key(key))
+
+    def test_native_locator_key_must_match_locator(self):
+        locator_a = build_memory_locator(
+            source_type='memory_network',
+            case_id=1,
+            memory_job_id=44,
+            record_id=919,
+        )
+        locator_b = build_memory_locator(
+            source_type='memory_network',
+            case_id=1,
+            memory_job_id=45,
+            record_id=919,
+        )
+        with self.assertRaises(ValueError):
+            validate_support_provenance(
+                evidence_record_key=support_key_for_locator(locator_a),
+                source_table='memory_network',
+                support_locator=locator_b,
+            )
 
     def test_service_registry_task_event_extractors_not_enabled(self):
         source = open('/opt/casescope/utils/graph_extractors.py', encoding='utf-8').read()
@@ -143,6 +169,26 @@ class Phase0ELifecycleHookContractTestCase(unittest.TestCase):
         self.assertIn("lifecycle_mode='revalidation'", source)
         self.assertIn('materialize_memory_for_case', source)
         self.assertIn('materialize_network_for_case', source)
+
+    def test_lifecycle_prep_failures_are_not_logged_and_ignored(self):
+        case_file_source = open('/opt/casescope/routes/case_files.py', encoding='utf-8').read()
+        rebuild_source = open('/opt/casescope/tasks/celery_tasks.py', encoding='utf-8').read()
+        self.assertIn('Graph support preparation failed; file evidence was left unchanged', case_file_source)
+        self.assertIn('rebuild aborted before evidence deletion', rebuild_source)
+        self.assertIn('deleted_clickhouse_ids', case_file_source)
+        self.assertIn('deleted_ids', rebuild_source)
+
+    def test_native_source_delete_hooks_exist(self):
+        pcap_route = open('/opt/casescope/routes/pcap.py', encoding='utf-8').read()
+        pcap_task = open('/opt/casescope/tasks/pcap_tasks.py', encoding='utf-8').read()
+        memory_route = open('/opt/casescope/routes/memory.py', encoding='utf-8').read()
+        memory_task = open('/opt/casescope/tasks/memory_tasks.py', encoding='utf-8').read()
+        self.assertIn('begin_pcap_removal', pcap_route)
+        self.assertIn('begin_pcap_revalidation', pcap_task)
+        self.assertIn('begin_memory_job_removal', memory_route)
+        self.assertIn('begin_memory_job_revalidation', memory_task)
+        self.assertIn('restore_source_support_if_source_remains', pcap_route)
+        self.assertIn('restore_source_support_if_source_remains', memory_task)
 
 
 if __name__ == '__main__':

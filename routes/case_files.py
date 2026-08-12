@@ -1317,6 +1317,9 @@ def delete_case_file(file_id):
 
         # Mark graph support PENDING_REMOVAL before any destructive delete so it
         # never counts as authoritative while ClickHouse/PG deletion proceeds.
+        # This is a fail-closed boundary: if support cannot be made non-active,
+        # the source evidence must not be destroyed.
+        pending_target_ids = []
         for target in delete_targets:
             try:
                 erk_iter = itertools.chain.from_iterable(
@@ -1327,21 +1330,58 @@ def delete_case_file(file_id):
                     case_file_id=target.id,
                     evidence_record_keys=erk_iter,
                 )
+                pending_target_ids.append(target.id)
             except Exception as e:
-                logger.warning(
+                logger.error(
                     "Graph support pre-removal marking failed for file_id=%s: %s",
                     target.id,
                     e,
                 )
+                for restore_id in pending_target_ids:
+                    try:
+                        lifecycle.restore_case_file_support_if_source_remains(
+                            case_id=case.id,
+                            case_file_id=restore_id,
+                        )
+                    except Exception as restore_err:
+                        logger.warning(
+                            "Graph support restore failed for file_id=%s after pre-removal failure: %s",
+                            restore_id,
+                            restore_err,
+                        )
+                return jsonify({
+                    "success": False,
+                    "error": "Graph support preparation failed; file evidence was left unchanged",
+                    "failed_file_id": target.id,
+                    "details": str(e),
+                }), 500
 
+        deleted_clickhouse_ids = set()
         for target in delete_targets:
             try:
                 delete_file_events(target.id, wait=True)
+                deleted_clickhouse_ids.add(target.id)
                 logger.info("Deleted ClickHouse events for file_id=%s", target.id)
             except Exception as e:
                 logger.error("Failed to delete ClickHouse events for file_id=%s: %s", target.id, e)
-                # Source still exists: restore ACTIVE support for any pending rows.
+                # Already-deleted sources must never be restored to ACTIVE.
+                for deleted_id in deleted_clickhouse_ids:
+                    try:
+                        lifecycle.finalize_case_file_removal(
+                            case_id=case.id,
+                            case_file_id=deleted_id,
+                            reason='case_file_partial_delete_completed_before_failure',
+                        )
+                    except Exception as finalize_err:
+                        logger.warning(
+                            "Graph support finalize failed for already-deleted file_id=%s: %s",
+                            deleted_id,
+                            finalize_err,
+                        )
+                # Source still exists for the failing/untouched targets: restore ACTIVE.
                 for restore_target in delete_targets:
+                    if restore_target.id in deleted_clickhouse_ids:
+                        continue
                     try:
                         lifecycle.restore_case_file_support_if_source_remains(
                             case_id=case.id,

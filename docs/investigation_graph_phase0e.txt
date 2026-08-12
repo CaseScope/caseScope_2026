@@ -11,7 +11,7 @@ ACTIVE after their supporting evidence is removed.
 --------------------
 Version: 4.15.1
 Commit:  7740eaea31c24a8006d6ac7b9a0326dd670d9ea7
-Release: 4.16.0
+Release: 4.16.1 corrective pass over 4.16.0
 
 Phases 0A–0D remain ACCEPTED / LOCKED.
 
@@ -74,8 +74,11 @@ Ambiguous duplicate job+pid process rows
 
 10. Network / DNS
 -----------------
-RESOLVED_TO ENABLED for Zeek DNS when query + answers + pcap_id + uid present.
-Typed zeek_dns locator; one edge per IP answer; source_host never becomes owner.
+RESOLVED_TO NOT ENABLED — INSUFFICIENT SOURCE CONTRACT.
+Reason: CaseScope currently retains query, answers, pcap_id and Zeek uid, but
+not Zeek trans_id or another exact DNS transaction/source-record identity.
+Zeek uid identifies the connection carrying DNS messages, not one DNS exchange,
+so repeated identical query/answer activity could collapse support provenance.
 Event PROCESS CONNECTED_TO remains DISABLED.
 
 11. Exact IOC provenance
@@ -92,8 +95,10 @@ USER prefers SID, then authority+username; bare username is ambiguous.
 
 13. Typed finding pivots
 ------------------------
-unified_finding pins case/analysis_id/source_system/dedup_key/finding_id.
-pattern_match pins case/pattern_match_id.
+unified_finding pins case/analysis_id/source_system/dedup_key/finding_id and
+must be loaded server-side before support ERKs are derived.
+pattern_match pins case/pattern_match_id and loads the PostgreSQL row.
+Client-supplied ERKs are never accepted as proof for an invented finding.
 Findings seed pivots; they do not author graph edges.
 
 14–18. Support lifecycle
@@ -106,14 +111,19 @@ source_ref_type/id: CASE_FILE | PCAP_FILE | MEMORY_JOB
 
 Removal sequence:
 1) stream ERKs / mark PENDING_REMOVAL
-2) delete ClickHouse/PG source
-3) finalize UNAVAILABLE + revalidate relationships
-On failure: restore ACTIVE if source remains.
+2) if lifecycle preparation fails, abort before evidence deletion
+3) delete ClickHouse/PG/native source
+4) finalize deleted sources UNAVAILABLE + revalidate relationships
+5) on partial failure, restore ACTIVE only for failing/untouched sources whose
+   evidence still remains; already-deleted sources are never restored ACTIVE.
 
 Reprocess sequence:
 1) PENDING_REVALIDATION / INVALIDATED for old generation
 2) re-ingest + rematerialize
 3) equivalent support reactivates same canonical edge (extractor version on provenance)
+
+PCAP_FILE and MEMORY_JOB native source deletion/reprocessing paths are routed
+through the same lifecycle boundary as CaseFile event support.
 
 19. Failure / recovery
 ----------------------
@@ -152,10 +162,13 @@ Source removal: existing admin/write gates.
 Pivot bounds 25/50/50.
 ERK streaming / batched support updates (DEFAULT_BATCH_SIZE=500).
 IOC match streaming LIMIT/OFFSET.
+Memory process resolution is lazy per PID (two-row ambiguity check) and memory
+candidates are streamed into materialization rather than collected per extractor.
 
 26. Known limitations
 ---------------------
 Memory module top-level UI pivot absent.
+DNS RESOLVED_TO NOT ENABLED — missing exact DNS transaction identity.
 Event service/registry/scheduled-task extractors NOT ENABLED — insufficient source contract.
 WAIVER-0C-001 may still apply to baseline IOC queue regression if unchanged.
 
@@ -176,6 +189,6 @@ Finding pivot              yes  typed refs                         ENABLED
 IOC exact support          yes  ioc_evidence_matches               ENABLED
 Support lifecycle          yes  graph_support_lifecycle            ENABLED
 Memory extractors          yes  graph_memory_extractors            ENABLED
-DNS RESOLVED_TO            yes  graph_network_extractors           ENABLED
+DNS RESOLVED_TO            no   missing trans_id/source-record id  NOT ENABLED — INSUFFICIENT SOURCE CONTRACT
 Event CONNECTED_TO         no   insufficient process identity      NOT ENABLED
 Service/registry/task evt  no   insufficient normalized fields     NOT ENABLED — INSUFFICIENT SOURCE CONTRACT

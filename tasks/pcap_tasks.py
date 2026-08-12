@@ -259,11 +259,42 @@ def _delete_pcap_scope(case_uuid: str, case_id: int, records: List[PcapFile]) ->
     """Delete derived PCAP state while keeping retained originals."""
     from models.network_log import delete_pcap_logs
     from utils.artifact_paths import ensure_case_artifact_paths, is_within_root
+    from utils.graph_identity import GraphSourceRefType
+    from utils.graph_support_lifecycle import GraphSupportLifecycleService
 
     case_paths = ensure_case_artifact_paths(case_uuid)
+    lifecycle = GraphSupportLifecycleService()
     deleted_ids = set()
     logs_deleted = 0
     zeek_deleted = 0
+
+    pending_ids = []
+    for record in records:
+        if not record:
+            continue
+        try:
+            lifecycle.begin_pcap_revalidation(
+                case_id=case_id,
+                pcap_id=record.id,
+                reason='pcap_reprocess',
+            )
+            pending_ids.append(record.id)
+        except Exception as exc:
+            logger.error(f"Graph support pre-revalidation marking failed for PCAP {record.id}: {exc}")
+            for restore_id in pending_ids:
+                try:
+                    lifecycle.restore_source_support_if_source_remains(
+                        case_id=case_id,
+                        source_ref_type=GraphSourceRefType.PCAP_FILE,
+                        source_ref_id=restore_id,
+                    )
+                except Exception as restore_err:
+                    logger.warning(
+                        f"Graph support restore failed for PCAP {restore_id} after pre-revalidation failure: {restore_err}"
+                    )
+            raise RuntimeError(
+                f"Graph support pre-revalidation marking failed for PCAP {record.id}; rebuild aborted before network-log deletion"
+            ) from exc
 
     for record in records:
         if not record or record.id in deleted_ids:
@@ -273,6 +304,30 @@ def _delete_pcap_scope(case_uuid: str, case_id: int, records: List[PcapFile]) ->
             logs_deleted += record.logs_indexed or 0
         except Exception as exc:
             logger.error(f"Failed to delete network logs for PCAP {record.id}: {exc}")
+            for deleted_id in deleted_ids:
+                try:
+                    lifecycle.finalize_pcap_revalidation(
+                        case_id=case_id,
+                        pcap_id=deleted_id,
+                        reason='pcap_partial_reprocess_completed_before_failure',
+                    )
+                except Exception as finalize_err:
+                    logger.warning(
+                        f"Graph support finalize failed for already-deleted PCAP {deleted_id}: {finalize_err}"
+                    )
+            for restore_record in records:
+                if not restore_record or restore_record.id in deleted_ids:
+                    continue
+                try:
+                    lifecycle.restore_source_support_if_source_remains(
+                        case_id=case_id,
+                        source_ref_type=GraphSourceRefType.PCAP_FILE,
+                        source_ref_id=restore_record.id,
+                    )
+                except Exception as restore_err:
+                    logger.warning(
+                        f"Graph support restore failed for PCAP {restore_record.id}: {restore_err}"
+                    )
             raise RuntimeError(
                 f"Failed to delete ClickHouse network logs for PCAP {record.id}; rebuild aborted before metadata deletion"
             ) from exc
@@ -291,6 +346,15 @@ def _delete_pcap_scope(case_uuid: str, case_id: int, records: List[PcapFile]) ->
         db.session.delete(record)
 
     db.session.commit()
+    for record_id in deleted_ids:
+        try:
+            lifecycle.finalize_pcap_revalidation(
+                case_id=case_id,
+                pcap_id=record_id,
+                reason='pcap_reprocessed',
+            )
+        except Exception as exc:
+            logger.warning(f"Graph support finalize-revalidation failed for PCAP {record_id}: {exc}")
     return {
         'records_deleted': len(deleted_ids),
         'logs_deleted': logs_deleted,

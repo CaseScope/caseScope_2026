@@ -761,6 +761,29 @@ def tag_all_iocs_globally(case_id: int, *, updated_by: str = 'system',
     total_iocs = len(iocs)
     
     if not iocs:
+        operation_id = new_operation_id()
+        scan_version = reset_ioc_types_for_case(
+            case_id,
+            updated_by=updated_by,
+            remote_ip=remote_ip,
+            operation_id=operation_id,
+        )
+        if scan_version:
+            try:
+                from utils.ioc_match_provenance import begin_ioc_match_scan, finalize_ioc_match_scan
+
+                begin_ioc_match_scan(case_id, scan_version=scan_version)
+                finalize_ioc_match_scan(case_id, scan_version=scan_version)
+                db.session.commit()
+            except Exception as exc:
+                db.session.rollback()
+                clear_tag_progress(case_id)
+                logger.error(f"Failed to invalidate exact IOC evidence provenance for empty scan in case {case_id}: {exc}")
+                return {
+                    'success': False,
+                    'error': 'Failed to invalidate exact IOC evidence provenance',
+                    'details': [],
+                }
         clear_tag_progress(case_id)
         return {
             'success': True,
@@ -808,6 +831,24 @@ def tag_all_iocs_globally(case_id: int, *, updated_by: str = 'system',
             'total_artifact_matches': 0,
             'events_tagged': 0,
             'system_sightings_created': 0,
+            'details': [],
+        }
+
+    try:
+        from utils.ioc_match_provenance import begin_ioc_match_scan
+
+        results['ioc_evidence_matches_pending_revalidation'] = begin_ioc_match_scan(
+            case_id,
+            scan_version=scan_version,
+        )
+        db.session.commit()
+    except Exception as exc:
+        db.session.rollback()
+        clear_tag_progress(case_id)
+        logger.error(f"Failed to initialize exact IOC evidence provenance scan for case {case_id}: {exc}")
+        return {
+            'success': False,
+            'error': 'Failed to initialize exact IOC evidence provenance scan',
             'details': [],
         }
     
@@ -878,7 +919,11 @@ def tag_all_iocs_globally(case_id: int, *, updated_by: str = 'system',
                     try:
                         from utils.ioc_match_provenance import record_ioc_evidence_matches
 
-                        provenance = record_ioc_evidence_matches(case_id, ioc)
+                        provenance = record_ioc_evidence_matches(
+                            case_id,
+                            ioc,
+                            scan_version=scan_version,
+                        )
                         results['ioc_evidence_matches'] = (
                             results.get('ioc_evidence_matches', 0)
                             + provenance.get('matches_recorded', 0)
@@ -949,6 +994,18 @@ def tag_all_iocs_globally(case_id: int, *, updated_by: str = 'system',
                 processed_ioc_ids.add(ioc.id)
                 idx += 1
     
+    try:
+        from utils.ioc_match_provenance import finalize_ioc_match_scan
+
+        results['ioc_evidence_matches_invalidated'] = finalize_ioc_match_scan(
+            case_id,
+            scan_version=scan_version,
+        )
+    except Exception as exc:
+        logger.error(f"Failed to finalize exact IOC evidence provenance scan for case {case_id}: {exc}")
+        results['success'] = False
+        results['error'] = 'Failed to finalize exact IOC evidence provenance scan'
+
     # Mark progress complete
     _update_tag_progress(case_id, total_iocs, total_iocs, 'Complete', results['total_artifact_matches'])
     

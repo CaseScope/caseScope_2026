@@ -79,6 +79,7 @@ def record_matches(
     default_source_ref_type: Optional[str] = None,
     default_source_ref_id: Optional[int] = None,
     support_state: str = GraphSupportState.ACTIVE,
+    scan_version: Optional[str] = None,
     session=None,
 ) -> Dict[str, int]:
     """Idempotently upsert exact IOC -> ERK matches.
@@ -146,12 +147,70 @@ def record_matches(
             'observed_at': _coerce_dt(item.get('observed_at')),
             'created_at': now,
             'updated_at': now,
-            'metadata_json': item.get('metadata') or {},
+            'metadata_json': {
+                **(item.get('metadata') or {}),
+                **({'scan_version': scan_version} if scan_version else {}),
+            },
         })
         if len(buffer) >= _UPSERT_CHUNK:
             _flush()
     _flush()
     return {'processed': processed}
+
+
+def begin_ioc_match_scan(
+    case_id: int,
+    *,
+    scan_version: str,
+    session=None,
+) -> int:
+    """Mark current exact IOC matches non-active before a retagging scan.
+
+    Current matches must be reproven by this scan. Rows not re-upserted ACTIVE by
+    the scan are finalized INVALIDATED, preserving history without continuing to
+    drive IOC graph pivots.
+    """
+    session = session or db.session
+    now = datetime.utcnow()
+    rows = IOCEvidenceMatch.query.filter(
+        IOCEvidenceMatch.case_id == int(case_id),
+        IOCEvidenceMatch.support_state == GraphSupportState.ACTIVE,
+    ).yield_per(1000)
+    updated = 0
+    for row in rows:
+        row.support_state = GraphSupportState.PENDING_REVALIDATION
+        meta = dict(row.metadata_json or {})
+        meta['pending_scan_version'] = str(scan_version)
+        row.metadata_json = meta
+        row.updated_at = now
+        updated += 1
+    session.flush()
+    return updated
+
+
+def finalize_ioc_match_scan(
+    case_id: int,
+    *,
+    scan_version: str,
+    session=None,
+) -> int:
+    """Invalidate exact IOC matches not reproven by the completed scan."""
+    session = session or db.session
+    now = datetime.utcnow()
+    rows = IOCEvidenceMatch.query.filter(
+        IOCEvidenceMatch.case_id == int(case_id),
+        IOCEvidenceMatch.support_state == GraphSupportState.PENDING_REVALIDATION,
+    ).yield_per(1000)
+    updated = 0
+    for row in rows:
+        row.support_state = GraphSupportState.INVALIDATED
+        meta = dict(row.metadata_json or {})
+        meta['invalidated_by_scan_version'] = str(scan_version)
+        row.metadata_json = meta
+        row.updated_at = now
+        updated += 1
+    session.flush()
+    return updated
 
 
 def query_by_ioc_uuid(
@@ -274,6 +333,7 @@ def record_ioc_evidence_matches(
     session=None,
     batch_size: int = 5000,
     commit_each_batch: bool = True,
+    scan_version: Optional[str] = None,
 ) -> Dict[str, int]:
     """Stream matching ERKs for an IOC and persist exact IOCEvidenceMatch rows.
 
@@ -323,6 +383,7 @@ def record_ioc_evidence_matches(
             ioc.value,
             erks_with_meta,
             session=session,
+            scan_version=scan_version,
         )
         total += result['processed']
         if commit_each_batch:
@@ -332,6 +393,8 @@ def record_ioc_evidence_matches(
 
 __all__ = [
     'record_matches',
+    'begin_ioc_match_scan',
+    'finalize_ioc_match_scan',
     'query_by_ioc_uuid',
     'query_by_erk',
     'invalidate_matches_by_erks',

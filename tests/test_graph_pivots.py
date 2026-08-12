@@ -13,6 +13,7 @@ from utils.graph_pivots import (
     PIVOT_KIND_IOC,
     PIVOT_KIND_KNOWN_SYSTEM,
     PIVOT_KIND_PROCESS_HUNT,
+    PIVOT_KIND_UNIFIED_FINDING,
     GraphPivotError,
     GraphPivotService,
 )
@@ -90,6 +91,44 @@ class GraphPivotServiceTestCase(unittest.TestCase):
     def test_pivot_bounds_constants(self):
         self.assertEqual(MAX_PIVOT_ROOTS, 25)
         self.assertTrue(is_evidence_record_key(erk('c')))
+
+    def test_unified_finding_must_exist_before_pivoting_support(self):
+        with patch.object(self.service, '_load_unified_finding', return_value=None):
+            with self.assertRaises(GraphPivotError):
+                self.service.resolve(
+                    1,
+                    kind=PIVOT_KIND_UNIFIED_FINDING,
+                    reference={
+                        'analysis_id': 'analysis-1',
+                        'source_system': 'analysis',
+                        'dedup_key': 'dedup-1',
+                        'finding_id': 'finding-1',
+                        'evidence_record_keys': [erk('e')],
+                    },
+                )
+
+    def test_unified_finding_uses_stored_payload_erks_not_client_erks(self):
+        stored = {'title': 'Stored finding', 'evidence_record_keys': [erk('f')]}
+        with patch.object(self.service, '_load_unified_finding', return_value=stored), \
+                patch.object(self.service, '_pivot_evidence') as pivot_evidence:
+            pivot_evidence.return_value = SimpleNamespace(
+                roots=[],
+                relationship_ids=[],
+                truncated=False,
+            )
+            result = self.service.resolve(
+                1,
+                kind=PIVOT_KIND_UNIFIED_FINDING,
+                reference={
+                    'analysis_id': 'analysis-1',
+                    'source_system': 'analysis',
+                    'dedup_key': 'dedup-1',
+                    'finding_id': 'finding-1',
+                    'evidence_record_keys': [erk('e')],
+                },
+            )
+        self.assertEqual(result['evidence_record_keys'], [erk('f')])
+        pivot_evidence.assert_called_once_with(1, {'evidence_record_key': erk('f')})
 
 
 class GraphPivotRouteTestCase(unittest.TestCase):

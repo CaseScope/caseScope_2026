@@ -154,6 +154,42 @@ class GraphSupportLifecycleService:
             'relationships_revalidated': revalidated,
         }
 
+    def restore_source_support_if_source_remains(
+        self,
+        *,
+        case_id: int,
+        source_ref_type: str,
+        source_ref_id: int,
+        reason: str = 'source_deletion_failed_restore',
+    ) -> Dict[str, Any]:
+        """Restore pending support for a non-CaseFile source that still exists."""
+        now = datetime.utcnow()
+        q = GraphRelationshipEvidence.query.filter(
+            GraphRelationshipEvidence.case_id == case_id,
+            GraphRelationshipEvidence.source_ref_type == source_ref_type,
+            GraphRelationshipEvidence.source_ref_id == int(source_ref_id),
+            GraphRelationshipEvidence.support_state.in_(
+                [
+                    GraphSupportState.PENDING_REMOVAL,
+                    GraphSupportState.PENDING_REVALIDATION,
+                ]
+            ),
+        )
+        relationship_ids: Set[int] = set()
+        updated = 0
+        for row in q.yield_per(self.batch_size):
+            row.support_state = GraphSupportState.ACTIVE
+            row.support_state_reason = reason
+            row.support_state_changed_at = now
+            relationship_ids.add(row.relationship_id)
+            updated += 1
+        self.session.flush()
+        revalidated = self.revalidate_relationships(case_id, relationship_ids)
+        return {
+            'support_restored': updated,
+            'relationships_revalidated': revalidated,
+        }
+
     def begin_memory_job_removal(self, *, case_id: int, memory_job_id: int, reason: str = 'memory_job_removal') -> Dict[str, Any]:
         return self._mark_source_pending(
             case_id=case_id,
@@ -172,6 +208,24 @@ class GraphSupportLifecycleService:
             reason=reason,
         )
 
+    def begin_memory_job_revalidation(self, *, case_id: int, memory_job_id: int, reason: str = 'memory_job_reprocess') -> Dict[str, Any]:
+        return self._mark_source_pending(
+            case_id=case_id,
+            source_ref_type=GraphSourceRefType.MEMORY_JOB,
+            source_ref_id=memory_job_id,
+            pending_state=GraphSupportState.PENDING_REVALIDATION,
+            reason=reason,
+        )
+
+    def finalize_memory_job_revalidation(self, *, case_id: int, memory_job_id: int, reason: str = 'memory_job_reprocessed') -> Dict[str, Any]:
+        return self._finalize_source_support(
+            case_id=case_id,
+            source_ref_type=GraphSourceRefType.MEMORY_JOB,
+            source_ref_id=memory_job_id,
+            final_state=GraphSupportState.INVALIDATED,
+            reason=reason,
+        )
+
     def begin_pcap_removal(self, *, case_id: int, pcap_id: int, reason: str = 'pcap_removal') -> Dict[str, Any]:
         return self._mark_source_pending(
             case_id=case_id,
@@ -187,6 +241,24 @@ class GraphSupportLifecycleService:
             source_ref_type=GraphSourceRefType.PCAP_FILE,
             source_ref_id=pcap_id,
             final_state=GraphSupportState.UNAVAILABLE,
+            reason=reason,
+        )
+
+    def begin_pcap_revalidation(self, *, case_id: int, pcap_id: int, reason: str = 'pcap_reprocess') -> Dict[str, Any]:
+        return self._mark_source_pending(
+            case_id=case_id,
+            source_ref_type=GraphSourceRefType.PCAP_FILE,
+            source_ref_id=pcap_id,
+            pending_state=GraphSupportState.PENDING_REVALIDATION,
+            reason=reason,
+        )
+
+    def finalize_pcap_revalidation(self, *, case_id: int, pcap_id: int, reason: str = 'pcap_reprocessed') -> Dict[str, Any]:
+        return self._finalize_source_support(
+            case_id=case_id,
+            source_ref_type=GraphSourceRefType.PCAP_FILE,
+            source_ref_id=pcap_id,
+            final_state=GraphSupportState.INVALIDATED,
             reason=reason,
         )
 

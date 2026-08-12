@@ -1299,6 +1299,8 @@ def delete_memory_job(job_id):
     try:
         import shutil
         import os
+        from utils.graph_identity import GraphSourceRefType
+        from utils.graph_support_lifecycle import GraphSupportLifecycleService
         
         job = _get_memory_job_for_user(job_id)
         if job is False:
@@ -1315,6 +1317,18 @@ def delete_memory_job(job_id):
         }
         
         output_folder = job.output_folder
+        job_case_id = job.case_id
+        lifecycle = GraphSupportLifecycleService()
+        try:
+            lifecycle.begin_memory_job_removal(case_id=job_case_id, memory_job_id=job.id)
+        except Exception as e:
+            logger.error("Graph support pre-removal marking failed for memory_job=%s: %s", job.id, e)
+            return jsonify({
+                'success': False,
+                'error': 'Graph support preparation failed; memory evidence was left unchanged',
+                'failed_memory_job_id': job.id,
+                'details': str(e),
+            }), 500
         
         # Delete Volatility output directory
         if output_folder and os.path.isdir(output_folder):
@@ -1327,8 +1341,19 @@ def delete_memory_job(job_id):
         
         # Delete the job record
         # Due to CASCADE on foreign keys, all related data in memory_* tables is auto-deleted
-        db.session.delete(job)
-        db.session.commit()
+        try:
+            db.session.delete(job)
+            db.session.commit()
+        except Exception:
+            db.session.rollback()
+            lifecycle.restore_source_support_if_source_remains(
+                case_id=job_case_id,
+                source_ref_type=GraphSourceRefType.MEMORY_JOB,
+                source_ref_id=job.id,
+            )
+            raise
+
+        lifecycle.finalize_memory_job_removal(case_id=job_case_id, memory_job_id=job_id)
         
         return jsonify({
             'success': True,

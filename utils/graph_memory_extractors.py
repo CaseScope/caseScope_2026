@@ -89,36 +89,14 @@ class _ProcessRef:
 class MemoryProcessResolver:
     """Resolve the unique MemoryProcess row for a (job_id, pid).
 
-    Loaded lazily per job so memory stays bounded. A pid that maps to zero or
-    more than one process row resolves to ``None`` (caller must skip the edge).
+    Queries lazily per pid and caches results so memory stays bounded. A pid
+    that maps to zero or more than one process row resolves to ``None`` (caller
+    must skip the edge).
     """
 
     def __init__(self, job_id: int):
         self.job_id = int(job_id)
         self._index: Dict[int, Optional[_ProcessRef]] = {}
-        self._loaded = False
-
-    def _load(self) -> None:
-        from models.memory_data import MemoryProcess
-
-        by_pid: Dict[int, List[_ProcessRef]] = {}
-        rows = MemoryProcess.query.filter_by(job_id=self.job_id).all()
-        for row in rows:
-            if row.pid is None:
-                continue
-            ref = _ProcessRef(
-                record_id=int(row.id),
-                pid=int(row.pid),
-                name=_clean(row.name),
-                path=_clean(row.path or row.audit_path),
-                create_time=row.create_time,
-            )
-            by_pid.setdefault(int(row.pid), []).append(ref)
-        # Only unique (job, pid) rows are trustworthy process anchors.
-        self._index = {
-            pid: refs[0] if len(refs) == 1 else None for pid, refs in by_pid.items()
-        }
-        self._loaded = True
 
     def resolve(self, pid: Any) -> Optional[_ProcessRef]:
         if pid is None:
@@ -127,8 +105,27 @@ class MemoryProcessResolver:
             pid_int = int(pid)
         except (TypeError, ValueError):
             return None
-        if not self._loaded:
-            self._load()
+        if pid_int in self._index:
+            return self._index.get(pid_int)
+        from models.memory_data import MemoryProcess
+
+        rows = (
+            MemoryProcess.query.filter_by(job_id=self.job_id, pid=pid_int)
+            .order_by(MemoryProcess.id.asc())
+            .limit(2)
+            .all()
+        )
+        if len(rows) != 1:
+            self._index[pid_int] = None
+            return None
+        row = rows[0]
+        self._index[pid_int] = _ProcessRef(
+            record_id=int(row.id),
+            pid=int(row.pid),
+            name=_clean(row.name),
+            path=_clean(row.path or row.audit_path),
+            create_time=row.create_time,
+        )
         return self._index.get(pid_int)
 
 
@@ -423,11 +420,7 @@ def materialize_memory_for_case(
     for job in jobs:
         resolver = MemoryProcessResolver(job.id)
         for extractor in extractors:
-            # Fully consume the source read (server-side cursor) into lightweight
-            # candidate dataclasses BEFORE materializing, so periodic commits do
-            # not invalidate an open PostgreSQL streaming cursor.
-            job_candidates = list(extractor.extract_job(job, resolver))
-            for candidate in job_candidates:
+            for candidate in extractor.extract_job(job, resolver):
                 candidates_seen += 1
                 try:
                     with session.begin_nested():

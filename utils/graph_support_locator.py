@@ -100,6 +100,7 @@ def build_zeek_dns_locator(
     case_id: int,
     pcap_id: int,
     uid: str,
+    trans_id: str = '',
     query: str = '',
     answer: str = '',
     record_identity: str = '',
@@ -107,10 +108,14 @@ def build_zeek_dns_locator(
     uid_clean = _clean(uid)
     if not uid_clean:
         raise ValueError('Zeek DNS locator requires uid')
+    trans_id_clean = _clean(trans_id)
+    if not _clean(record_identity) and not trans_id_clean:
+        raise ValueError('Zeek DNS locator requires trans_id or exact record_identity')
     identity = _clean(record_identity) or _stable_json(
         {
             'pcap_id': int(pcap_id),
             'uid': uid_clean,
+            'trans_id': trans_id_clean,
             'query': _clean(query).lower(),
             'answer': _clean(answer),
         }
@@ -121,6 +126,7 @@ def build_zeek_dns_locator(
         'case_id': int(case_id),
         'pcap_id': int(pcap_id),
         'uid': uid_clean,
+        'trans_id': trans_id_clean,
         'query': _clean(query),
         'answer': _clean(answer),
         'record_identity': identity,
@@ -173,5 +179,5 @@ def validate_support_provenance(
     if int(support_locator.get('locator_version') or 0) != LOCATOR_VERSION:
         raise ValueError('Unsupported support locator version')
     expected = support_key_for_locator(support_locator)
-    if key != expected and not is_native_support_key(key):
+    if key != expected:
         raise ValueError('Native graph support key does not match locator')

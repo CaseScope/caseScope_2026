@@ -503,8 +503,20 @@ def rebuild_memory_job_from_originals(self, job_id: int, username: str = 'system
             return {'success': False, 'error': 'Retained memory source not found on disk'}
 
         case_uuid = old_job.case.uuid
+        old_case_id = old_job.case_id
         run_id = create_rebuild_run_id('memory_job')
         output_deleted = False
+        from utils.graph_identity import GraphSourceRefType
+        from utils.graph_support_lifecycle import GraphSupportLifecycleService
+
+        lifecycle = GraphSupportLifecycleService()
+        try:
+            lifecycle.begin_memory_job_revalidation(case_id=old_case_id, memory_job_id=old_job.id)
+        except Exception as exc:
+            logger.error(f"Graph support pre-revalidation marking failed for memory job {old_job.id}: {exc}")
+            raise RuntimeError(
+                f"Graph support pre-revalidation marking failed for memory job {old_job.id}; rebuild aborted before source deletion"
+            ) from exc
 
         cloned_job = _clone_memory_job(old_job, username)
         old_output = old_job.output_folder
@@ -518,8 +530,22 @@ def rebuild_memory_job_from_originals(self, job_id: int, username: str = 'system
             shutil.rmtree(old_output, ignore_errors=True)
             output_deleted = True
 
-        db.session.delete(old_job)
-        db.session.commit()
+        try:
+            db.session.delete(old_job)
+            db.session.commit()
+        except Exception:
+            db.session.rollback()
+            lifecycle.restore_source_support_if_source_remains(
+                case_id=old_case_id,
+                source_ref_type=GraphSourceRefType.MEMORY_JOB,
+                source_ref_id=job_id,
+            )
+            raise
+
+        lifecycle.finalize_memory_job_revalidation(
+            case_id=old_case_id,
+            memory_job_id=job_id,
+        )
 
         task = process_memory_dump.delay(cloned_job.id)
         cloned_job.celery_task_id = task.id
@@ -580,9 +606,20 @@ def rebuild_case_memory_jobs_from_originals(self, case_uuid: str, username: str 
                 continue
 
             source_paths.append(old_job.source_file)
+            old_case_id = old_job.case_id
             cloned_job = _clone_memory_job(old_job, username)
             old_output = old_job.output_folder
             old_id = old_job.id
+            from utils.graph_identity import GraphSourceRefType
+            from utils.graph_support_lifecycle import GraphSupportLifecycleService
+
+            lifecycle = GraphSupportLifecycleService()
+            try:
+                lifecycle.begin_memory_job_revalidation(case_id=old_case_id, memory_job_id=old_id)
+            except Exception as exc:
+                logger.error(f"Graph support pre-revalidation marking failed for memory job {old_id}: {exc}")
+                skipped.append({'job_id': old_id, 'reason': 'graph support preparation failed'})
+                continue
 
             db.session.add(cloned_job)
             db.session.flush()
@@ -590,8 +627,19 @@ def rebuild_case_memory_jobs_from_originals(self, case_uuid: str, username: str 
             if old_output and os.path.isdir(old_output):
                 shutil.rmtree(old_output, ignore_errors=True)
 
-            db.session.delete(old_job)
-            db.session.commit()
+            try:
+                db.session.delete(old_job)
+                db.session.commit()
+            except Exception:
+                db.session.rollback()
+                lifecycle.restore_source_support_if_source_remains(
+                    case_id=old_case_id,
+                    source_ref_type=GraphSourceRefType.MEMORY_JOB,
+                    source_ref_id=old_id,
+                )
+                raise
+
+            lifecycle.finalize_memory_job_revalidation(case_id=old_case_id, memory_job_id=old_id)
 
             task = process_memory_dump.delay(cloned_job.id)
             cloned_job.celery_task_id = task.id

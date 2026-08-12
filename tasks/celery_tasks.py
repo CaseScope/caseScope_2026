@@ -367,7 +367,10 @@ def _delete_standard_case_file_scope(
     deleted_ids = set()
     events_deleted = 0
 
-    # Mark graph support pending before destructive delete.
+    # Mark graph support pending before destructive delete. This must fail
+    # closed: if support cannot be made non-authoritative, do not remove source
+    # evidence from ClickHouse.
+    pending_ids = []
     for record in records:
         if not record:
             continue
@@ -387,10 +390,24 @@ def _delete_standard_case_file_scope(
                     case_file_id=record.id,
                     evidence_record_keys=erk_iter,
                 )
+            pending_ids.append(record.id)
         except Exception as exc:
-            logger.warning(
+            logger.error(
                 f"Graph support pre-{lifecycle_mode} marking failed for CaseFile {record.id}: {exc}"
             )
+            for restore_id in pending_ids:
+                try:
+                    lifecycle.restore_case_file_support_if_source_remains(
+                        case_id=case_id,
+                        case_file_id=restore_id,
+                    )
+                except Exception as restore_err:
+                    logger.warning(
+                        f"Graph support restore failed for CaseFile {restore_id} after pre-{lifecycle_mode} failure: {restore_err}"
+                    )
+            raise RuntimeError(
+                f"Graph support pre-{lifecycle_mode} marking failed for CaseFile {record.id}; rebuild aborted before evidence deletion"
+            ) from exc
 
     for record in records:
         if not record or record.id in deleted_ids:
@@ -400,9 +417,30 @@ def _delete_standard_case_file_scope(
             events_deleted += record.events_indexed or 0
         except Exception as exc:
             logger.error(f"Failed to delete ClickHouse events for CaseFile {record.id}: {exc}")
-            # Source still exists: restore ACTIVE support for pending rows.
+            # Already-deleted sources must not be restored to ACTIVE.
+            for deleted_id in deleted_ids:
+                try:
+                    if revalidation:
+                        lifecycle.finalize_case_file_revalidation(
+                            case_id=case_id,
+                            case_file_id=deleted_id,
+                            reason='case_file_partial_reprocess_completed_before_failure',
+                        )
+                    else:
+                        lifecycle.finalize_case_file_removal(
+                            case_id=case_id,
+                            case_file_id=deleted_id,
+                            reason='case_file_partial_delete_completed_before_failure',
+                        )
+                except Exception as finalize_err:
+                    logger.warning(
+                        f"Graph support finalize failed for already-deleted CaseFile {deleted_id}: {finalize_err}"
+                    )
+            # Source still exists for the failing/untouched records: restore ACTIVE.
             for restore_record in records:
                 if not restore_record:
+                    continue
+                if restore_record.id in deleted_ids:
                     continue
                 try:
                     lifecycle.restore_case_file_support_if_source_remains(

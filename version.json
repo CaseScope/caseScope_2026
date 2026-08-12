@@ -1,6 +1,18 @@
 {
-  "version": "4.16.0",
+  "version": "4.16.1",
   "changelog": [
+    {
+      "version": "4.16.1",
+      "date": "2026-08-12",
+      "changes": [
+        "Corrected Phase 0E source lifecycle enforcement so graph-support preparation failures stop destructive CaseFile/PCAP/Memory deletes before evidence is removed",
+        "Corrected partial multi-source deletion handling so already-deleted sources are finalized non-active and only untouched sources can be restored",
+        "Added PCAP and MemoryJob deletion/reprocessing lifecycle hooks for native graph support",
+        "Disabled authoritative Zeek DNS RESOLVED_TO extraction until exact DNS transaction identity is retained, and tightened native locator validation to require locator-derived key equality",
+        "Corrected finding pivots to load server-side pinned findings before deriving support and added IOC exact-match scan revalidation semantics",
+        "Bounded memory graph materialization by removing full job process loads and full candidate list materialization"
+      ]
+    },
     {
       "version": "4.16.0",
       "date": "2026-08-12",
