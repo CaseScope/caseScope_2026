@@ -4,6 +4,8 @@
     "sha": "4298bd24cac5bcb87d3128941aa227df33dfac84",
     "branch": "main",
     "main_head": "4298bd24cac5bcb87d3128941aa227df33dfac84",
+    "phase0g_commit": "6a0bed70fa1409abc151cb6711225f84398a3375",
+    "remote_main_after_push": "6a0bed70fa1409abc151cb6711225f84398a3375",
     "status": "PASS"
   },
   "support_matrix": {
@@ -59,6 +61,11 @@
       "expected": "apply_async(args=(11,), queue='ioc')",
       "actual": "apply_async(args=(11, 'tester', None), queue='ioc')",
       "queue": "ioc"
+    },
+    "github_status": {
+      "status": "NOT_CHECKED",
+      "reason": "GitHub CLI gh is not installed on the host; remote main was verified over SSH with git ls-remote.",
+      "remote_main": "6a0bed70fa1409abc151cb6711225f84398a3375"
     },
     "large_case_runtime": {
       "status": "FAIL",
