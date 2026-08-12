@@ -1,6 +1,14 @@
 {
-  "version": "4.14.1",
+  "version": "4.15.0",
   "changelog": [
+    {
+      "version": "4.15.0",
+      "date": "2026-08-12",
+      "changes": [
+        "Added Phase 0D Investigation Threads and Saved Graph Views with typed membership tables, stable rebuild-surviving references, frozen evidence snapshots, evidence-set fingerprints, optimistic concurrency, and unified AuditLog integration",
+        "Prerequisite hardening H-001: KnownSystem lookup now fails closed on infrastructure errors instead of silently creating observed-host fallback identities"
+      ]
+    },
     {
       "version": "4.14.1",
       "date": "2026-08-12",

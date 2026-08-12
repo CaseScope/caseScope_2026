@@ -9,6 +9,9 @@
         </h1>
         <p class="page-subtitle">{{ case.name }} - {{ case.company }}</p>
     </div>
+    <div class="page-actions">
+        <a class="btn btn-secondary" href="/case/investigation-threads">Investigation Threads</a>
+    </div>
 </div>
 
 <div class="graph-workspace" data-case-uuid="{{ case.uuid }}">
@@ -48,6 +51,12 @@
                 <span class="graph-status" id="graph-status">No root selected</span>
             </div>
             <div class="graph-toolbar-actions">
+                <input type="text" id="graph-view-title-input" class="form-control graph-view-title-input" placeholder="Saved view title">
+                <select id="graph-view-select" class="form-control graph-view-select">
+                    <option value="">Saved views...</option>
+                </select>
+                <button class="btn btn-secondary btn-sm" id="graph-save-view-button">Save View</button>
+                <button class="btn btn-secondary btn-sm" id="graph-load-view-button">Load View</button>
                 <button class="btn btn-secondary btn-sm" id="graph-fit-button">Fit / Reset Layout</button>
                 <button class="btn btn-secondary btn-sm" id="graph-reset-button">Reset Graph</button>
             </div>
@@ -76,6 +85,8 @@
                         <button class="btn btn-secondary btn-sm" id="graph-load-more-button" disabled>Load More</button>
                         <button class="btn btn-secondary btn-sm" id="graph-path-start-button" disabled>Set as Path Start</button>
                         <button class="btn btn-primary btn-sm" id="graph-find-path-button" disabled>Find Path to Selected</button>
+                        <button class="btn btn-secondary btn-sm" id="graph-pin-node-button" disabled>Pin Node</button>
+                        <button class="btn btn-secondary btn-sm" id="graph-hide-node-button" disabled>Hide Node</button>
                     </div>
                 </div>
                 <div class="graph-inspector-section">
@@ -94,6 +105,37 @@
                     </div>
                 </div>
             </aside>
+            <aside class="graph-thread-drawer">
+                <div class="graph-inspector-section">
+                    <h3>Investigation Thread</h3>
+                    <div class="thread-drawer-controls">
+                        <select id="graph-thread-select" class="form-control">
+                            <option value="">Select existing thread...</option>
+                        </select>
+                        <a id="graph-open-thread-link" class="btn btn-secondary btn-sm" href="/case/investigation-threads">Open full Thread</a>
+                    </div>
+                    <div id="graph-current-thread-summary" class="graph-inspector-content text-muted">No thread selected.</div>
+                </div>
+                <div class="graph-inspector-section">
+                    <h3>Selection Basket</h3>
+                    <div class="graph-toolbar-actions">
+                        <button class="btn btn-secondary btn-sm" id="graph-add-entity-basket-button" disabled>Add Entity to Basket</button>
+                        <button class="btn btn-secondary btn-sm" id="graph-add-relationship-basket-button" disabled>Add Relationship to Basket</button>
+                        <button class="btn btn-secondary btn-sm" id="graph-add-evidence-basket-button" disabled>Add Evidence to Basket</button>
+                    </div>
+                    <div id="graph-basket-summary" class="thread-basket-summary">Entities (0), Relationships (0), Evidence (0)</div>
+                    <div id="graph-basket" class="thread-basket"></div>
+                    <button class="btn btn-secondary btn-sm" id="graph-clear-basket-button">Clear basket</button>
+                </div>
+                <div class="graph-inspector-section">
+                    <h3>Create Thread from Selection</h3>
+                    <input type="text" id="graph-new-thread-title" class="form-control" maxlength="255" placeholder="Thread title">
+                    <textarea id="graph-new-thread-description" class="form-control" rows="3" maxlength="20000" placeholder="Description"></textarea>
+                    <button class="btn btn-primary btn-sm" id="graph-create-thread-button">Create Thread from Selection</button>
+                    <button class="btn btn-secondary btn-sm" id="graph-add-selection-thread-button" disabled>Add Selection to Existing Thread</button>
+                    <div id="graph-thread-action-status" class="graph-status"></div>
+                </div>
+            </aside>
         </div>
     </section>
 </div>
@@ -109,9 +151,22 @@ const graphState = {
     rootId: null,
     selectedNodeId: null,
     selectedEdgeId: null,
+    selectedEvidenceRecordKey: null,
     pathStartId: null,
     nextCursorByNode: new Map(),
-    lastPathEdgeIds: new Set()
+    lastPathEdgeIds: new Set(),
+    coordinates: new Map(),
+    pinnedNodeIds: new Set(),
+    hiddenNodeIds: new Set(),
+    filters: { entityType: "" },
+    basket: {
+        entities: new Map(),
+        relationships: new Map(),
+        evidence: new Map()
+    },
+    currentThread: null,
+    drag: null,
+    suppressCanvasClick: false
 };
 
 function graphText(value, fallback = "-") {
@@ -177,6 +232,7 @@ async function loadGraphSummary() {
 async function searchGraphEntities() {
     const q = document.getElementById("graph-search-input").value.trim();
     const type = document.getElementById("graph-type-filter").value;
+    graphState.filters.entityType = type;
     const resultsEl = document.getElementById("graph-search-results");
     graphClear(resultsEl);
     if (!q) {
@@ -255,6 +311,10 @@ function resetGraph(clearRoot = true) {
     graphState.edges.clear();
     graphState.nextCursorByNode.clear();
     graphState.lastPathEdgeIds.clear();
+    graphState.coordinates.clear();
+    graphState.pinnedNodeIds.clear();
+    graphState.hiddenNodeIds.clear();
+    graphState.selectedEvidenceRecordKey = null;
     graphState.selectedNodeId = null;
     graphState.selectedEdgeId = null;
     graphState.pathStartId = null;
@@ -273,16 +333,25 @@ function resetGraph(clearRoot = true) {
 }
 
 function graphPositions(width, height) {
-    const ids = Array.from(graphState.nodes.keys()).sort((a, b) => a - b);
+    const ids = Array.from(graphState.nodes.keys())
+        .filter(id => !graphState.hiddenNodeIds.has(Number(id)))
+        .sort((a, b) => a - b);
     const positions = new Map();
     if (!ids.length) return positions;
     const rootIndex = graphState.rootId ? ids.indexOf(Number(graphState.rootId)) : -1;
-    if (rootIndex >= 0) {
+    ids.forEach(id => {
+        const saved = graphState.coordinates.get(Number(id));
+        if (saved && Number.isFinite(saved.x) && Number.isFinite(saved.y)) {
+            positions.set(Number(id), { x: saved.x, y: saved.y });
+        }
+    });
+    if (rootIndex >= 0 && !positions.has(Number(graphState.rootId))) {
         positions.set(Number(graphState.rootId), { x: width / 2, y: height / 2 });
     }
     const others = ids.filter(id => id !== Number(graphState.rootId));
     const radius = Math.max(120, Math.min(width, height) * 0.35);
     others.forEach((id, index) => {
+        if (positions.has(id)) return;
         const angle = (Math.PI * 2 * index) / Math.max(1, others.length) - Math.PI / 2;
         positions.set(id, {
             x: width / 2 + Math.cos(angle) * radius,
@@ -304,6 +373,7 @@ function renderGraph() {
     const rect = svg.getBoundingClientRect();
     const positions = graphPositions(rect.width || 800, rect.height || 520);
     graphState.edges.forEach(edge => {
+        if (graphState.hiddenNodeIds.has(Number(edge.source_entity_id)) || graphState.hiddenNodeIds.has(Number(edge.target_entity_id))) return;
         const source = positions.get(Number(edge.source_entity_id));
         const target = positions.get(Number(edge.target_entity_id));
         if (!source || !target) return;
@@ -327,13 +397,16 @@ function renderGraph() {
         edgeLayer.appendChild(label);
     });
     graphState.nodes.forEach(node => {
+        if (graphState.hiddenNodeIds.has(Number(node.id))) return;
         const pos = positions.get(Number(node.id));
         if (!pos) return;
         const group = document.createElementNS("http://www.w3.org/2000/svg", "g");
-        group.setAttribute("class", `graph-node${graphState.selectedNodeId === Number(node.id) ? " selected" : ""}`);
+        group.setAttribute("class", `graph-node${graphState.selectedNodeId === Number(node.id) ? " selected" : ""}${graphState.pinnedNodeIds.has(Number(node.id)) ? " pinned" : ""}`);
         group.setAttribute("transform", `translate(${pos.x}, ${pos.y})`);
+        group.addEventListener("mousedown", event => startNodeDrag(event, Number(node.id), pos));
         group.addEventListener("click", event => {
             event.stopPropagation();
+            if (graphState.suppressCanvasClick) return;
             selectNode(Number(node.id));
         });
         const circle = document.createElementNS("http://www.w3.org/2000/svg", "circle");
@@ -357,22 +430,69 @@ function renderGraph() {
 function selectNode(entityId) {
     graphState.selectedNodeId = entityId;
     graphState.selectedEdgeId = null;
+    graphState.selectedEvidenceRecordKey = null;
     graphState.lastPathEdgeIds.clear();
     renderGraph();
     renderNodeInspector(graphState.nodes.get(entityId));
+    renderThreadDrawer();
 }
 
 async function selectEdge(edgeId) {
     graphState.selectedEdgeId = edgeId;
     graphState.selectedNodeId = null;
+    graphState.selectedEvidenceRecordKey = null;
     graphState.lastPathEdgeIds.clear();
     renderGraph();
     try {
         const data = await graphFetch(`${graphApiBase}/relationships/${edgeId}`);
         renderRelationshipInspector(data.relationship);
         await loadRelationshipEvidence(edgeId);
+        renderThreadDrawer();
     } catch (err) {
         graphSetStatus(err.message || "Unable to load relationship");
+    }
+}
+
+function graphSvgPoint(event) {
+    const svg = document.getElementById("graph-canvas");
+    const point = svg.createSVGPoint();
+    point.x = event.clientX;
+    point.y = event.clientY;
+    return point.matrixTransform(svg.getScreenCTM().inverse());
+}
+
+function startNodeDrag(event, entityId, pos) {
+    if (event.button !== 0) return;
+    event.stopPropagation();
+    const point = graphSvgPoint(event);
+    graphState.drag = {
+        entityId,
+        offsetX: point.x - pos.x,
+        offsetY: point.y - pos.y,
+        moved: false
+    };
+}
+
+function moveNodeDrag(event) {
+    if (!graphState.drag) return;
+    event.preventDefault();
+    const point = graphSvgPoint(event);
+    graphState.drag.moved = true;
+    graphState.coordinates.set(graphState.drag.entityId, {
+        x: point.x - graphState.drag.offsetX,
+        y: point.y - graphState.drag.offsetY
+    });
+    renderGraph();
+}
+
+function endNodeDrag() {
+    if (!graphState.drag) return;
+    graphState.suppressCanvasClick = graphState.drag.moved;
+    graphState.drag = null;
+    if (graphState.suppressCanvasClick) {
+        window.setTimeout(() => {
+            graphState.suppressCanvasClick = false;
+        }, 0);
     }
 }
 
@@ -461,6 +581,8 @@ function renderEvidenceRows(edgeId, rows, pagination, append = false) {
 
 async function loadExactEvidence(erk) {
     const panel = document.getElementById("graph-event-panel");
+    graphState.selectedEvidenceRecordKey = erk;
+    renderThreadDrawer();
     graphClear(panel);
     panel.classList.remove("text-muted");
     graphAppendText(panel, "graph-empty-results", "Resolving exact evidence record...");
@@ -503,11 +625,364 @@ function renderExactEvidence(data) {
 
 function updateGraphButtons() {
     const selectedNode = graphState.selectedNodeId !== null;
+    const selectedEdge = graphState.selectedEdgeId !== null;
+    const selectedEvidence = Boolean(graphState.selectedEvidenceRecordKey);
     const hasMore = selectedNode && graphState.nextCursorByNode.has(Number(graphState.selectedNodeId));
     document.getElementById("graph-expand-button").disabled = !selectedNode;
     document.getElementById("graph-load-more-button").disabled = !hasMore;
     document.getElementById("graph-path-start-button").disabled = !selectedNode;
     document.getElementById("graph-find-path-button").disabled = !(selectedNode && graphState.pathStartId && graphState.pathStartId !== graphState.selectedNodeId);
+    document.getElementById("graph-pin-node-button").disabled = !selectedNode;
+    document.getElementById("graph-hide-node-button").disabled = !selectedNode;
+    document.getElementById("graph-pin-node-button").textContent = selectedNode && graphState.pinnedNodeIds.has(Number(graphState.selectedNodeId)) ? "Unpin Node" : "Pin Node";
+    document.getElementById("graph-add-entity-basket-button").disabled = !selectedNode;
+    document.getElementById("graph-add-relationship-basket-button").disabled = !selectedEdge;
+    document.getElementById("graph-add-evidence-basket-button").disabled = !selectedEvidence;
+    document.getElementById("graph-add-selection-thread-button").disabled = !graphState.currentThread || !basketHasItems();
+}
+
+function basketHasItems() {
+    return graphState.basket.entities.size > 0 || graphState.basket.relationships.size > 0 || graphState.basket.evidence.size > 0;
+}
+
+function togglePinnedSelectedNode() {
+    if (graphState.selectedNodeId === null) return;
+    const entityId = Number(graphState.selectedNodeId);
+    if (graphState.pinnedNodeIds.has(entityId)) {
+        graphState.pinnedNodeIds.delete(entityId);
+    } else {
+        const rect = document.getElementById("graph-canvas").getBoundingClientRect();
+        const positions = graphPositions(rect.width || 800, rect.height || 520);
+        if (!graphState.coordinates.has(entityId) && positions.has(entityId)) {
+            graphState.coordinates.set(entityId, positions.get(entityId));
+        }
+        graphState.pinnedNodeIds.add(entityId);
+    }
+    renderGraph();
+}
+
+function hideSelectedNode() {
+    if (graphState.selectedNodeId === null) return;
+    graphState.hiddenNodeIds.add(Number(graphState.selectedNodeId));
+    graphState.selectedNodeId = null;
+    renderGraph();
+    renderThreadDrawer();
+}
+
+function basketCountsText() {
+    return `Entities (${graphState.basket.entities.size}), Relationships (${graphState.basket.relationships.size}), Evidence (${graphState.basket.evidence.size})`;
+}
+
+function basketLabel(kind, value) {
+    if (kind === "entities") {
+        return graphText(value.display_value || value.canonical_value || value.id);
+    }
+    if (kind === "relationships") {
+        const source = graphState.nodes.get(Number(value.source_entity_id));
+        const target = graphState.nodes.get(Number(value.target_entity_id));
+        return `${graphText(source ? source.display_value : value.source_entity_id)} -> ${graphText(value.relationship_type)} -> ${graphText(target ? target.display_value : value.target_entity_id)}`;
+    }
+    return graphText(value.evidence_record_key || value);
+}
+
+function addSelectedEntityToBasket() {
+    if (graphState.selectedNodeId === null) return;
+    const node = graphState.nodes.get(Number(graphState.selectedNodeId));
+    if (node) graphState.basket.entities.set(Number(node.id), node);
+    renderThreadDrawer();
+}
+
+function addSelectedRelationshipToBasket() {
+    if (graphState.selectedEdgeId === null) return;
+    const edge = graphState.edges.get(Number(graphState.selectedEdgeId));
+    if (edge) graphState.basket.relationships.set(Number(edge.id), edge);
+    renderThreadDrawer();
+}
+
+function addSelectedEvidenceToBasket() {
+    if (!graphState.selectedEvidenceRecordKey) return;
+    graphState.basket.evidence.set(graphState.selectedEvidenceRecordKey, {
+        evidence_record_key: graphState.selectedEvidenceRecordKey
+    });
+    renderThreadDrawer();
+}
+
+function removeBasketItem(kind, key) {
+    graphState.basket[kind].delete(kind === "evidence" ? key : Number(key));
+    renderThreadDrawer();
+}
+
+function clearBasket() {
+    graphState.basket.entities.clear();
+    graphState.basket.relationships.clear();
+    graphState.basket.evidence.clear();
+    renderThreadDrawer();
+}
+
+function renderThreadDrawer() {
+    const basket = document.getElementById("graph-basket");
+    const summary = document.getElementById("graph-basket-summary");
+    const current = document.getElementById("graph-current-thread-summary");
+    const link = document.getElementById("graph-open-thread-link");
+    summary.textContent = basketCountsText();
+    graphClear(basket);
+
+    [["entities", "Entity"], ["relationships", "Relationship"], ["evidence", "Evidence"]].forEach(([kind, label]) => {
+        graphState.basket[kind].forEach((value, key) => {
+            const item = document.createElement("div");
+            item.className = "thread-basket-item";
+            graphAppendText(item, "graph-result-title", label);
+            graphAppendText(item, "graph-result-meta", basketLabel(kind, value));
+            const remove = document.createElement("button");
+            remove.type = "button";
+            remove.className = "btn btn-secondary btn-sm";
+            remove.textContent = "Remove item";
+            remove.addEventListener("click", () => removeBasketItem(kind, key));
+            item.appendChild(remove);
+            basket.appendChild(item);
+        });
+    });
+    if (!basketHasItems()) {
+        graphAppendText(basket, "graph-empty-results", "No selections in basket.");
+    }
+
+    graphClear(current);
+    if (!graphState.currentThread) {
+        current.classList.add("text-muted");
+        current.textContent = "No thread selected.";
+        link.href = "/case/investigation-threads";
+    } else {
+        const thread = graphState.currentThread;
+        const counts = thread.counts || {};
+        current.classList.remove("text-muted");
+        graphAppendText(current, "graph-inspector-title", graphText(thread.title));
+        current.appendChild(graphField("Status", thread.status));
+        current.appendChild(graphField("Counts", `E ${counts.entities || 0}, R ${counts.relationships || 0}, Ev ${counts.evidence || 0}`));
+        current.appendChild(graphField("Fingerprint", graphShortLabel(thread.evidence_set_fingerprint, 28)));
+        current.appendChild(graphField("Version", thread.version));
+        link.href = `/case/investigation-threads/${encodeURIComponent(thread.uuid)}`;
+    }
+    updateGraphButtons();
+}
+
+async function loadThreadOptions() {
+    const select = document.getElementById("graph-thread-select");
+    try {
+        const data = await graphFetch(`/api/investigation-threads/${encodeURIComponent(graphCaseUuid)}?limit=200`);
+        graphClear(select);
+        const empty = document.createElement("option");
+        empty.value = "";
+        empty.textContent = "Select existing thread...";
+        select.appendChild(empty);
+        (data.threads || []).forEach(thread => {
+            const option = document.createElement("option");
+            option.value = thread.uuid;
+            option.textContent = `${graphText(thread.title)} (v${graphText(thread.version)})`;
+            select.appendChild(option);
+        });
+    } catch (err) {
+        graphSetStatus(err.message || "Unable to load threads");
+    }
+}
+
+async function selectCurrentThread(threadUuid) {
+    if (!threadUuid) {
+        graphState.currentThread = null;
+        renderThreadDrawer();
+        return;
+    }
+    try {
+        const data = await graphFetch(`/api/investigation-threads/${encodeURIComponent(graphCaseUuid)}/${encodeURIComponent(threadUuid)}?include_memberships=false`);
+        graphState.currentThread = data.thread;
+        renderThreadDrawer();
+    } catch (err) {
+        graphSetStatus(err.message || "Unable to load thread");
+    }
+}
+
+function basketPayload(includeVersion = false) {
+    const payload = {
+        entity_ids: Array.from(graphState.basket.entities.keys()),
+        relationship_ids: Array.from(graphState.basket.relationships.keys()),
+        evidence_record_keys: Array.from(graphState.basket.evidence.keys())
+    };
+    if (includeVersion && graphState.currentThread) {
+        payload.expected_version = graphState.currentThread.version;
+    }
+    return payload;
+}
+
+async function createThreadFromBasket() {
+    const status = document.getElementById("graph-thread-action-status");
+    const title = document.getElementById("graph-new-thread-title").value.trim();
+    if (!title || !basketHasItems()) {
+        status.textContent = "Enter a title and add at least one basket item.";
+        return;
+    }
+    try {
+        const payload = basketPayload(false);
+        payload.title = title;
+        payload.description = document.getElementById("graph-new-thread-description").value.trim();
+        const data = await graphFetch(`/api/investigation-threads/${encodeURIComponent(graphCaseUuid)}/from-selection`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(payload)
+        });
+        graphState.currentThread = data.thread;
+        document.getElementById("graph-thread-select").value = data.thread.uuid;
+        clearBasket();
+        await loadThreadOptions();
+        document.getElementById("graph-thread-select").value = data.thread.uuid;
+        status.textContent = "Thread created from selection.";
+    } catch (err) {
+        status.textContent = err.message || "Unable to create thread";
+    }
+}
+
+async function addBasketToCurrentThread() {
+    const status = document.getElementById("graph-thread-action-status");
+    if (!graphState.currentThread || !basketHasItems()) {
+        status.textContent = "Select a thread and add basket items first.";
+        return;
+    }
+    try {
+        await graphFetch(`/api/investigation-threads/${encodeURIComponent(graphCaseUuid)}/${encodeURIComponent(graphState.currentThread.uuid)}/selection`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(basketPayload(true))
+        });
+        clearBasket();
+        await selectCurrentThread(graphState.currentThread.uuid);
+        status.textContent = "Selection added to thread.";
+    } catch (err) {
+        status.textContent = err.message || "Unable to add selection";
+    }
+}
+
+function graphCurrentCoordinatesPayload() {
+    const coords = {};
+    graphState.coordinates.forEach((value, id) => {
+        coords[String(id)] = { x: value.x, y: value.y };
+    });
+    return coords;
+}
+
+async function saveGraphView() {
+    const titleInput = document.getElementById("graph-view-title-input");
+    const title = titleInput.value.trim() || `Graph view ${new Date().toISOString()}`;
+    try {
+        const visibleEdgeIds = Array.from(graphState.edges.values())
+            .filter(edge => !graphState.hiddenNodeIds.has(Number(edge.source_entity_id)) && !graphState.hiddenNodeIds.has(Number(edge.target_entity_id)))
+            .map(edge => Number(edge.id));
+        const payload = {
+            title,
+            description: "",
+            view: {
+                root_entity_ids: graphState.rootId ? [Number(graphState.rootId)] : [],
+                expanded_entity_ids: Array.from(graphState.nodes.keys()).map(Number),
+                visible_relationship_ids: visibleEdgeIds,
+                filters_json: { entityType: document.getElementById("graph-type-filter").value || "" },
+                pinned_node_ids: Array.from(graphState.pinnedNodeIds).map(Number),
+                hidden_node_ids: Array.from(graphState.hiddenNodeIds).map(Number),
+                node_coordinates_json: graphCurrentCoordinatesPayload(),
+                selected_entity_id: graphState.selectedNodeId,
+                selected_relationship_id: graphState.selectedEdgeId
+            }
+        };
+        await graphFetch(`${graphApiBase}/views`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(payload)
+        });
+        graphSetStatus("Saved graph view.");
+        titleInput.value = "";
+        await loadSavedViews();
+    } catch (err) {
+        graphSetStatus(err.message || "Unable to save view");
+    }
+}
+
+async function loadSavedViews() {
+    const select = document.getElementById("graph-view-select");
+    try {
+        const data = await graphFetch(`${graphApiBase}/views?limit=200`);
+        graphClear(select);
+        const empty = document.createElement("option");
+        empty.value = "";
+        empty.textContent = "Saved views...";
+        select.appendChild(empty);
+        (data.views || []).forEach(view => {
+            const option = document.createElement("option");
+            option.value = view.uuid;
+            option.textContent = `${graphText(view.title)} (v${graphText(view.version)})`;
+            select.appendChild(option);
+        });
+    } catch (err) {
+        graphSetStatus(err.message || "Unable to list saved views");
+    }
+}
+
+async function fetchGraphEntity(entityId) {
+    const data = await graphFetch(`${graphApiBase}/entities/${encodeURIComponent(entityId)}`);
+    graphState.nodes.set(Number(data.entity.id), data.entity);
+}
+
+async function fetchGraphRelationship(relationshipId) {
+    const data = await graphFetch(`${graphApiBase}/relationships/${encodeURIComponent(relationshipId)}`);
+    const relationship = data.relationship;
+    graphState.edges.set(Number(relationship.id), relationship);
+    if (relationship.source_entity) graphState.nodes.set(Number(relationship.source_entity.id), relationship.source_entity);
+    if (relationship.target_entity) graphState.nodes.set(Number(relationship.target_entity.id), relationship.target_entity);
+}
+
+async function loadSelectedGraphView() {
+    const viewUuid = document.getElementById("graph-view-select").value;
+    if (!viewUuid) {
+        graphSetStatus("Select a saved view to load.");
+        return;
+    }
+    try {
+        graphSetStatus("Restoring saved graph view...");
+        const data = await graphFetch(`${graphApiBase}/views/${encodeURIComponent(viewUuid)}?restore=true`);
+        const resolved = data.resolved || {};
+        resetGraph(true);
+        const rootIds = (resolved.root_entity_ids || []).map(Number);
+        graphState.rootId = rootIds.length ? rootIds[0] : null;
+        graphState.filters = resolved.filters || { entityType: "" };
+        document.getElementById("graph-type-filter").value = graphState.filters.entityType || "";
+        graphState.pinnedNodeIds = new Set((resolved.pinned_node_ids || []).map(Number));
+        graphState.hiddenNodeIds = new Set((resolved.hidden_node_ids || []).map(Number));
+        graphState.coordinates = new Map(
+            Object.entries(resolved.node_coordinates || {}).map(([id, coords]) => [Number(id), { x: Number(coords.x), y: Number(coords.y) }])
+        );
+
+        const entityIds = new Set([
+            ...rootIds,
+            ...(resolved.expanded_entity_ids || []).map(Number),
+            ...(resolved.pinned_node_ids || []).map(Number),
+            ...(resolved.hidden_node_ids || []).map(Number),
+        ]);
+        if (resolved.selected_entity_id) entityIds.add(Number(resolved.selected_entity_id));
+        await Promise.all(Array.from(entityIds).map(id => fetchGraphEntity(id).catch(() => null)));
+        for (const id of Array.from(new Set([...rootIds, ...(resolved.expanded_entity_ids || []).map(Number)]))) {
+            await expandNode(id, false);
+        }
+        await Promise.all((resolved.visible_relationship_ids || []).map(id => fetchGraphRelationship(Number(id)).catch(() => null)));
+        if ((resolved.visible_relationship_ids || []).length) {
+            const visible = new Set((resolved.visible_relationship_ids || []).map(Number));
+            Array.from(graphState.edges.keys()).forEach(id => {
+                if (!visible.has(Number(id))) graphState.edges.delete(Number(id));
+            });
+        }
+        graphState.selectedNodeId = resolved.selected_entity_id ? Number(resolved.selected_entity_id) : null;
+        graphState.selectedEdgeId = resolved.selected_relationship_id ? Number(resolved.selected_relationship_id) : null;
+        renderGraph();
+        if (graphState.selectedNodeId !== null) renderNodeInspector(graphState.nodes.get(graphState.selectedNodeId));
+        if (graphState.selectedEdgeId !== null) await selectEdge(graphState.selectedEdgeId);
+        graphSetStatus("Saved graph view restored.");
+    } catch (err) {
+        graphSetStatus(err.message || "Unable to load saved view");
+    }
 }
 
 async function findPathToSelected() {
@@ -537,7 +1012,13 @@ async function findPathToSelected() {
 
 document.addEventListener("DOMContentLoaded", () => {
     loadGraphSummary();
+    loadSavedViews();
+    loadThreadOptions();
+    renderThreadDrawer();
     document.getElementById("graph-search-button").addEventListener("click", searchGraphEntities);
+    document.getElementById("graph-type-filter").addEventListener("change", event => {
+        graphState.filters.entityType = event.target.value;
+    });
     document.getElementById("graph-search-input").addEventListener("keyup", event => {
         if (event.key === "Enter") searchGraphEntities();
     });
@@ -555,13 +1036,30 @@ document.addEventListener("DOMContentLoaded", () => {
         }
     });
     document.getElementById("graph-find-path-button").addEventListener("click", findPathToSelected);
+    document.getElementById("graph-pin-node-button").addEventListener("click", togglePinnedSelectedNode);
+    document.getElementById("graph-hide-node-button").addEventListener("click", hideSelectedNode);
+    document.getElementById("graph-add-entity-basket-button").addEventListener("click", addSelectedEntityToBasket);
+    document.getElementById("graph-add-relationship-basket-button").addEventListener("click", addSelectedRelationshipToBasket);
+    document.getElementById("graph-add-evidence-basket-button").addEventListener("click", addSelectedEvidenceToBasket);
+    document.getElementById("graph-clear-basket-button").addEventListener("click", clearBasket);
+    document.getElementById("graph-create-thread-button").addEventListener("click", createThreadFromBasket);
+    document.getElementById("graph-add-selection-thread-button").addEventListener("click", addBasketToCurrentThread);
+    document.getElementById("graph-thread-select").addEventListener("change", event => selectCurrentThread(event.target.value));
+    document.getElementById("graph-save-view-button").addEventListener("click", saveGraphView);
+    document.getElementById("graph-load-view-button").addEventListener("click", loadSelectedGraphView);
     document.getElementById("graph-fit-button").addEventListener("click", renderGraph);
     document.getElementById("graph-reset-button").addEventListener("click", () => resetGraph(true));
     document.getElementById("graph-canvas").addEventListener("click", () => {
+        if (graphState.suppressCanvasClick) return;
         graphState.selectedNodeId = null;
         graphState.selectedEdgeId = null;
+        graphState.selectedEvidenceRecordKey = null;
         renderGraph();
+        renderThreadDrawer();
     });
+    document.getElementById("graph-canvas").addEventListener("mousemove", moveNodeDrag);
+    document.getElementById("graph-canvas").addEventListener("mouseup", endNodeDrag);
+    document.getElementById("graph-canvas").addEventListener("mouseleave", endNodeDrag);
     window.addEventListener("resize", renderGraph);
 });
 </script>

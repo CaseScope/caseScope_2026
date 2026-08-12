@@ -32,6 +32,16 @@ from models.graph import (
     GraphRelationship,
     GraphRelationshipEvidence,
 )
+from models.graph_saved_view import GraphSavedView
+from models.investigation_thread import (
+    InvestigationThread,
+    InvestigationThreadEntity,
+    InvestigationThreadEvidence,
+    InvestigationThreadFinding,
+    InvestigationThreadIOC,
+    InvestigationThreadNote,
+    InvestigationThreadRelationship,
+)
 from models.known_system import (
     KnownSystem,
     KnownSystemAlias,
@@ -237,6 +247,14 @@ def delete_case_permanently(case: Case) -> Dict[str, int]:
         )
 
         case_id_models = [
+            InvestigationThreadNote,
+            InvestigationThreadFinding,
+            InvestigationThreadIOC,
+            InvestigationThreadEvidence,
+            InvestigationThreadRelationship,
+            InvestigationThreadEntity,
+            InvestigationThread,
+            GraphSavedView,
             GraphRelationshipEvidence,
             GraphEntityObservation,
             GraphRelationship,
@@ -272,6 +290,11 @@ def delete_case_permanently(case: Case) -> Dict[str, int]:
             KnownSystem,
             ArchiveJob,
         ]
+        # Clear Thread -> Saved View pointers before deleting either side.
+        db.session.query(InvestigationThread).filter_by(case_id=case_id).update(
+            {InvestigationThread.current_saved_view_id: None},
+            synchronize_session=False,
+        )
         for model in case_id_models:
             summary[model.__name__] = _delete_many(model, case_id=case_id)
 

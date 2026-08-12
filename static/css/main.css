@@ -15544,3 +15544,184 @@ input:checked + .slider:before {
   color: var(--accent-warning);
   font-size: 12px;
 }
+
+/* ========================================
+   Investigation Threads Phase 0D
+   ======================================== */
+.graph-layout {
+  grid-template-columns: minmax(420px, 1fr) minmax(300px, 360px) minmax(300px, 360px);
+}
+
+.graph-thread-drawer {
+  background: var(--bg-card);
+  border-left: 1px solid var(--border-color);
+  overflow-y: auto;
+  max-height: 620px;
+}
+
+.graph-view-title-input {
+  width: 220px;
+}
+
+.graph-view-select {
+  width: 220px;
+}
+
+.thread-drawer-controls,
+.thread-form-grid,
+.thread-editor-grid,
+.thread-note-form {
+  display: grid;
+  gap: 10px;
+}
+
+.thread-basket {
+  display: grid;
+  gap: 8px;
+  margin: 10px 0;
+}
+
+.thread-basket-summary {
+  color: var(--text-secondary);
+  font-size: 13px;
+  margin-top: 10px;
+}
+
+.thread-basket-item,
+.thread-membership-card,
+.thread-note-card {
+  border: 1px solid var(--border-color);
+  border-radius: var(--border-radius);
+  background: var(--bg-secondary);
+  padding: 10px 12px;
+}
+
+.graph-node.pinned circle {
+  stroke: var(--accent-success);
+  stroke-width: 4;
+}
+
+.graph-node.hidden {
+  display: none;
+}
+
+.investigation-thread-layout {
+  display: grid;
+  gap: 18px;
+}
+
+.thread-list,
+.thread-memberships,
+.thread-notes {
+  display: grid;
+  gap: 12px;
+}
+
+.thread-table {
+  display: grid;
+  grid-template-columns: minmax(180px, 1.5fr) repeat(6, minmax(100px, 1fr));
+  gap: 1px;
+  overflow-x: auto;
+  border: 1px solid var(--border-color);
+  border-radius: var(--border-radius);
+  background: var(--border-color);
+}
+
+.thread-table-header,
+.thread-table-cell {
+  padding: 10px 12px;
+  background: var(--bg-secondary);
+  color: var(--text-primary);
+  overflow-wrap: anywhere;
+}
+
+.thread-table-header {
+  color: var(--text-muted);
+  font-size: 12px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+}
+
+.thread-table-row {
+  display: contents;
+  border: none;
+  cursor: pointer;
+}
+
+.thread-table-row:hover .thread-table-cell {
+  background: var(--bg-hover);
+}
+
+.thread-table-row:focus .thread-table-cell {
+  outline: 1px solid var(--accent-primary);
+  outline-offset: -1px;
+}
+
+.thread-summary-grid,
+.thread-membership-meta {
+  display: grid;
+  gap: 8px;
+}
+
+.thread-report-toggle {
+  justify-self: start;
+}
+
+.thread-membership-group {
+  display: grid;
+  gap: 10px;
+  border: 1px solid var(--border-color);
+  border-radius: var(--border-radius-lg);
+  background: var(--bg-card);
+  padding: 14px;
+}
+
+.thread-membership-group-header h3 {
+  color: var(--text-primary);
+  font-size: 15px;
+  margin: 0;
+}
+
+.thread-json-block {
+  display: grid;
+  gap: 6px;
+  margin-top: 10px;
+}
+
+.thread-json-block pre {
+  max-height: 260px;
+  overflow: auto;
+  margin: 0;
+  padding: 10px;
+  border: 1px solid var(--border-color);
+  border-radius: var(--border-radius);
+  background: var(--bg-primary);
+  color: var(--text-secondary);
+  font-size: 12px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.thread-live-unavailable {
+  border: 1px solid rgba(255, 171, 0, 0.4);
+  border-radius: var(--border-radius);
+  background: rgba(255, 171, 0, 0.12);
+  color: var(--accent-warning);
+  font-size: 13px;
+  padding: 8px 10px;
+  margin-top: 8px;
+}
+
+@media (max-width: 1400px) {
+  .graph-layout {
+    grid-template-columns: minmax(420px, 1fr) minmax(300px, 360px);
+  }
+
+  .graph-thread-drawer {
+    grid-column: 1 / -1;
+    max-height: none;
+    border-left: none;
+    border-top: 1px solid var(--border-color);
+  }
+}

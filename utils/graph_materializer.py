@@ -158,15 +158,19 @@ class GraphMaterializer:
         raise ValueError(f'Unsupported graph entity type: {entity_type}')
 
     def _lookup_known_system_id(self, case_id: int, hostname: Any) -> Optional[int]:
+        """Resolve KnownSystem identity. Fail closed on infrastructure errors.
+
+        A legitimate miss (no matching KnownSystem) returns None and allows the
+        accepted observed-host fallback. Database/query/infrastructure failures
+        must propagate so per-record savepoints can isolate the bad event
+        without silently minting a second host identity.
+        """
         if not _clean(hostname):
             return None
-        try:
-            from models.known_system import KnownSystem
+        from models.known_system import KnownSystem
 
-            system, _match_type = KnownSystem.find_by_hostname_or_alias(hostname, case_id=case_id)
-            return system.id if system else None
-        except Exception:
-            return None
+        system, _match_type = KnownSystem.find_by_hostname_or_alias(hostname, case_id=case_id)
+        return system.id if system else None
 
     def materialize_candidate(self, case_id: int, candidate: GraphRelationshipCandidate) -> GraphRelationship:
         if candidate.case_id != int(case_id):

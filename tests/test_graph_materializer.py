@@ -2,8 +2,10 @@ import unittest
 from dataclasses import replace
 from datetime import datetime
 from types import SimpleNamespace
+from unittest.mock import patch
 
 from flask import Flask
+from sqlalchemy.exc import OperationalError
 
 from models.case import Case
 from models.client import Client
@@ -260,6 +262,40 @@ class GraphMaterializerTestCase(unittest.TestCase):
         self.assertEqual(GraphRelationship.query.count(), 1)
         self.assertFalse(any('pid:1111' in key for key in source_keys))
         self.assertTrue(any('pid:2222' in key for key in source_keys))
+
+    def test_h001_legitimate_known_system_miss_allows_observed_host_fallback(self):
+        event = process_event(key=evidence_key('a'), source_host='WKS-UNKNOWN')
+
+        self._materialize(event)
+
+        relationship = GraphRelationship.query.one()
+        source = GraphEntity.query.get(relationship.source_entity_id)
+        target = GraphEntity.query.get(relationship.target_entity_id)
+        self.assertIn('observed_host:', source.entity_key)
+        self.assertIn('observed_host:', target.entity_key)
+        self.assertEqual(GraphRelationshipEvidence.query.filter_by(evidence_record_key=evidence_key('a')).count(), 1)
+
+    def test_h001_known_system_infrastructure_error_fails_closed_per_event(self):
+        broken = process_event(key=evidence_key('b'), source_host='WKS-BROKEN', process_id=5000)
+        valid = process_event(key=evidence_key('c'), source_host='WKS-1', process_id=5001)
+        client = StreamingClient([row_for_event(broken), row_for_event(valid)])
+        original_lookup = GraphMaterializer._lookup_known_system_id
+
+        def lookup_side_effect(materializer, case_id, hostname):
+            if hostname == 'WKS-BROKEN':
+                raise OperationalError('stmt', {}, Exception('db down'))
+            return original_lookup(materializer, case_id, hostname)
+
+        with patch.object(GraphMaterializer, '_lookup_known_system_id', autospec=True, side_effect=lookup_side_effect):
+            result = materialize_events_for_case(1, client=client, batch_size=5000)
+
+        self.assertEqual(result['events_seen'], 2)
+        self.assertEqual(result['errors'], 1)
+        self.assertEqual(result['relationships_materialized'], 1)
+        self.assertEqual(GraphRelationship.query.count(), 1)
+        self.assertEqual(GraphRelationshipEvidence.query.filter_by(evidence_record_key=evidence_key('b')).count(), 0)
+        self.assertEqual(GraphRelationshipEvidence.query.filter_by(evidence_record_key=evidence_key('c')).count(), 1)
+        self.assertFalse(any('WKS-BROKEN' in (entity.canonical_value or '') for entity in GraphEntity.query.all()))
 
 
 if __name__ == '__main__':

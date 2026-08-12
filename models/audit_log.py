@@ -114,6 +114,10 @@ class AuditEntityType:
     EVIDENCE_FILE = 'evidence_file'
     EVENT = 'event'
 
+    # Investigation graph (Phase 0D)
+    INVESTIGATION_THREAD = 'investigation_thread'
+    GRAPH_SAVED_VIEW = 'graph_saved_view'
+
     # RAG/AI
     ATTACK_PATTERN = 'attack_pattern'
     AI_AUDIT = 'ai_audit'
@@ -130,7 +134,9 @@ class AuditEntityType:
             cls.CASE, cls.CASE_FILE, cls.CASE_REPORT,
             cls.IOC, cls.KNOWN_SYSTEM, cls.KNOWN_USER,
             cls.SYSTEM_USER, cls.SETTING, cls.NOISE_RULE, cls.CLIENT,
-            cls.EVIDENCE_FILE, cls.EVENT, cls.ATTACK_PATTERN, cls.AI_AUDIT,
+            cls.EVIDENCE_FILE, cls.EVENT,
+            cls.INVESTIGATION_THREAD, cls.GRAPH_SAVED_VIEW,
+            cls.ATTACK_PATTERN, cls.AI_AUDIT,
             cls.AUDIT_LOG, cls.SESSION
         ]
 

@@ -374,6 +374,33 @@ def case_graph():
     return render_template('case_graph.html', page_title='Investigation Graph', case=case)
 
 
+@main_bp.route('/case/investigation-threads')
+@login_required
+@case_required
+def case_investigation_threads():
+    """Investigation Threads - analyst-curated narratives over graph evidence."""
+    case = get_active_case()
+    return render_template(
+        'case_investigation_threads.html',
+        page_title='Investigation Threads',
+        case=case,
+    )
+
+
+@main_bp.route('/case/investigation-threads/<thread_uuid>')
+@login_required
+@case_required
+def case_investigation_thread_detail(thread_uuid):
+    """Investigation Thread detail workspace."""
+    case = get_active_case()
+    return render_template(
+        'case_investigation_thread_detail.html',
+        page_title='Investigation Thread',
+        case=case,
+        thread_uuid=thread_uuid,
+    )
+
+
 @main_bp.route('/case/hunting/functions')
 @login_required
 @case_required

@@ -1,0 +1,346 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="page-header">
+    <div class="page-title-section">
+        <h1 class="page-title">
+            <span class="page-title-icon">Thread</span>
+            Investigation Thread
+        </h1>
+        <p class="page-subtitle">{{ case.name }} - {{ case.company }}</p>
+    </div>
+    <div class="page-actions">
+        <a class="btn btn-secondary" href="/case/investigation-threads">All Threads</a>
+        <a class="btn btn-secondary" href="/case/graph">Investigation Graph</a>
+    </div>
+</div>
+
+<div class="investigation-thread-layout" data-case-uuid="{{ case.uuid }}" data-thread-uuid="{{ thread_uuid }}">
+    <section class="tile">
+        <div class="tile-header">
+            <div class="tile-title">Thread Summary</div>
+            <div id="thread-detail-status" class="graph-status">Loading thread...</div>
+        </div>
+        <div class="tile-body">
+            <div id="thread-summary" class="thread-summary-grid"></div>
+            <div class="thread-editor-grid">
+                <label class="form-label" for="thread-status-select">Status</label>
+                <select id="thread-status-select" class="form-control">
+                    <option value="draft">Draft</option>
+                    <option value="investigating">Investigating</option>
+                    <option value="supported">Supported</option>
+                    <option value="rejected">Rejected</option>
+                </select>
+                <label class="filter-item thread-report-toggle">
+                    <input id="thread-include-report" type="checkbox">
+                    Include in report
+                </label>
+                <label class="form-label" for="thread-description-editor">Description</label>
+                <textarea id="thread-description-editor" class="form-control" rows="4" maxlength="20000"></textarea>
+                <label class="form-label" for="thread-conclusion-editor">Analyst Conclusion</label>
+                <textarea id="thread-conclusion-editor" class="form-control" rows="6" maxlength="50000"></textarea>
+                <button id="thread-save-button" type="button" class="btn btn-primary">Save Thread Updates</button>
+            </div>
+        </div>
+    </section>
+
+    <section class="tile">
+        <div class="tile-header">
+            <div class="tile-title">Memberships</div>
+            <div id="thread-count-summary" class="graph-summary"></div>
+        </div>
+        <div class="tile-body">
+            <div id="thread-memberships" class="thread-memberships"></div>
+        </div>
+    </section>
+
+    <section class="tile">
+        <div class="tile-header">
+            <div class="tile-title">Notes</div>
+        </div>
+        <div class="tile-body">
+            <form id="thread-note-form" class="thread-note-form">
+                <textarea id="thread-note-input" class="form-control" rows="3" maxlength="20000" placeholder="Add an analyst note"></textarea>
+                <button class="btn btn-primary" type="submit">Add Note</button>
+            </form>
+            <div id="thread-notes" class="thread-notes"></div>
+        </div>
+    </section>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+const threadDetailCaseUuid = {{ case.uuid|tojson }};
+const threadDetailUuid = {{ thread_uuid|tojson }};
+const threadDetailApiBase = `/api/investigation-threads/${encodeURIComponent(threadDetailCaseUuid)}/${encodeURIComponent(threadDetailUuid)}`;
+let threadDetailState = { thread: null, notes: [] };
+
+function detailText(value, fallback = "-") {
+    const text = value === null || value === undefined ? "" : String(value);
+    return text.trim() ? text : fallback;
+}
+
+function detailShort(value, maxLength = 18) {
+    const text = detailText(value);
+    return text.length > maxLength ? `${text.slice(0, maxLength)}...` : text;
+}
+
+function detailClear(element) {
+    while (element.firstChild) element.removeChild(element.firstChild);
+}
+
+function detailAppendText(parent, className, text) {
+    const el = document.createElement("div");
+    if (className) el.className = className;
+    el.textContent = text;
+    parent.appendChild(el);
+    return el;
+}
+
+function detailField(label, value) {
+    const row = document.createElement("div");
+    row.className = "graph-field";
+    const key = document.createElement("span");
+    key.className = "graph-field-key";
+    key.textContent = label;
+    const val = document.createElement("span");
+    val.className = "graph-field-value";
+    val.textContent = detailText(value);
+    row.appendChild(key);
+    row.appendChild(val);
+    return row;
+}
+
+async function detailFetch(url, options = {}) {
+    const response = await fetch(url, options);
+    const data = await response.json();
+    if (!response.ok || !data.success) {
+        throw new Error(data.error || "Investigation thread request failed");
+    }
+    return data;
+}
+
+function renderJsonBlock(parent, label, value) {
+    const wrap = document.createElement("div");
+    wrap.className = "thread-json-block";
+    detailAppendText(wrap, "graph-result-title", label);
+    const pre = document.createElement("pre");
+    pre.textContent = value === null || value === undefined ? "-" : JSON.stringify(value, null, 2);
+    wrap.appendChild(pre);
+    parent.appendChild(wrap);
+}
+
+function renderThreadSummary(thread, counts) {
+    const summary = document.getElementById("thread-summary");
+    detailClear(summary);
+    detailAppendText(summary, "graph-inspector-title", thread.title);
+    summary.appendChild(detailField("Status", thread.status));
+    summary.appendChild(detailField("Owner", thread.owner_username));
+    summary.appendChild(detailField("Version", thread.version));
+    summary.appendChild(detailField("Time window", `${detailText(thread.time_start)} to ${detailText(thread.time_end)}`));
+    summary.appendChild(detailField("Include in report", thread.include_in_report ? "Yes" : "No"));
+    summary.appendChild(detailField("Saved view UUID", thread.current_saved_view_uuid));
+    summary.appendChild(detailField("Evidence fingerprint", detailShort(thread.evidence_set_fingerprint, 32)));
+    summary.appendChild(detailField("Updated", thread.updated_at));
+
+    document.getElementById("thread-status-select").value = thread.status || "draft";
+    document.getElementById("thread-include-report").checked = Boolean(thread.include_in_report);
+    document.getElementById("thread-description-editor").value = thread.description || "";
+    document.getElementById("thread-conclusion-editor").value = thread.analyst_conclusion || "";
+    document.getElementById("thread-count-summary").textContent = `Entities ${counts.entities || 0}, relationships ${counts.relationships || 0}, evidence ${counts.evidence || 0}, IOCs ${counts.iocs || 0}, findings ${counts.findings || 0}, notes ${counts.notes || 0}`;
+}
+
+function membershipTitle(kind, row) {
+    if (kind === "entities") return `${detailText(row.entity_type)} | ${detailText(row.frozen_display_value || row.entity_key)}`;
+    if (kind === "relationships") return `${detailText(row.frozen_source_display_value || row.source_entity_key)} -> ${detailText(row.relationship_type)} -> ${detailText(row.frozen_target_display_value || row.target_entity_key)}`;
+    if (kind === "evidence") return detailText(row.evidence_record_key);
+    if (kind === "iocs") return detailText(row.ioc_uuid);
+    if (kind === "findings") return detailText(row.finding_kind);
+    return detailText(row.uuid || row.id);
+}
+
+function renderMembershipCard(kind, row) {
+    const card = document.createElement("div");
+    card.className = "thread-membership-card";
+    detailAppendText(card, "graph-result-title", membershipTitle(kind, row));
+    const meta = document.createElement("div");
+    meta.className = "thread-membership-meta";
+    meta.appendChild(detailField("Added", row.added_at));
+    meta.appendChild(detailField("Added by", row.added_by_username));
+    meta.appendChild(detailField("Rationale", row.analyst_rationale));
+    if (row.stable_reference_key) meta.appendChild(detailField("Stable ref", detailShort(row.stable_reference_key, 36)));
+    if (row.snapshot_sha256) meta.appendChild(detailField("Snapshot SHA256", detailShort(row.snapshot_sha256, 36)));
+    if (row.snapshot_version) meta.appendChild(detailField("Snapshot version", row.snapshot_version));
+    if (kind === "evidence") {
+        meta.appendChild(detailField("Source table", row.source_table));
+        meta.appendChild(detailField("Live source available", row.live_source_available ? "Yes" : "No"));
+        if (!row.live_source_available) {
+            detailAppendText(card, "thread-live-unavailable", "Snapshot retained — original source currently unavailable");
+        }
+    } else {
+        meta.appendChild(detailField("Live available", row.live_available ? "Yes" : "No"));
+    }
+    card.appendChild(meta);
+    renderJsonBlock(card, "Frozen Snapshot", row.snapshot);
+    renderJsonBlock(card, "Live Data", row.live);
+    return card;
+}
+
+function renderMembershipGroup(root, label, kind, rows) {
+    const group = document.createElement("section");
+    group.className = "thread-membership-group";
+    const header = document.createElement("div");
+    header.className = "thread-membership-group-header";
+    const title = document.createElement("h3");
+    title.textContent = `${label} (${rows.length})`;
+    header.appendChild(title);
+    group.appendChild(header);
+    if (!rows.length) {
+        detailAppendText(group, "graph-empty-results", `No ${label.toLowerCase()} linked.`);
+    } else {
+        rows.forEach(row => group.appendChild(renderMembershipCard(kind, row)));
+    }
+    root.appendChild(group);
+}
+
+function renderMemberships(data) {
+    const root = document.getElementById("thread-memberships");
+    detailClear(root);
+    renderMembershipGroup(root, "Entities", "entities", data.entities || []);
+    renderMembershipGroup(root, "Relationships", "relationships", data.relationships || []);
+    renderMembershipGroup(root, "Evidence", "evidence", data.evidence || []);
+    renderMembershipGroup(root, "IOCs", "iocs", data.iocs || []);
+    renderMembershipGroup(root, "Findings", "findings", data.findings || []);
+}
+
+function renderNotes(notes) {
+    const root = document.getElementById("thread-notes");
+    detailClear(root);
+    if (!notes.length) {
+        detailAppendText(root, "graph-empty-results", "No notes yet.");
+        return;
+    }
+    notes.forEach(note => {
+        const card = document.createElement("div");
+        card.className = "thread-note-card";
+        card.appendChild(detailField("Author", note.author_username));
+        card.appendChild(detailField("Updated", note.updated_at || note.created_at));
+        const textarea = document.createElement("textarea");
+        textarea.className = "form-control";
+        textarea.rows = 3;
+        textarea.maxLength = 20000;
+        textarea.value = note.body || "";
+        card.appendChild(textarea);
+        const actions = document.createElement("div");
+        actions.className = "graph-toolbar-actions";
+        const save = document.createElement("button");
+        save.type = "button";
+        save.className = "btn btn-primary btn-sm";
+        save.textContent = "Save Note";
+        save.addEventListener("click", () => updateNote(note.uuid, textarea.value));
+        const remove = document.createElement("button");
+        remove.type = "button";
+        remove.className = "btn btn-danger btn-sm";
+        remove.textContent = "Remove Note";
+        remove.addEventListener("click", () => removeNote(note.uuid));
+        actions.appendChild(save);
+        actions.appendChild(remove);
+        card.appendChild(actions);
+        root.appendChild(card);
+    });
+}
+
+async function loadThreadDetail() {
+    const status = document.getElementById("thread-detail-status");
+    status.textContent = "Loading thread...";
+    try {
+        const data = await detailFetch(threadDetailApiBase);
+        threadDetailState.thread = data.thread;
+        threadDetailState.notes = data.notes || [];
+        renderThreadSummary(data.thread, data.counts || data.thread.counts || {});
+        renderMemberships(data);
+        renderNotes(threadDetailState.notes);
+        status.textContent = "Thread loaded.";
+    } catch (err) {
+        status.textContent = err.message || "Unable to load thread";
+    }
+}
+
+async function saveThreadUpdates() {
+    if (!threadDetailState.thread) return;
+    const status = document.getElementById("thread-detail-status");
+    status.textContent = "Saving thread...";
+    try {
+        const data = await detailFetch(threadDetailApiBase, {
+            method: "PATCH",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+                expected_version: threadDetailState.thread.version,
+                status: document.getElementById("thread-status-select").value,
+                include_in_report: document.getElementById("thread-include-report").checked,
+                description: document.getElementById("thread-description-editor").value,
+                analyst_conclusion: document.getElementById("thread-conclusion-editor").value
+            })
+        });
+        threadDetailState.thread = data.thread;
+        await loadThreadDetail();
+    } catch (err) {
+        status.textContent = err.message || "Unable to save thread";
+    }
+}
+
+async function addNote(event) {
+    event.preventDefault();
+    if (!threadDetailState.thread) return;
+    const input = document.getElementById("thread-note-input");
+    const body = input.value.trim();
+    if (!body) return;
+    try {
+        await detailFetch(`${threadDetailApiBase}/notes`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ expected_version: threadDetailState.thread.version, body })
+        });
+        input.value = "";
+        await loadThreadDetail();
+    } catch (err) {
+        document.getElementById("thread-detail-status").textContent = err.message || "Unable to add note";
+    }
+}
+
+async function updateNote(noteUuid, body) {
+    if (!threadDetailState.thread) return;
+    try {
+        await detailFetch(`${threadDetailApiBase}/notes/${encodeURIComponent(noteUuid)}`, {
+            method: "PATCH",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ expected_version: threadDetailState.thread.version, body })
+        });
+        await loadThreadDetail();
+    } catch (err) {
+        document.getElementById("thread-detail-status").textContent = err.message || "Unable to update note";
+    }
+}
+
+async function removeNote(noteUuid) {
+    if (!threadDetailState.thread) return;
+    try {
+        await detailFetch(`${threadDetailApiBase}/notes/${encodeURIComponent(noteUuid)}`, {
+            method: "DELETE",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ expected_version: threadDetailState.thread.version })
+        });
+        await loadThreadDetail();
+    } catch (err) {
+        document.getElementById("thread-detail-status").textContent = err.message || "Unable to remove note";
+    }
+}
+
+document.addEventListener("DOMContentLoaded", () => {
+    document.getElementById("thread-save-button").addEventListener("click", saveThreadUpdates);
+    document.getElementById("thread-note-form").addEventListener("submit", addNote);
+    loadThreadDetail();
+});
+</script>
+{% endblock %}

@@ -41,7 +41,10 @@ class GraphUIContractTestCase(unittest.TestCase):
         self.assertIn("Open in Hunt Artifacts", source)
         self.assertIn("Graph Path", source)
         self.assertNotIn("Attack Chain", source)
-        self.assertNotIn("Create Thread", source)
+        self.assertIn("Create Thread from Selection", source)
+        self.assertIn("Save View", source)
+        self.assertIn("Load View", source)
+        self.assertIn("Selection Basket", source)
         self.assertNotIn("Delete Relationship", source)
 
     def test_graph_reset_clears_path_start_and_evidence_pages_append(self):

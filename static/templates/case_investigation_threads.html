@@ -1,0 +1,178 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="page-header">
+    <div class="page-title-section">
+        <h1 class="page-title">
+            <span class="page-title-icon">Threads</span>
+            Investigation Threads
+        </h1>
+        <p class="page-subtitle">{{ case.name }} - {{ case.company }}</p>
+    </div>
+    <div class="page-actions">
+        <a class="btn btn-secondary" href="/case/graph">Back to Investigation Graph</a>
+    </div>
+</div>
+
+<div class="investigation-thread-layout" data-case-uuid="{{ case.uuid }}">
+    <section class="tile">
+        <div class="tile-header">
+            <div class="tile-title">Create Empty Thread</div>
+        </div>
+        <div class="tile-body">
+            <form id="thread-create-form" class="thread-form">
+                <div class="thread-form-grid">
+                    <input id="thread-title-input" class="form-control" type="text" maxlength="255" required placeholder="Thread title">
+                    <textarea id="thread-description-input" class="form-control" rows="3" maxlength="20000" placeholder="Description"></textarea>
+                    <button class="btn btn-primary" type="submit">Create Thread</button>
+                </div>
+            </form>
+            <div id="thread-create-status" class="graph-status"></div>
+        </div>
+    </section>
+
+    <section class="tile">
+        <div class="tile-header">
+            <div class="tile-title">Threads</div>
+            <div id="thread-list-summary" class="graph-summary">Loading threads...</div>
+        </div>
+        <div class="tile-body">
+            <div id="thread-list" class="thread-list"></div>
+        </div>
+    </section>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+const threadsCaseUuid = {{ case.uuid|tojson }};
+const threadsApiBase = `/api/investigation-threads/${encodeURIComponent(threadsCaseUuid)}`;
+
+function threadText(value, fallback = "-") {
+    const text = value === null || value === undefined ? "" : String(value);
+    return text.trim() ? text : fallback;
+}
+
+function threadShort(value, maxLength = 14) {
+    const text = threadText(value);
+    return text.length > maxLength ? `${text.slice(0, maxLength)}...` : text;
+}
+
+function threadClear(element) {
+    while (element.firstChild) element.removeChild(element.firstChild);
+}
+
+function threadAppendText(parent, className, text) {
+    const el = document.createElement("div");
+    if (className) el.className = className;
+    el.textContent = text;
+    parent.appendChild(el);
+    return el;
+}
+
+async function threadFetch(url, options = {}) {
+    const response = await fetch(url, options);
+    const data = await response.json();
+    if (!response.ok || !data.success) {
+        throw new Error(data.error || "Investigation thread request failed");
+    }
+    return data;
+}
+
+function makeThreadCell(text) {
+    const cell = document.createElement("div");
+    cell.className = "thread-table-cell";
+    cell.textContent = threadText(text);
+    return cell;
+}
+
+function renderThreadRows(threads) {
+    const list = document.getElementById("thread-list");
+    threadClear(list);
+    if (!threads.length) {
+        threadAppendText(list, "graph-empty-results", "No investigation threads yet.");
+        return;
+    }
+
+    const table = document.createElement("div");
+    table.className = "thread-table";
+    ["Title", "Status", "Owner", "Version", "Report", "Fingerprint", "Updated"].forEach(label => {
+        const header = document.createElement("div");
+        header.className = "thread-table-header";
+        header.textContent = label;
+        table.appendChild(header);
+    });
+
+    threads.forEach(thread => {
+        const row = document.createElement("div");
+        row.setAttribute("role", "button");
+        row.setAttribute("tabindex", "0");
+        row.className = "thread-table-row";
+        const openThread = () => {
+            window.location.href = `/case/investigation-threads/${encodeURIComponent(thread.uuid)}`;
+        };
+        row.addEventListener("click", openThread);
+        row.addEventListener("keydown", event => {
+            if (event.key === "Enter" || event.key === " ") {
+                event.preventDefault();
+                openThread();
+            }
+        });
+        row.appendChild(makeThreadCell(thread.title));
+        row.appendChild(makeThreadCell(thread.status));
+        row.appendChild(makeThreadCell(thread.owner_username));
+        row.appendChild(makeThreadCell(thread.version));
+        row.appendChild(makeThreadCell(thread.include_in_report ? "Yes" : "No"));
+        row.appendChild(makeThreadCell(threadShort(thread.evidence_set_fingerprint, 18)));
+        row.appendChild(makeThreadCell(thread.updated_at));
+        table.appendChild(row);
+    });
+    list.appendChild(table);
+}
+
+async function loadThreads() {
+    const summary = document.getElementById("thread-list-summary");
+    const list = document.getElementById("thread-list");
+    threadClear(list);
+    threadAppendText(list, "graph-empty-results", "Loading threads...");
+    try {
+        const data = await threadFetch(threadsApiBase);
+        const threads = data.threads || [];
+        summary.textContent = `${threads.length} of ${data.pagination ? data.pagination.total : threads.length} threads`;
+        renderThreadRows(threads);
+    } catch (err) {
+        summary.textContent = "Unable to load threads";
+        threadClear(list);
+        threadAppendText(list, "graph-error", err.message || "Unable to load threads");
+    }
+}
+
+async function createThread(event) {
+    event.preventDefault();
+    const status = document.getElementById("thread-create-status");
+    status.textContent = "Creating thread...";
+    try {
+        const title = document.getElementById("thread-title-input").value.trim();
+        const description = document.getElementById("thread-description-input").value.trim();
+        const data = await threadFetch(threadsApiBase, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ title, description })
+        });
+        status.textContent = "Thread created.";
+        event.target.reset();
+        await loadThreads();
+        if (data.thread && data.thread.uuid) {
+            window.location.href = `/case/investigation-threads/${encodeURIComponent(data.thread.uuid)}`;
+        }
+    } catch (err) {
+        status.textContent = err.message || "Unable to create thread";
+    }
+}
+
+document.addEventListener("DOMContentLoaded", () => {
+    document.getElementById("thread-create-form").addEventListener("submit", createThread);
+    loadThreads();
+});
+</script>
+{% endblock %}

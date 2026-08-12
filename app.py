@@ -651,6 +651,7 @@ def create_app(run_startup_bootstrap: bool = True, register_blueprints: bool = T
         from routes.chat import chat_bp
         from routes.hunt import hunt_bp
         from routes.graph import graph_bp
+        from routes.investigation_threads import investigation_threads_bp
 
         app.register_blueprint(main_bp)
         app.register_blueprint(auth_bp)
@@ -681,6 +682,7 @@ def create_app(run_startup_bootstrap: bool = True, register_blueprints: bool = T
         app.register_blueprint(chat_bp)
         app.register_blueprint(hunt_bp)
         app.register_blueprint(graph_bp)
+        app.register_blueprint(investigation_threads_bp)
     
     # Create database tables and run startup bootstrap for the web app only
     if run_startup_bootstrap:
@@ -722,6 +724,16 @@ def create_app(run_startup_bootstrap: bool = True, register_blueprints: bool = T
             from models.pcap_file import PcapFile
             from models.license import LicenseActivation, ActivationAuditLog
             from models.graph import GraphEntity, GraphEntityObservation, GraphRelationship, GraphRelationshipEvidence
+            from models.graph_saved_view import GraphSavedView
+            from models.investigation_thread import (
+                InvestigationThread,
+                InvestigationThreadEntity,
+                InvestigationThreadEvidence,
+                InvestigationThreadFinding,
+                InvestigationThreadIOC,
+                InvestigationThreadNote,
+                InvestigationThreadRelationship,
+            )
             db.create_all()
             
             # Run schema migrations for new columns

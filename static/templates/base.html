@@ -63,6 +63,10 @@
                     <span class="nav-item-icon">🕸️</span>
                     <span class="nav-item-text">Investigation Graph</span>
                 </a>
+                <a href="{{ url_for('main.case_investigation_threads') }}" class="nav-item {{ 'active' if page_title in ['Investigation Threads', 'Investigation Thread'] else '' }}">
+                    <span class="nav-item-icon">🧵</span>
+                    <span class="nav-item-text">Investigation Threads</span>
+                </a>
                 <a href="{{ url_for('main.case_hunting_processes') }}" class="nav-item {{ 'active' if page_title == 'Process Hunting' else '' }}">
                     <span class="nav-item-icon">⚙️</span>
                     <span class="nav-item-text">Hunt Processes</span>

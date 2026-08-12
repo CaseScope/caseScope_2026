@@ -1,0 +1,195 @@
+CaseScope Investigation Threads Phase 0D
+
+Governing authority:
+CaseScope 2026 Improvement #1 Canonical Feature Plan
+Evidence-Backed Relationship Graph + Investigation Threads
+
+Authority boundary:
+
+PostgreSQL stores the durable investigative graph.
+ClickHouse proves it.
+Events support relationships; they do not become the graph.
+Investigation Threads preserve what the analyst selected and concluded.
+AI remains a reader and suggestion layer above the evidence graph,
+never its authoritative author.
+
+Phase 0D adds analyst-curated Investigation Threads and Saved Graph Views.
+It does not create ANALYST_ASSERTED / INFERRED / MODEL_SUGGESTED graph layers.
+Adding two items to one Thread never creates GraphRelationship rows.
+
+H-001 disposition (Phase 0B prerequisite hardening):
+
+GraphMaterializer._lookup_known_system_id previously caught arbitrary exceptions
+and treated infrastructure failure as "no KnownSystem match", which could mint a
+second observed-host identity.
+
+Fixed behavior:
+- Legitimate miss (no KnownSystem) still returns None and allows observed-host fallback.
+- Database/query/infrastructure exceptions propagate.
+- Per-record savepoints isolate the bad event; neighboring valid events commit.
+
+Typed Thread tables:
+
+- investigation_threads
+- investigation_thread_entities
+- investigation_thread_relationships
+- investigation_thread_evidence
+- investigation_thread_iocs
+- investigation_thread_findings
+- investigation_thread_notes
+- graph_saved_views
+
+Thread status values exactly:
+draft | investigating | supported | rejected
+
+SUPPORTED means the analyst currently considers the narrative sufficiently
+supported by curated evidence. It does not alter graph relationships, finding
+verdicts, IOC status, or report state.
+
+Stable reference contracts (utils/investigation_references.py):
+
+Format: threadref:v1:<sha256>
+Canonical JSON: UTF-8, sort_keys=True, separators=(',', ':')
+Mutable display labels are excluded from reference identity.
+
+Entity durable identity:
+  case_id + entity_type + entity_key
+
+Relationship durable identity:
+  case_id + source entity type/key + relationship_type + target entity type/key
+  + derivation_type
+Extractor name/version and GraphRelationship.id are excluded.
+
+Evidence durable identity:
+  Evidence Identity v2 ERK only (^erk:v2:[0-9a-f]{64}$)
+selector_key is never the durable evidence identity.
+
+IOC durable identity:
+  case_id + IOC UUID
+
+Finding durable identity (typed):
+  unified_finding: case_id + analysis_id + source_system + dedup_key + finding_id
+  pattern_match: case_id + pattern_match_id
+Finding membership pins the exact analysis and does not load "latest analysis".
+
+Graph rebuild survival:
+
+Thread membership stores stable references and frozen snapshots.
+current_graph_entity_id / current_graph_relationship_id are optional caches only.
+After clear/reprojection, live resolution uses type+key (entities) or durable edge
+identity (relationships). Historical membership is never cascade-deleted by graph
+rebuild.
+
+Frozen evidence snapshot contract:
+
+When an analyst adds evidence, CaseScope stores a curated forensic snapshot
+(identity, timestamps, host/user/process/network/registry summary fields, ERK,
+selector_key, originating relationship reference when provided).
+It does not copy whole ClickHouse event populations or dump raw_json/search_blob
+into PostgreSQL.
+
+Snapshot integrity hash:
+
+snapshot_sha256 = SHA-256(canonical_json(snapshot))
+Equivalent content hashes identically regardless of dict insertion order.
+Stored snapshots do not silently refresh when live backing data changes.
+
+Source availability semantics:
+
+On Thread read:
+  snapshot_available
+  live_source_available
+
+If ClickHouse source disappears:
+  Thread remains readable
+  frozen snapshot remains readable
+  ERK and snapshot hash remain unchanged
+  live_source_available = false
+UI wording: Snapshot retained — original source currently unavailable
+
+Evidence-set fingerprint:
+
+Format: evidence-set:v1:<sha256>
+Input is the typed stable membership reference set (entities, relationships,
+evidence with snapshot hash, IOCs, findings), sorted canonically.
+Narrative state (title, description, notes, conclusion) is excluded.
+Recomputed on every membership change.
+
+Optimistic concurrency:
+
+Thread.version and GraphSavedView.version start at 1.
+Every durable mutation requires expected_version and atomically bumps version.
+Stale writes return HTTP 409 with stale_version=true and current_version.
+
+Saved Graph View contract:
+
+Persists stable root/expanded/relationship refs, filters, optional time range,
+pins, hidden state, coordinates, selected item, projection_contract_version,
+evidence_set_fingerprint, view_state_json/sha256, and version.
+Hard limits: <=500 entity refs, <=1000 relationship refs, <=1 MiB canonical
+serialized view state. Oversized payloads are rejected, never truncated.
+
+Viewer permissions:
+
+Reuse CaseScope case access + _require_case_write_access.
+Viewers may read graph/threads/views/notes.
+Viewers may not create/edit/delete threads, membership, notes, or saved views.
+
+Unified AuditLog:
+
+Entity types INVESTIGATION_THREAD and GRAPH_SAVED_VIEW.
+Actions CREATED / UPDATED / LINKED / UNLINKED / DELETED as appropriate.
+Create Thread from Selection uses one operation_id for grouped audit rows.
+Mutation + audit share one commit boundary via AuditLog.log / log_many.
+No separate InvestigationThreadAudit table.
+
+Case deletion:
+
+Deletes typed Thread dependencies then threads then saved views.
+AuditLog is retained.
+Thread current_saved_view_id is cleared before deleting saved views.
+
+API routes:
+
+Threads (case-scoped):
+  GET/POST /api/investigation-threads/<case_uuid>
+  POST     /api/investigation-threads/<case_uuid>/from-selection
+  GET/PATCH /api/investigation-threads/<case_uuid>/<thread_uuid>
+  POST     /api/investigation-threads/<case_uuid>/<thread_uuid>/selection
+  membership and notes endpoints under the same case+thread prefix
+
+Saved views:
+  GET/POST /api/graph/<case_uuid>/views
+  GET/PUT/DELETE /api/graph/<case_uuid>/views/<view_uuid>
+
+UI pages:
+  /case/graph (drawer + selection basket + save/load view)
+  /case/investigation-threads
+  /case/investigation-threads/<thread_uuid>
+
+Limits:
+  title <= 255
+  description <= 20,000
+  analyst conclusion <= 50,000
+  rationale <= 20,000
+  note <= 20,000
+  Thread list default 50 / max 200
+  Thread total memberships <= 2000
+
+Known limitations:
+
+- Full immutable report snapshot creation is Phase 0F (criteria 39/59 foundation only).
+- No peer-review workflow.
+- No AI Thread generation or AI write paths.
+- No Phase 0E hunt/IOC/finding surface pivots.
+- Current SVG workspace supports coordinates/pins/hidden/filters/selection restore;
+  relative-time timeline sync remains Phase 0F.
+
+Coverage table:
+
+Requirement ID | Phase | Capability | Authoritative contract affected | Implementation files | Migration required | Tests | Large-scale test required | Security/case-isolation test | Audit impact | Reprojection impact | Thread/report snapshot impact | Status | Known limitations
+H-001 | 0B hardening | KnownSystem fail-closed | yes | utils/graph_materializer.py | no | tests/test_graph_materializer.py | no | no | none | no silent host remint | n/a | FIXED | none
+0D-threads | 0D | Investigation Threads | no (analyst layer) | models/investigation_thread.py, utils/investigation_threads.py, routes/investigation_threads.py | yes | tests/test_investigation_threads.py, routes, ui | no | yes | unified AuditLog | membership survives via stable refs | foundation for 0F | COMPLETE | report snapshot deferred
+0D-refs | 0D | Stable refs + fingerprints | no | utils/investigation_references.py | no | tests/test_investigation_references.py | no | yes | n/a | rebuild survival | frozen membership identity | COMPLETE | none
+0D-views | 0D | Saved Graph Views | no | models/graph_saved_view.py, utils/graph_saved_views.py, routes/graph.py | yes | tests/test_graph_saved_views.py, routes | no | yes | unified AuditLog | restore via stable refs | view version/fingerprint foundation | COMPLETE | image render deferred to 0F
+0D-ui | 0D | Drawer + Thread pages | no | case_graph.html, case_investigation_threads*.html, main.css | no | tests/test_investigation_thread_ui_contract.py | no | viewer writes blocked via API | audited via API | n/a | snapshot/live display | COMPLETE | no SPA redesign
