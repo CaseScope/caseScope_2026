@@ -232,6 +232,73 @@ class TaskFailureContractTestCase(unittest.TestCase):
         self.assertEqual(fake_job.error_message, "ingest failed")
         self.assertTrue(any(kwargs.get("status") == "failed" for _, kwargs in progress_updates))
 
+    def test_process_memory_dump_keeps_ingest_completed_when_graph_projection_fails(self):
+        fake_session = _FakeSession()
+        fake_job = types.SimpleNamespace(
+            id=20,
+            case_id=7,
+            case=types.SimpleNamespace(uuid="case-uuid"),
+            source_file="/retained/original.raw",
+            source_filename="original.raw",
+            hostname="HOST-A",
+            os_type="windows",
+            memory_type="raw",
+            selected_plugins=[],
+            status="pending",
+            started_at=None,
+            completed_at=None,
+            progress=0,
+            current_plugin=None,
+            celery_task_id=None,
+            output_folder=None,
+            extracted_file_path=None,
+            plugins_completed=[],
+            plugins_failed=[],
+            error_message=None,
+            memory_timestamp=None,
+        )
+        graph_module = types.SimpleNamespace(
+            materialize_memory_for_case=lambda *_args, **_kwargs: {
+                "memory_jobs_seen": 1,
+                "candidates_seen": 2,
+                "relationships_materialized": 1,
+                "errors": 1,
+            }
+        )
+
+        with patch.dict(
+            sys.modules,
+            {
+                "models.database": types.SimpleNamespace(db=types.SimpleNamespace(session=fake_session)),
+                "models.memory_job": types.SimpleNamespace(
+                    MemoryJob=types.SimpleNamespace(query=_FakeQuery(fake_job))
+                ),
+                "utils.graph_memory_extractors": graph_module,
+            },
+        ), patch.object(memory_tasks, "get_flask_app", return_value=_FakeApp()), patch.object(
+            memory_tasks, "update_job_progress"
+        ), patch.object(
+            memory_tasks, "ensure_case_artifact_paths", return_value={"memory_staging": "/tmp/memory-staging"}
+        ), patch.object(
+            memory_tasks, "copy_to_directory", return_value="/tmp/working.raw"
+        ), patch.object(
+            memory_tasks, "ingest_memory_data", return_value={"success": True, "plugin_statuses": {}}
+        ), patch.object(
+            memory_tasks.os, "makedirs"
+        ), patch.object(
+            memory_tasks.os.path, "isdir", return_value=False
+        ):
+            result = memory_tasks.process_memory_dump(
+                types.SimpleNamespace(request=types.SimpleNamespace(id="memory-task-2")),
+                20,
+            )
+
+        self.assertTrue(result["success"])
+        self.assertEqual(fake_job.status, "completed")
+        self.assertIsNone(fake_job.error_message)
+        self.assertFalse(result["graph_materialization"]["success"])
+        self.assertEqual(result["graph_materialization"]["errors"], 1)
+
     def test_process_memory_dump_ignores_duplicate_running_task(self):
         fake_session = _FakeSession()
         fake_job = types.SimpleNamespace(

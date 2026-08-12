@@ -11,7 +11,7 @@ ACTIVE after their supporting evidence is removed.
 --------------------
 Version: 4.15.1
 Commit:  7740eaea31c24a8006d6ac7b9a0326dd670d9ea7
-Release: 4.16.2 corrective pass over 4.16.0/4.16.1
+Release: 4.16.3 corrective pass over 4.16.0/4.16.1/4.16.2
 
 Phases 0A–0D remain ACCEPTED / LOCKED.
 
@@ -84,6 +84,9 @@ Upgrade reconciliation: migrations/invalidate_phase0e_4160_dns_relationships.py
 transitions existing zeek_dns_resolved_to_ip support from 4.16.0 to INVALIDATED
 and revalidates affected relationships so zero-current-support DNS edges become
 UNSUPPORTED historical rows.
+The reconciliation is restart-safe: reruns identify relationships from all
+support rows produced by the withdrawn extractor, including already-INVALIDATED
+support, and revalidate case-by-case.
 
 11. Exact IOC provenance
 ------------------------
@@ -136,6 +139,10 @@ also wrapped in begin/finalize/restore revalidation. Successful memory ingestion
 materializes Phase 0E memory graph relationships immediately for that MemoryJob.
 Failed CaseFile deletion/revalidation restores both GraphRelationshipEvidence
 and exact IOCEvidenceMatch support when source evidence remains.
+CaseFile ERK fallback support is processed in batches. Source-ref-less
+IOCEvidenceMatch rows discovered through the exact CaseFile ERK set are
+backfilled with CASE_FILE + case_file_id before becoming pending, so later
+restore/finalize operations are symmetric.
 
 19. Failure / recovery
 ----------------------
@@ -177,6 +184,9 @@ IOC match streaming LIMIT/OFFSET.
 Memory process resolution is lazy per PID (two-row ambiguity check). Memory
 artifact extraction uses bounded id-keyset pages so commits do not run while a
 PostgreSQL streaming cursor remains open.
+Successful memory ingestion remains a successful MemoryJob even if graph
+projection is incomplete; graph materialization reports success/errors
+separately in the task result.
 
 26. Known limitations
 ---------------------

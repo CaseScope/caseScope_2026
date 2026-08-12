@@ -1,6 +1,15 @@
 {
-  "version": "4.16.2",
+  "version": "4.16.3",
   "changelog": [
+    {
+      "version": "4.16.3",
+      "date": "2026-08-12",
+      "changes": [
+        "Made legacy DNS graph reconciliation restart-safe by revalidating all relationships with withdrawn extractor support case-by-case, including already-invalidated support from interrupted prior runs",
+        "Processed CaseFile ERK fallback lifecycle in bounded batches and backfilled missing IOCEvidenceMatch source locators so restore/finalize is symmetric",
+        "Separated memory forensic ingest success from graph projection errors so MemoryJobs complete when parsing succeeds while graph materialization reports its own failure state"
+      ]
+    },
     {
       "version": "4.16.2",
       "date": "2026-08-12",

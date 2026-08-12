@@ -192,6 +192,70 @@ class GraphSupportLifecycleTestCase(unittest.TestCase):
         self.assertEqual(restored['ioc_matches_restored'], 1)
         self.assertEqual(match.support_state, GraphSupportState.ACTIVE)
 
+    def test_erk_fallback_ioc_match_backfills_source_and_restores(self):
+        match = IOCEvidenceMatch(
+            case_id=self.case.id,
+            ioc_id=1,
+            ioc_uuid='22222222-2222-2222-2222-222222222222',
+            ioc_type='Domain',
+            matched_value='example.net',
+            matched_field='search_blob',
+            evidence_record_key=erk('a'),
+            source_table='events',
+            source_ref_type=None,
+            source_ref_id=None,
+            support_state=GraphSupportState.ACTIVE,
+            metadata_json={},
+        )
+        db.session.add(match)
+        db.session.commit()
+
+        self.service.begin_case_file_removal(
+            case_id=self.case.id,
+            case_file_id=101,
+            evidence_record_keys=[erk('a')],
+        )
+        db.session.refresh(match)
+        self.assertEqual(match.support_state, GraphSupportState.PENDING_REMOVAL)
+        self.assertEqual(match.source_ref_type, GraphSourceRefType.CASE_FILE)
+        self.assertEqual(match.source_ref_id, 101)
+
+        self.service.restore_case_file_support_if_source_remains(
+            case_id=self.case.id,
+            case_file_id=101,
+        )
+        db.session.refresh(match)
+        self.assertEqual(match.support_state, GraphSupportState.ACTIVE)
+
+    def test_erk_fallback_ioc_match_backfills_source_and_finalizes(self):
+        match = IOCEvidenceMatch(
+            case_id=self.case.id,
+            ioc_id=1,
+            ioc_uuid='33333333-3333-3333-3333-333333333333',
+            ioc_type='Domain',
+            matched_value='example.org',
+            matched_field='search_blob',
+            evidence_record_key=erk('a'),
+            source_table='events',
+            source_ref_type=None,
+            source_ref_id=None,
+            support_state=GraphSupportState.ACTIVE,
+            metadata_json={},
+        )
+        db.session.add(match)
+        db.session.commit()
+
+        self.service.begin_case_file_removal(
+            case_id=self.case.id,
+            case_file_id=101,
+            evidence_record_keys=[erk('a')],
+        )
+        self.service.finalize_case_file_removal(case_id=self.case.id, case_file_id=101)
+        db.session.refresh(match)
+        self.assertEqual(match.source_ref_type, GraphSourceRefType.CASE_FILE)
+        self.assertEqual(match.source_ref_id, 101)
+        self.assertEqual(match.support_state, GraphSupportState.UNAVAILABLE)
+
     def test_legacy_dns_extractor_support_invalidated_and_relationship_revalidated(self):
         dns_rel = GraphRelationship(
             case_id=self.case.id,
@@ -231,6 +295,64 @@ class GraphSupportLifecycleTestCase(unittest.TestCase):
         self.assertEqual(result['support_updated'], 1)
         self.assertEqual(dns_support.support_state, GraphSupportState.INVALIDATED)
         self.assertEqual(dns_rel.validation_state, GraphValidationState.UNSUPPORTED)
+
+    def test_legacy_dns_reconciliation_rerun_repairs_already_invalidated_support(self):
+        other_source = GraphEntity(
+            case_id=2,
+            entity_type=GraphEntityType.DOMAIN,
+            entity_key='domain:example.com',
+            display_value='example.com',
+            canonical_value='example.com',
+            metadata_json={},
+        )
+        other_target = GraphEntity(
+            case_id=2,
+            entity_type=GraphEntityType.IP_ADDRESS,
+            entity_key='ip:5.6.7.8',
+            display_value='5.6.7.8',
+            canonical_value='5.6.7.8',
+            metadata_json={},
+        )
+        db.session.add_all([other_source, other_target])
+        db.session.flush()
+        stale_rel = GraphRelationship(
+            case_id=2,
+            source_entity_id=other_source.id,
+            relationship_type=GraphRelationshipType.RESOLVED_TO,
+            target_entity_id=other_target.id,
+            derivation_type=GraphDerivationType.OBSERVED,
+            extractor_name='zeek_dns_resolved_to_ip',
+            extractor_version='1',
+            validation_state=GraphValidationState.ACTIVE,
+            metadata_json={},
+        )
+        db.session.add(stale_rel)
+        db.session.flush()
+        stale_support = GraphRelationshipEvidence(
+            case_id=2,
+            relationship_id=stale_rel.id,
+            evidence_record_key='native:v1:zeek_dns:6:0:abcdef',
+            source_table='network_logs',
+            evidence_role='supporting_record',
+            extractor_name='zeek_dns_resolved_to_ip',
+            extractor_version='1',
+            support_state=GraphSupportState.INVALIDATED,
+            source_ref_type=GraphSourceRefType.PCAP_FILE,
+            source_ref_id=6,
+            metadata_json={},
+        )
+        db.session.add(stale_support)
+        db.session.commit()
+
+        result = self.service.invalidate_support_by_extractor(
+            extractor_name='zeek_dns_resolved_to_ip',
+            reason='rerun repair',
+        )
+        db.session.refresh(stale_rel)
+        db.session.refresh(stale_support)
+        self.assertEqual(stale_support.support_state, GraphSupportState.INVALIDATED)
+        self.assertEqual(stale_rel.validation_state, GraphValidationState.UNSUPPORTED)
+        self.assertIn(2, result['revalidation'])
 
     def test_reprocess_invalidates_old_then_rematerialize_reactivates(self):
         self.service.begin_case_file_revalidation(case_id=self.case.id, case_file_id=101)

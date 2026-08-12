@@ -28,7 +28,7 @@ def migrate():
             reason='4.16.2 disabled DNS RESOLVED_TO: missing exact Zeek DNS transaction identity',
         )
         db.session.commit()
-        print('Phase 0E 4.16.2 DNS reconciliation applied:')
+        print('Phase 0E 4.16.3 restart-safe DNS reconciliation applied:')
         print(f"  - extractor: {LEGACY_DNS_EXTRACTOR}")
         print(f"  - support_updated: {summary.get('support_updated', 0)}")
         print(f"  - relationships_touched: {summary.get('relationships_touched', 0)}")

@@ -452,17 +452,15 @@ def process_memory_dump(self, job_id: int):
                     job.case_id,
                     memory_job_id=job.id,
                 )
-                if graph_result.get('errors'):
-                    raise RuntimeError(f"Memory graph materialization skipped {graph_result['errors']} records")
+                graph_result['success'] = int(graph_result.get('errors') or 0) == 0
             except Exception as graph_exc:
-                recorded_failure = True
-                job.status = 'failed'
-                job.error_message = f'Memory graph materialization failed: {graph_exc}'
-                job.completed_at = datetime.utcnow()
-                db.session.commit()
-                update_job_progress(job_id, job.progress, status='failed')
-                _cleanup_working_base()
-                raise RuntimeError(job.error_message) from graph_exc
+                db.session.rollback()
+                logger.error(f"Memory graph materialization failed for job {job_id}: {graph_exc}")
+                graph_result = {
+                    'success': False,
+                    'error': str(graph_exc),
+                    'memory_job_id': job.id,
+                }
             
             # Mark as completed
             job.status = 'completed'
