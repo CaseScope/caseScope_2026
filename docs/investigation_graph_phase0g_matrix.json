@@ -32,21 +32,21 @@
     "improvement1_focused": {
       "command": "/opt/casescope/scripts/test_improvement1.sh",
       "framework": "unittest",
-      "passed": 292,
+      "passed": 294,
       "failed": 0,
       "skipped": 1,
       "waived": 0,
-      "elapsed_seconds": 14.455
+      "elapsed_seconds": 14.405
     },
     "improvement1_manifest": {
       "command": "/opt/casescope/scripts/test_improvement1.sh",
       "framework": "unittest",
-      "total": 293,
-      "passed": 292,
+      "total": 295,
+      "passed": 294,
       "failed": 0,
       "skipped": 1,
       "waived": 0,
-      "elapsed_seconds": 14.455
+      "elapsed_seconds": 14.405
     },
     "full_repository_attempt": {
       "command": "/opt/casescope/venv/bin/python -m pytest tests --collect-only",

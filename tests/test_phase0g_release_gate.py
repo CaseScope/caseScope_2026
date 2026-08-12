@@ -64,6 +64,35 @@ class Phase0GReleaseGateTestCase(unittest.TestCase):
         self.assertEqual(runtime["permissions"]["status"], "PASS")
         self.assertEqual(runtime["permanent_case_deletion"]["status"], "PASS")
 
+    def test_phase0g_permanent_case_deletion_clickhouse_proof_has_nonzero_pre_delete_evidence(self):
+        runtime = json.loads(RUNTIME_PATH.read_text(encoding="utf-8"))
+        proof = runtime["permanent_case_deletion"]
+
+        self.assertEqual(proof["status"], "PASS")
+        self.assertGreater(proof["before"]["ch_a"], 0)
+        self.assertEqual(proof["after"]["ch_a"], 0)
+        self.assertGreater(proof["before"]["ch_b"], 0)
+        self.assertEqual(proof["before"]["ch_b"], proof["after"]["ch_b"])
+
+    def test_phase0g_ioc_lifecycle_proof_verifies_durable_database_state(self):
+        runtime = json.loads(RUNTIME_PATH.read_text(encoding="utf-8"))
+        proof = runtime["lifecycle"]["ioc"]
+        before = proof["before"]
+        after = proof["after"]
+
+        self.assertEqual(proof["status"], "PASS")
+        self.assertEqual(proof["expected_target_match_post_state"], "CASCADE_DELETE_MATCH_ROWS")
+        self.assertTrue(before["target_ioc_exists"])
+        self.assertGreater(before["target_active_match_count"], 0)
+        self.assertFalse(after["target_ioc_exists"])
+        self.assertEqual(after["target_match_count"], 0)
+        self.assertEqual(after["target_active_match_count"], 0)
+        self.assertTrue(before["control_ioc_exists"])
+        self.assertTrue(after["control_ioc_exists"])
+        self.assertEqual(before["control_match_count"], after["control_match_count"])
+        self.assertEqual(before["control_active_match_count"], after["control_active_match_count"])
+        self.assertEqual(before["control_match_states"], after["control_match_states"])
+
     def test_phase0g_runtime_harnesses_refuse_unmarked_targets(self):
         scale_harness = SCALE_HARNESS_PATH.read_text(encoding="utf-8")
         runtime_harness = RUNTIME_HARNESS_PATH.read_text(encoding="utf-8")

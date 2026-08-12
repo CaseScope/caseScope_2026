@@ -322,6 +322,15 @@ def main() -> int:
         "evidence_identity_quality",
     ]
     ts = datetime(2026, 1, 1, tzinfo=timezone.utc)
+
+    def _event_row(case_id, erk, logical_index, *, case_file_id=None, src_ip="10.1.2.3", marker_case="A"):
+        return [
+            case_id, "evtx_security", ts, ts, f"phase0g_{marker_case.lower()}.evtx", f"/phase0g/{marker_case.lower()}.evtx", "HOST-01",
+            case_file_id, "4688", "Administrator", "0x3e7", 1234, src_ip, "10.9.8.7",
+            json.dumps({"phase0g_marker": marker, "case": marker_case}), f"{marker} HOST-01 Administrator {src_ip}", json.dumps({"logical_index": logical_index}),
+            "phase0g:v1", erk, "v2", "native-or-content",
+        ]
+
     event_rows = []
     for idx, (erk, file_id) in enumerate([(erk_a, ids["file_a"]), (erk_b, ids["file_b"])], start=1):
         event_rows.append([
@@ -542,24 +551,142 @@ def main() -> int:
     mem_steps.append(_record("memory_rel_unsupported", mem_after_b2["relationship_state"] != GraphValidationState.ACTIVE, **mem_after_b2))
     results["lifecycle"]["memory"] = {"status": "PASS" if all(s["success"] for s in mem_steps) else "FAIL", "steps": mem_steps}
 
+    ioc_target_erks = [_erk(marker, 401), _erk(marker, 402)]
+    ioc_control_erks = [_erk(marker, 411), _erk(marker, 412)]
+    deletion_proof_erks = [_erk(marker, 501), _erk(marker, 502)]
+    deletion_control_erk = _erk(marker, 599)
+    ch.insert(
+        "events",
+        [
+            *[
+                _event_row(ids["case_a"]["id"], erk, 400 + idx, src_ip="10.20.30.40", marker_case="A_IOC_TARGET")
+                for idx, erk in enumerate(ioc_target_erks, start=1)
+            ],
+            *[
+                _event_row(ids["case_a"]["id"], erk, 410 + idx, src_ip="10.20.30.41", marker_case="A_IOC_CONTROL")
+                for idx, erk in enumerate(ioc_control_erks, start=1)
+            ],
+            *[
+                _event_row(ids["case_a"]["id"], erk, 500 + idx, src_ip="10.20.30.50", marker_case="A_DELETE_PROOF")
+                for idx, erk in enumerate(deletion_proof_erks, start=1)
+            ],
+            _event_row(ids["case_b"]["id"], deletion_control_erk, 599, src_ip="10.20.30.99", marker_case="B_DELETE_CONTROL"),
+        ],
+        column_names=columns,
+    )
+
     with app.app_context():
-        ioc_before = {
-            "match_a": IOCEvidenceMatch.query.get(ids["match_a"]).support_state if IOCEvidenceMatch.query.get(ids["match_a"]) else None,
-            "match_b": IOCEvidenceMatch.query.get(ids["match_b"]).support_state if IOCEvidenceMatch.query.get(ids["match_b"]) else None,
+        target_ioc = IOC(
+            case_id=ids["case_a"]["id"],
+            category="Network",
+            ioc_type="IP Address (IPv4)",
+            value="10.20.30.40",
+            value_normalized="10.20.30.40",
+            created_by="phase0g",
+        )
+        control_ioc = IOC(
+            case_id=ids["case_a"]["id"],
+            category="Network",
+            ioc_type="IP Address (IPv4)",
+            value="10.20.30.41",
+            value_normalized="10.20.30.41",
+            created_by="phase0g",
+        )
+        db.session.add_all([target_ioc, control_ioc])
+        db.session.flush()
+        target_matches = [
+            IOCEvidenceMatch(
+                case_id=ids["case_a"]["id"],
+                ioc_id=target_ioc.id,
+                ioc_uuid=target_ioc.uuid,
+                ioc_type=target_ioc.ioc_type,
+                matched_value=target_ioc.value,
+                matched_field="src_ip",
+                evidence_record_key=erk,
+                support_state=GraphSupportState.ACTIVE,
+                metadata_json={"phase0g_marker": marker, "fixture": "ioc_lifecycle_target"},
+            )
+            for erk in ioc_target_erks
+        ]
+        control_matches = [
+            IOCEvidenceMatch(
+                case_id=ids["case_a"]["id"],
+                ioc_id=control_ioc.id,
+                ioc_uuid=control_ioc.uuid,
+                ioc_type=control_ioc.ioc_type,
+                matched_value=control_ioc.value,
+                matched_field="src_ip",
+                evidence_record_key=erk,
+                support_state=GraphSupportState.ACTIVE,
+                metadata_json={"phase0g_marker": marker, "fixture": "ioc_lifecycle_control"},
+            )
+            for erk in ioc_control_erks
+        ]
+        db.session.add_all(target_matches + control_matches)
+        db.session.commit()
+        ioc_lifecycle_ids = {
+            "target_ioc": target_ioc.id,
+            "target_ioc_uuid": target_ioc.uuid,
+            "control_ioc": control_ioc.id,
+            "control_ioc_uuid": control_ioc.uuid,
         }
-    ioc_del = http.post(f"/api/iocs/{ids['ioc']}/delete", json={"case_uuid": case_uuid})
-    with app.app_context():
-        ioc_row = IOC.query.get(ids["ioc"])
-        ioc_after = {
-            "ioc_exists": ioc_row is not None,
-            "match_a": IOCEvidenceMatch.query.get(ids["match_a"]).support_state if IOCEvidenceMatch.query.get(ids["match_a"]) else None,
-            "match_b": IOCEvidenceMatch.query.get(ids["match_b"]).support_state if IOCEvidenceMatch.query.get(ids["match_b"]) else None,
-        }
+
+    def _ioc_state(ioc_id, control_ioc_id=None):
+        with app.app_context():
+            target_row = IOC.query.get(ioc_id)
+            target_matches_q = IOCEvidenceMatch.query.filter_by(case_id=ids["case_a"]["id"], ioc_id=ioc_id)
+            state = {
+                "target_ioc_exists": target_row is not None,
+                "target_match_count": target_matches_q.count(),
+                "target_active_match_count": target_matches_q.filter_by(support_state=GraphSupportState.ACTIVE).count(),
+                "target_match_states": sorted(row.support_state for row in target_matches_q.all()),
+            }
+            if control_ioc_id is not None:
+                control_row = IOC.query.get(control_ioc_id)
+                control_matches_q = IOCEvidenceMatch.query.filter_by(case_id=ids["case_a"]["id"], ioc_id=control_ioc_id)
+                state.update({
+                    "control_ioc_exists": control_row is not None,
+                    "control_match_count": control_matches_q.count(),
+                    "control_active_match_count": control_matches_q.filter_by(support_state=GraphSupportState.ACTIVE).count(),
+                    "control_match_states": sorted(row.support_state for row in control_matches_q.all()),
+                })
+            return state
+
+    ioc_before = _ioc_state(ioc_lifecycle_ids["target_ioc"], ioc_lifecycle_ids["control_ioc"])
+    ioc_del = http.post(f"/api/iocs/{ioc_lifecycle_ids['target_ioc']}/delete", json={"case_uuid": case_uuid})
+    ioc_after = _ioc_state(ioc_lifecycle_ids["target_ioc"], ioc_lifecycle_ids["control_ioc"])
+    control_unchanged = all(
+        ioc_before[key] == ioc_after[key]
+        for key in ("control_ioc_exists", "control_match_count", "control_active_match_count", "control_match_states")
+    )
+    ioc_expected_post_state = "CASCADE_DELETE_MATCH_ROWS"
+    ioc_preconditions_ok = (
+        ioc_before["target_ioc_exists"] is True
+        and ioc_before["target_match_count"] >= 1
+        and ioc_before["target_active_match_count"] > 0
+        and ioc_before["control_ioc_exists"] is True
+        and ioc_before["control_active_match_count"] > 0
+    )
+    ioc_postconditions_ok = (
+        ioc_after["target_ioc_exists"] is False
+        and ioc_after["target_match_count"] == 0
+        and ioc_after["target_active_match_count"] == 0
+        and control_unchanged
+    )
     ioc_steps = [
+        _record("ioc_preconditions_active_exact_matches", ioc_preconditions_ok, before=ioc_before, fixture=ioc_lifecycle_ids),
         _record("ioc_delete_route", ioc_del.status_code < 400, status=ioc_del.status_code, body=_json(ioc_del), before=ioc_before, after=ioc_after),
-        _record("ioc_removed_or_unlinked", ioc_after["ioc_exists"] is False or ioc_del.status_code < 400, **ioc_after),
+        _record("ioc_deleted_and_matches_cascaded", ioc_postconditions_ok, expected_post_state=ioc_expected_post_state, before=ioc_before, after=ioc_after),
+        _record("ioc_control_unchanged", control_unchanged, before=ioc_before, after=ioc_after),
     ]
-    results["lifecycle"]["ioc"] = {"status": "PASS" if all(s["success"] for s in ioc_steps) else "FAIL", "steps": ioc_steps}
+    results["lifecycle"]["ioc"] = {
+        "status": "PASS" if all(s["success"] for s in ioc_steps) else "FAIL",
+        "expected_target_match_post_state": ioc_expected_post_state,
+        "before": ioc_before,
+        "after": ioc_after,
+        "route_status": ioc_del.status_code,
+        "steps": ioc_steps,
+    }
     results["lifecycle"]["status"] = "PASS" if all(results["lifecycle"][k]["status"] == "PASS" for k in ("casefile", "pcap", "memory", "ioc")) else "FAIL"
 
     with app.app_context():
@@ -572,20 +699,30 @@ def main() -> int:
             "reports_a": CaseReport.query.filter_by(case_id=ids["case_a"]["id"]).count(),
             "ch_a": int(ch.query("SELECT count() FROM events WHERE case_id = {id:UInt32}", parameters={"id": ids["case_a"]["id"]}).result_rows[0][0]),
             "ch_b": int(ch.query("SELECT count() FROM events WHERE case_id = {id:UInt32}", parameters={"id": ids["case_b"]["id"]}).result_rows[0][0]),
+            "delete_proof_erks_a": int(ch.query("SELECT count() FROM events WHERE case_id = {id:UInt32} AND evidence_record_key IN {erks:Array(String)}", parameters={"id": ids["case_a"]["id"], "erks": deletion_proof_erks}).result_rows[0][0]),
             "svg_exists": Path(ids["svg_path"]).exists(),
             "png_exists": Path(ids["png_path"]).exists(),
         }
+    if before_counts["ch_a"] == 0:
+        raise AssertionError("Permanent deletion proof requires Case A ClickHouse evidence before deletion")
     delete_case = http.post(f"/admin/cases/{case_uuid}/delete", follow_redirects=True)
     delete_body = delete_case.get_data(as_text=True)[-2000:]
     with app.app_context():
         after_counts = {
             "entities_a": GraphEntity.query.filter_by(case_id=ids["case_a"]["id"]).count(),
+            "relationships_a": GraphRelationship.query.filter_by(case_id=ids["case_a"]["id"]).count(),
+            "observations_a": GraphEntityObservation.query.filter_by(case_id=ids["case_a"]["id"]).count(),
             "support_a": GraphRelationshipEvidence.query.filter_by(case_id=ids["case_a"]["id"]).count(),
             "threads_a": InvestigationThread.query.filter_by(case_id=ids["case_a"]["id"]).count(),
             "memberships_a": InvestigationThreadEntity.query.filter_by(case_id=ids["case_a"]["id"]).count(),
             "views_a": GraphSavedView.query.filter_by(case_id=ids["case_a"]["id"]).count(),
             "snapshots_a": InvestigationThreadReportSnapshot.query.filter_by(case_id=ids["case_a"]["id"]).count(),
             "reports_a": CaseReport.query.filter_by(case_id=ids["case_a"]["id"]).count(),
+            "casefiles_a": CaseFile.query.filter_by(case_uuid=ids["case_a"]["uuid"]).count(),
+            "pcaps_a": PcapFile.query.filter_by(case_uuid=ids["case_a"]["uuid"]).count(),
+            "memory_jobs_a": MemoryJob.query.filter_by(case_id=ids["case_a"]["id"]).count(),
+            "iocs_a": IOC.query.filter_by(case_id=ids["case_a"]["id"]).count(),
+            "ioc_matches_a": IOCEvidenceMatch.query.filter_by(case_id=ids["case_a"]["id"]).count(),
             "case_a": Case.query.get(ids["case_a"]["id"]) is not None,
             "entities_b": GraphEntity.query.filter_by(case_id=ids["case_b"]["id"]).count(),
             "case_b": Case.query.get(ids["case_b"]["id"]) is not None,
@@ -597,9 +734,12 @@ def main() -> int:
         }
     deletion_steps = [
         _record("permanent_delete_route", delete_case.status_code < 400, status=delete_case.status_code, body=delete_body[-500:]),
-        _record("deleted_graph_zero", after_counts["entities_a"] == 0 and after_counts["support_a"] == 0, **after_counts),
+        _record("pre_delete_clickhouse_evidence_present", before_counts["ch_a"] > 0 and before_counts["delete_proof_erks_a"] >= 2 and before_counts["ch_b"] > 0, before=before_counts),
+        _record("deleted_case_row_absent", after_counts["case_a"] is False, **after_counts),
+        _record("deleted_graph_zero", after_counts["entities_a"] == 0 and after_counts["relationships_a"] == 0 and after_counts["observations_a"] == 0 and after_counts["support_a"] == 0, **after_counts),
         _record("deleted_threads_zero", after_counts["threads_a"] == 0 and after_counts["views_a"] == 0 and after_counts["snapshots_a"] == 0 and after_counts["memberships_a"] == 0, **after_counts),
-        _record("deleted_clickhouse_zero", after_counts["ch_a"] == 0, **after_counts),
+        _record("deleted_case_scoped_rows_zero", after_counts["reports_a"] == 0 and after_counts["casefiles_a"] == 0 and after_counts["pcaps_a"] == 0 and after_counts["memory_jobs_a"] == 0 and after_counts["iocs_a"] == 0 and after_counts["ioc_matches_a"] == 0, **after_counts),
+        _record("deleted_clickhouse_zero", before_counts["ch_a"] > 0 and after_counts["ch_a"] == 0, before=before_counts, after=after_counts),
         _record("deleted_renders_absent", after_counts["svg_exists"] is False and after_counts["png_exists"] is False, **after_counts),
         _record("control_case_unchanged", after_counts["case_b"] is True and after_counts["entities_b"] == before_counts["entities_b"] and after_counts["ch_b"] == before_counts["ch_b"], before=before_counts, after=after_counts),
         _record("audit_retained", after_counts["audit_remaining"] >= 0, audit_remaining=after_counts["audit_remaining"]),
