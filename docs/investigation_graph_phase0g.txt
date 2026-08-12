@@ -255,41 +255,52 @@ gate attempt.
 O. Full regression results
 --------------------------
 Focused Improvement #1 regression command:
-/opt/casescope/venv/bin/python -m pytest tests/test_evidence_identity.py tests/test_evidence_identity_migration.py tests/test_evidence_identity_clickhouse_integration.py tests/test_graph_identity.py tests/test_graph_extractors.py tests/test_graph_materializer.py tests/test_graph_migration.py tests/test_graph_query.py tests/test_graph_routes.py tests/test_graph_support_lifecycle.py tests/test_graph_phase0e_contracts.py tests/test_graph_pivots.py tests/test_graph_saved_views.py tests/test_graph_saved_view_routes.py tests/test_investigation_references.py tests/test_investigation_threads.py tests/test_investigation_thread_routes.py tests/test_investigation_thread_ui_contract.py tests/test_investigation_audit_integration.py tests/test_investigation_thread_migration.py tests/test_investigation_context.py tests/test_investigation_thread_report_snapshots.py
+/opt/casescope/scripts/test_improvement1.sh
 
 Result:
-- passed: 286
+- framework: unittest
+- total: 290
+- passed: 289
 - failed: 0
 - skipped: 1
 - waived: 0
-- elapsed: 17.36 seconds
+- elapsed: 15.453 seconds
 
 Manifest command:
 /opt/casescope/scripts/test_improvement1.sh
 
 Manifest result:
+- framework: unittest
+- total: 290
 - passed: 289
 - failed: 0
 - skipped: 1
 - waived: 0
-- elapsed: 17.27 seconds
+- elapsed: 15.453 seconds
 
 Full repository test attempt:
-/opt/casescope/venv/bin/python -m pytest tests
+/opt/casescope/venv/bin/python -m unittest discover -s tests -t .
 
 Full repository result:
-- collected: 1773
-- collection errors: 25
-- exit code: 2
+- framework: unittest
+- total: 2058
+- failures: 6
+- errors: 6
+- skipped: 7
+- exit code: 1
 - result: FAIL
 
-Collection failed from existing test stub conflicts, including:
-- _FakeDB missing SQLAlchemy attributes such as Index, JSON, init_app, and Model.
-- fake AnalysisStatus missing terminal_statuses.
-- scoring contract tests importing missing symbols from stubbed utils.finding_contract.
+Failure/error set includes:
+- WAIVER-0C-001 exact accepted failure.
+- tests.test_async_cancellation_remaining import error: fake AnalysisStatus lacks terminal_statuses.
+- tests.test_clickhouse_destructive_lock errors: destructive lock API expectations missing in utils.clickhouse.
+- tests.test_investigation_thread_report_snapshots error: tuple response lacks get_json.
+- tests.test_privacy_alias_number_allocation error: fake db lacks func.
+- tests.test_phase6_chat_runtime_contract failures: approval/cache status expectations.
+- tests.test_phase7_baselines_stage failure: baseline task arguments include progress_callback.
 
 WAIVER-0C-001:
-- command: /opt/casescope/venv/bin/python -m pytest tests/test_route_security_regressions.py::RouteSecurityRegressionTestCase::test_tag_artifacts_start_routes_to_ioc_queue_and_tracks_task_access
+- command: /opt/casescope/venv/bin/python -m unittest tests.test_route_security_regressions.RouteSecurityRegressionTestCase.test_tag_artifacts_start_routes_to_ioc_queue_and_tracks_task_access
 - status: REPRODUCED
 - expected: apply_async(args=(11,), queue='ioc')
 - actual: apply_async(args=(11, 'tester', None), queue='ioc')
