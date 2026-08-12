@@ -365,6 +365,10 @@ def generate_report(case_uuid):
             threads_for_report = []
         snapshot_payloads = []
         operation_id = str(uuid.uuid4())
+        snapshot_actor = {
+            "user_id": getattr(current_user, "id", None),
+            "username": getattr(current_user, "username", None),
+        }
         expected_versions = data.get("thread_versions") or {}
         expected_view_versions = data.get("saved_view_versions") or {}
         try:
@@ -380,16 +384,24 @@ def generate_report(case_uuid):
                             else None
                         ),
                         report_generation_uuid=report_generation_uuid,
-                        actor={
-                            "user_id": getattr(current_user, "id", None),
-                            "username": getattr(current_user, "username", None),
-                        },
+                        actor=snapshot_actor,
                         operation_id=operation_id,
                     )
                 )
         except (InvestigationThreadConflictError, GraphSavedViewConflictError) as exc:
             db.session.rollback()
-            snapshot_service.cleanup_generation(case.id, report_generation_uuid)
+            cleanup_reason = (
+                "stale_saved_view_version"
+                if isinstance(exc, GraphSavedViewConflictError)
+                else "stale_thread_version"
+            )
+            snapshot_service.cleanup_generation(
+                case.id,
+                report_generation_uuid,
+                reason=cleanup_reason,
+                actor=snapshot_actor,
+                operation_id=operation_id,
+            )
             db.session.commit()
             return jsonify(
                 {
@@ -401,12 +413,24 @@ def generate_report(case_uuid):
             ), 409
         except GraphSavedViewNotFoundError as exc:
             db.session.rollback()
-            snapshot_service.cleanup_generation(case.id, report_generation_uuid)
+            snapshot_service.cleanup_generation(
+                case.id,
+                report_generation_uuid,
+                reason="stale_saved_view_version",
+                actor=snapshot_actor,
+                operation_id=operation_id,
+            )
             db.session.commit()
             return jsonify({"success": False, "error": str(exc)}), 404
         except Exception:
             db.session.rollback()
-            snapshot_service.cleanup_generation(case.id, report_generation_uuid)
+            snapshot_service.cleanup_generation(
+                case.id,
+                report_generation_uuid,
+                reason="snapshot_creation_failed",
+                actor=snapshot_actor,
+                operation_id=operation_id,
+            )
             db.session.commit()
             raise
         if snapshot_payloads:
@@ -428,7 +452,13 @@ def generate_report(case_uuid):
         )
 
         if not report_path:
-            snapshot_service.cleanup_generation(case.id, report_generation_uuid)
+            snapshot_service.cleanup_generation(
+                case.id,
+                report_generation_uuid,
+                reason="docx_generation_failed",
+                actor=snapshot_actor,
+                operation_id=operation_id,
+            )
             db.session.commit()
             return jsonify({"success": False, "error": "Failed to generate report"}), 500
 
@@ -451,7 +481,13 @@ def generate_report(case_uuid):
         except Exception as exc:
             db.session.rollback()
             if snapshot_payloads:
-                snapshot_service.cleanup_generation(case.id, report_generation_uuid)
+                snapshot_service.cleanup_generation(
+                    case.id,
+                    report_generation_uuid,
+                    reason="case_report_registration_failed",
+                    actor=snapshot_actor,
+                    operation_id=operation_id,
+                )
                 db.session.commit()
                 try:
                     if os.path.exists(report_path):

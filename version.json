@@ -1,6 +1,14 @@
 {
-  "version": "4.17.1",
+  "version": "4.17.2",
   "changelog": [
+    {
+      "version": "4.17.2",
+      "date": "2026-08-12",
+      "changes": [
+        "Corrected Investigation Thread report graph provenance so embedded DOCX PNGs are faithful local rasterizations of the frozen canonical SVG and graph_render_sha256 authenticates the PNG bytes",
+        "Added unified AuditLog deletion records with deterministic abort reasons when failed report generations discard committed Thread report snapshots and render artifacts"
+      ]
+    },
     {
       "version": "4.17.0",
       "date": "2026-08-12",

@@ -1,10 +1,9 @@
 """Immutable Investigation Thread report snapshot capture and rendering."""
 from __future__ import annotations
 
+import hashlib
 import os
-import struct
 import uuid
-import zlib
 from datetime import datetime
 from html import escape
 from typing import Any
@@ -117,8 +116,14 @@ class InvestigationThreadReportSnapshotService:
             "captured_at": datetime.utcnow().isoformat(),
             "captured_by": actor_info["username"],
         }
-        hash_value = f"{SNAPSHOT_HASH_PREFIX}{snapshot_sha256(snapshot_json)}"
         render = self._render_graph(case.uuid, report_generation_uuid, snapshot_json)
+        if render.get("svg_sha256"):
+            snapshot_json["render_metadata"] = {
+                "canonical_graph_svg_sha256": render["svg_sha256"],
+                "graph_render_format": render["format"],
+                "graph_render_sha256": render["sha256"],
+            }
+        hash_value = f"{SNAPSHOT_HASH_PREFIX}{snapshot_sha256(snapshot_json)}"
 
         row = InvestigationThreadReportSnapshot(
             case_id=case.id,
@@ -172,11 +177,53 @@ class InvestigationThreadReportSnapshotService:
         for row in rows:
             row.case_report_id = int(case_report_id)
 
-    def cleanup_generation(self, case_id: int, report_generation_uuid: str) -> None:
+    def cleanup_generation(
+        self,
+        case_id: int,
+        report_generation_uuid: str,
+        *,
+        reason: str = "report_generation_aborted",
+        actor: dict[str, Any] | None = None,
+        operation_id: str | None = None,
+    ) -> None:
         rows = InvestigationThreadReportSnapshot.query.filter_by(
             case_id=int(case_id),
             report_generation_uuid=str(report_generation_uuid),
         ).all()
+        case = Case.query.get(int(case_id))
+        actor_info = self._actor_info(actor or {})
+        if rows:
+            AuditLog.log_many(
+                [
+                    {
+                        "entity_type": AuditEntityType.INVESTIGATION_THREAD_REPORT_SNAPSHOT,
+                        "entity_id": row.uuid,
+                        "entity_name": (row.snapshot_json or {}).get("thread", {}).get("title"),
+                        "action": AuditAction.DELETED,
+                        "case_uuid": case.uuid if case else None,
+                        "username": actor_info["username"] or row.created_by_username or "system",
+                        "user_id": actor_info["user_id"] if actor_info["user_id"] is not None else row.created_by_user_id,
+                        "operation_id": operation_id,
+                        "details": {
+                            "case_id": row.case_id,
+                            "case_report_id": row.case_report_id,
+                            "report_generation_uuid": row.report_generation_uuid,
+                            "snapshot_uuid": row.uuid,
+                            "snapshot_hash": row.snapshot_sha256,
+                            "thread_uuid": row.thread_uuid,
+                            "thread_version": row.thread_version,
+                            "saved_view_uuid": row.saved_view_uuid,
+                            "saved_view_version": row.saved_view_version,
+                            "graph_render_format": row.graph_render_format,
+                            "graph_render_path": row.graph_render_path,
+                            "graph_render_sha256": row.graph_render_sha256,
+                            "reason": reason,
+                            "completed_report": False,
+                        },
+                    }
+                    for row in rows
+                ]
+            )
         for row in rows:
             for path in self._render_paths(row.graph_render_path):
                 try:
@@ -360,7 +407,9 @@ class InvestigationThreadReportSnapshotService:
         if not saved_view:
             return {"format": None, "path": None, "sha256": None}
         svg = self._build_svg(saved_view)
-        render_hash = f"{GRAPH_HASH_PREFIX}{snapshot_sha256({'svg': svg})}"
+        svg_hash = f"{GRAPH_HASH_PREFIX}{snapshot_sha256({'svg': svg})}"
+        png = self._rasterize_svg_to_png(svg)
+        render_hash = f"{GRAPH_HASH_PREFIX}{hashlib.sha256(png).hexdigest()}"
         folder = os.path.join(Config.STORAGE_FOLDER, case_uuid, "reports", "snapshots")
         os.makedirs(folder, exist_ok=True)
         base = os.path.join(folder, f"{generation_uuid}_{snapshot_json['thread']['uuid']}")
@@ -369,14 +418,20 @@ class InvestigationThreadReportSnapshotService:
         with open(svg_path, "w", encoding="utf-8") as handle:
             handle.write(svg)
         with open(png_path, "wb") as handle:
-            handle.write(self._build_png(saved_view))
+            handle.write(png)
         try:
             import shutil
             shutil.chown(svg_path, user="casescope", group="casescope")
             shutil.chown(png_path, user="casescope", group="casescope")
         except (PermissionError, LookupError):
             pass
-        return {"format": "png", "path": png_path, "sha256": render_hash}
+        return {"format": "png", "path": png_path, "sha256": render_hash, "svg_sha256": svg_hash}
+
+    @staticmethod
+    def _rasterize_svg_to_png(svg: str) -> bytes:
+        from cairosvg import svg2png
+
+        return svg2png(bytestring=svg.encode("utf-8"))
 
     def _build_svg(self, saved_view: dict[str, Any]) -> str:
         entities = [item for item in saved_view.get("frozen_entities") or [] if not item.get("hidden")]
@@ -419,83 +474,6 @@ class InvestigationThreadReportSnapshotService:
             '<defs><marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto">'
             '<path d="M 0 0 L 10 5 L 0 10 z" fill="#607080"/></marker></defs>'
             f"{body}</svg>"
-        )
-
-    def _build_png(self, saved_view: dict[str, Any]) -> bytes:
-        width, height = 1200, 800
-        pixels = bytearray([255, 255, 255] * width * height)
-        entities = [item for item in saved_view.get("frozen_entities") or [] if not item.get("hidden")]
-        coords = {}
-        for index, entity in enumerate(entities):
-            coord = entity.get("coordinates") or {}
-            coords[entity["stable_reference_key"]] = (
-                int(float(coord.get("x", 120 + (index % 5) * 180))),
-                int(float(coord.get("y", 120 + (index // 5) * 120))),
-            )
-        visible = set(coords)
-        for relationship in saved_view.get("frozen_relationships") or []:
-            source_key = relationship.get("source_reference_key")
-            target_key = relationship.get("target_reference_key")
-            if source_key in visible and target_key in visible:
-                self._draw_line(pixels, width, height, coords[source_key], coords[target_key], (96, 112, 128))
-        for key in sorted(visible):
-            x, y = coords[key]
-            self._draw_circle(pixels, width, height, x, y, 28, (238, 244, 255), fill=True)
-            self._draw_circle(pixels, width, height, x, y, 28, (49, 91, 157), fill=False)
-        return self._png_bytes(width, height, pixels)
-
-    @staticmethod
-    def _set_pixel(pixels: bytearray, width: int, height: int, x: int, y: int, color: tuple[int, int, int]) -> None:
-        if x < 0 or y < 0 or x >= width or y >= height:
-            return
-        offset = (y * width + x) * 3
-        pixels[offset:offset + 3] = bytes(color)
-
-    def _draw_line(self, pixels, width, height, start, end, color):
-        x1, y1 = start
-        x2, y2 = end
-        dx = abs(x2 - x1)
-        dy = -abs(y2 - y1)
-        sx = 1 if x1 < x2 else -1
-        sy = 1 if y1 < y2 else -1
-        err = dx + dy
-        while True:
-            self._set_pixel(pixels, width, height, x1, y1, color)
-            if x1 == x2 and y1 == y2:
-                break
-            doubled = 2 * err
-            if doubled >= dy:
-                err += dy
-                x1 += sx
-            if doubled <= dx:
-                err += dx
-                y1 += sy
-
-    def _draw_circle(self, pixels, width, height, cx, cy, radius, color, *, fill):
-        r2 = radius * radius
-        inner = (radius - 2) * (radius - 2)
-        for y in range(cy - radius, cy + radius + 1):
-            for x in range(cx - radius, cx + radius + 1):
-                d2 = (x - cx) * (x - cx) + (y - cy) * (y - cy)
-                if (fill and d2 <= r2) or (not fill and inner <= d2 <= r2):
-                    self._set_pixel(pixels, width, height, x, y, color)
-
-    @staticmethod
-    def _png_bytes(width: int, height: int, pixels: bytearray) -> bytes:
-        def chunk(kind: bytes, data: bytes) -> bytes:
-            return struct.pack(">I", len(data)) + kind + data + struct.pack(">I", zlib.crc32(kind + data) & 0xFFFFFFFF)
-
-        rows = bytearray()
-        row_width = width * 3
-        for y in range(height):
-            rows.append(0)
-            start = y * row_width
-            rows.extend(pixels[start:start + row_width])
-        return (
-            b"\x89PNG\r\n\x1a\n"
-            + chunk(b"IHDR", struct.pack(">IIBBBBB", width, height, 8, 2, 0, 0, 0))
-            + chunk(b"IDAT", zlib.compress(bytes(rows), level=9))
-            + chunk(b"IEND", b"")
         )
 
     @staticmethod

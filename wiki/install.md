@@ -32,7 +32,7 @@ sudo apt update
 sudo apt install -y \
   build-essential git curl wget unzip 7zip \
   python3 python3-pip python3-venv \
-  libpq-dev libffi-dev libssl-dev pkg-config \
+  libpq-dev libffi-dev libssl-dev pkg-config libcairo2 \
   postgresql postgresql-contrib redis-server \
   apt-transport-https ca-certificates gnupg
 ```
@@ -66,7 +66,7 @@ sudo -u casescope /opt/casescope/venv/bin/pip install -r /opt/casescope/requirem
 sudo -u casescope /opt/casescope/venv/bin/pip install volatility3
 ```
 
-`requirements.txt` includes the Dissect framework packages used for Windows artifact parsing, plus `etl-parser` for Airbus CERT fallback ETL trace decoding. `volatility3` is installed separately because CaseScope expects the `vol` command.
+`requirements.txt` includes the Dissect framework packages used for Windows artifact parsing, `etl-parser` for Airbus CERT fallback ETL trace decoding, and CairoSVG for local report graph rasterization. `libcairo2` provides the native rasterization runtime. `volatility3` is installed separately because CaseScope expects the `vol` command.
 
 ## 6. Install ClickHouse
 

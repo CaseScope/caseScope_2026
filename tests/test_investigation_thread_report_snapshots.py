@@ -1,5 +1,6 @@
 import os
 import hashlib
+import struct
 import tempfile
 import zipfile
 from types import SimpleNamespace
@@ -24,6 +25,12 @@ from utils.investigation_references import snapshot_sha256
 from utils.investigation_threads import InvestigationThreadConflictError, InvestigationThreadService
 from utils.report_generator import ReportGenerator
 from utils.audit_chain import verify_chain
+
+
+def png_dimensions(png_bytes):
+    assert png_bytes.startswith(b"\x89PNG\r\n\x1a\n")
+    width, height = struct.unpack(">II", png_bytes[16:24])
+    return width, height
 
 
 class InvestigationThreadReportSnapshotTestCase(Phase0DSQLiteTestCase):
@@ -92,6 +99,11 @@ class InvestigationThreadReportSnapshotTestCase(Phase0DSQLiteTestCase):
         self.assertTrue(snapshot["graph_render_sha256"].startswith("graph-render:v1:"))
         self.assertTrue(os.path.exists(snapshot["graph_render_path"]))
         self.assertEqual(snapshot["graph_render_format"], "png")
+        with open(snapshot["graph_render_path"], "rb") as handle:
+            png_bytes = handle.read()
+        self.assertEqual(snapshot["graph_render_sha256"], f"{GRAPH_HASH_PREFIX}{hashlib.sha256(png_bytes).hexdigest()}")
+        self.assertEqual(png_dimensions(png_bytes), (1200, 800))
+        self.assertIn("canonical_graph_svg_sha256", snapshot["snapshot_json"]["render_metadata"])
         self.assertIn("Analyst conclusion v1", context["investigation_thread_report_section"])
         self.assertIn(snapshot["snapshot_sha256"], context["investigation_thread_report_section"])
         self.assertNotIn(snapshot["graph_render_path"], context["investigation_thread_report_section"])
@@ -224,7 +236,14 @@ class InvestigationThreadReportSnapshotTestCase(Phase0DSQLiteTestCase):
             report_generation_uuid="44444444-4444-4444-8444-444444444444",
             actor=self.actor,
         )
-        expected_graph_hash = f"{GRAPH_HASH_PREFIX}{snapshot_sha256({'svg': self.snapshot_service._build_svg(snapshot['snapshot_json']['saved_view'])})}"
+        svg = self.snapshot_service._build_svg(snapshot["snapshot_json"]["saved_view"])
+        expected_png = self.snapshot_service._rasterize_svg_to_png(svg)
+        expected_graph_hash = f"{GRAPH_HASH_PREFIX}{hashlib.sha256(expected_png).hexdigest()}"
+        self.assertIn("ALPHA", svg)
+        self.assertIn(r"C:\Tools\cmd.exe", svg)
+        self.assertIn("RUNS_IMAGE", svg)
+        self.assertIn('marker-end="url(#arrow)"', svg)
+        self.assertEqual(snapshot["snapshot_json"]["render_metadata"]["canonical_graph_svg_sha256"], f"{GRAPH_HASH_PREFIX}{snapshot_sha256({'svg': svg})}")
         template_path = os.path.join(self.temp_dir.name, "graph-template.docx")
         output_path = os.path.join(self.temp_dir.name, "graph-output.docx")
         Document().save(template_path)
@@ -233,7 +252,16 @@ class InvestigationThreadReportSnapshotTestCase(Phase0DSQLiteTestCase):
 
         with zipfile.ZipFile(output_path) as package:
             media = [name for name in package.namelist() if name.startswith("word/media/")]
-        self.assertTrue(any(name.lower().endswith(".png") for name in media))
+            graph_media = [
+                package.read(name)
+                for name in media
+                if name.lower().endswith(".png") and package.read(name) == expected_png
+            ]
+        self.assertEqual(len(graph_media), 1)
+        self.assertEqual(png_dimensions(graph_media[0]), (1200, 800))
+        self.assertGreater(len(graph_media[0]), 1000)
+        with open(snapshot["graph_render_path"], "rb") as handle:
+            self.assertEqual(graph_media[0], handle.read())
         self.assertEqual(snapshot["graph_render_sha256"], expected_graph_hash)
 
         no_view_thread = self.thread_service.create_thread(1, title="No View DOCX", actor=self.actor)
@@ -447,12 +475,15 @@ class InvestigationThreadReportSnapshotRouteTestCase(Phase0DSQLiteTestCase):
 
 
 class DeterministicReportRouteLifecycleTestCase(Phase0DSQLiteTestCase):
+    patch_audit = False
+
     def setUp(self):
         super().setUp()
         self.temp_dir = tempfile.TemporaryDirectory()
         self.storage_patch = patch.object(Config, "STORAGE_FOLDER", self.temp_dir.name)
         self.storage_patch.start()
         self.thread_service = InvestigationThreadService()
+        self.view_service = GraphSavedViewService()
         self.actor = actor()
 
     def tearDown(self):
@@ -460,17 +491,64 @@ class DeterministicReportRouteLifecycleTestCase(Phase0DSQLiteTestCase):
         self.temp_dir.cleanup()
         super().tearDown()
 
-    def test_case_report_linkage_failure_cleans_docx_and_snapshots(self):
-        from routes import reports as report_routes
+    def _snapshot_audits(self, thread_uuid):
+        return AuditLog.query.filter(
+            AuditLog.entity_type == AuditEntityType.INVESTIGATION_THREAD_REPORT_SNAPSHOT,
+            AuditLog.details.like(f'%"thread_uuid": "{thread_uuid}"%'),
+        ).order_by(AuditLog.id.asc()).all()
 
-        thread = self.thread_service.create_thread(1, title="Durable Report Thread", actor=self.actor)
+    def _report_thread_with_view(self, title):
+        source, target, relationship = self.make_relationship()
+        view = self.view_service.create_view(
+            1,
+            title=f"{title} View",
+            view_payload={
+                "root_entity_ids": [source.id],
+                "expanded_entity_ids": [source.id, target.id],
+                "visible_relationship_ids": [relationship.id],
+                "node_coordinates_json": {
+                    str(source.id): {"x": 120, "y": 140},
+                    str(target.id): {"x": 360, "y": 140},
+                },
+            },
+            actor=self.actor,
+        )["view"]
+        thread = self.thread_service.create_thread(1, title=title, actor=self.actor)
+        version = self.thread_service.link_entity(1, thread["uuid"], expected_version=1, entity_id=source.id, actor=self.actor)["version"]
         thread = self.thread_service.update_thread(
             1,
             thread["uuid"],
-            expected_version=thread["version"],
+            expected_version=version,
             actor=self.actor,
+            current_saved_view_uuid=view["uuid"],
             include_in_report=True,
         )
+        return thread, view
+
+    def _assert_abort_audit(self, thread_uuid, reason):
+        audits = self._snapshot_audits(thread_uuid)
+        created = [entry for entry in audits if entry.action == "created"]
+        deleted = [entry for entry in audits if entry.action == "deleted"]
+        self.assertEqual(len(created), 1)
+        self.assertEqual(len(deleted), 1)
+        self.assertEqual(created[0].operation_id, deleted[0].operation_id)
+        self.assertEqual(created[0].to_dict()["details"]["report_generation_uuid"], deleted[0].to_dict()["details"]["report_generation_uuid"])
+        self.assertEqual(created[0].to_dict()["details"]["snapshot_uuid"], deleted[0].to_dict()["details"]["snapshot_uuid"])
+        self.assertEqual(deleted[0].to_dict()["details"]["reason"], reason)
+        self.assertFalse(deleted[0].to_dict()["details"]["completed_report"])
+        graph_path = deleted[0].to_dict()["details"].get("graph_render_path")
+        if graph_path:
+            self.assertFalse(os.path.exists(graph_path))
+            root, _ext = os.path.splitext(graph_path)
+            self.assertFalse(os.path.exists(f"{root}.svg"))
+        self.assertTrue(verify_chain()["valid"])
+        table_names = set(inspect(db.engine).get_table_names())
+        self.assertNotIn("investigation_thread_report_snapshot_audit", table_names)
+
+    def test_case_report_linkage_failure_cleans_docx_and_snapshots(self):
+        from routes import reports as report_routes
+
+        thread, _view = self._report_thread_with_view("Durable Report Thread")
         report_path = os.path.join(self.temp_dir.name, "case-a", "reports", "generated.docx")
         os.makedirs(os.path.dirname(report_path), exist_ok=True)
 
@@ -512,18 +590,12 @@ class DeterministicReportRouteLifecycleTestCase(Phase0DSQLiteTestCase):
         self.assertFalse(payload["success"])
         self.assertFalse(os.path.exists(report_path))
         self.assertEqual(InvestigationThreadReportSnapshot.query.filter_by(thread_uuid=thread["uuid"]).count(), 0)
+        self._assert_abort_audit(thread["uuid"], "case_report_registration_failed")
 
     def test_docx_generation_failure_cleans_created_snapshots(self):
         from routes import reports as report_routes
 
-        thread = self.thread_service.create_thread(1, title="Render Failure Thread", actor=self.actor)
-        thread = self.thread_service.update_thread(
-            1,
-            thread["uuid"],
-            expected_version=thread["version"],
-            actor=self.actor,
-            include_in_report=True,
-        )
+        thread, _view = self._report_thread_with_view("Render Failure Thread")
         user = SimpleNamespace(
             id=1,
             username="analyst",
@@ -554,11 +626,12 @@ class DeterministicReportRouteLifecycleTestCase(Phase0DSQLiteTestCase):
         self.assertEqual(status, 500)
         self.assertFalse(response.get_json()["success"])
         self.assertEqual(InvestigationThreadReportSnapshot.query.filter_by(thread_uuid=thread["uuid"]).count(), 0)
+        self._assert_abort_audit(thread["uuid"], "docx_generation_failed")
 
     def test_second_thread_stale_conflict_cleans_first_snapshot(self):
         from routes import reports as report_routes
 
-        first = self.thread_service.create_thread(1, title="First Thread", include_in_report=True, actor=self.actor)
+        first, _view = self._report_thread_with_view("First Thread")
         second = self.thread_service.create_thread(1, title="Second Thread", include_in_report=True, actor=self.actor)
         stale_second_version = second["version"]
         self.thread_service.update_thread(
@@ -607,6 +680,7 @@ class DeterministicReportRouteLifecycleTestCase(Phase0DSQLiteTestCase):
         self.assertEqual(status, 409)
         self.assertTrue(response.get_json()["stale_version"])
         self.assertEqual(InvestigationThreadReportSnapshot.query.filter_by(thread_uuid=first["uuid"]).count(), 0)
+        self._assert_abort_audit(first["uuid"], "stale_thread_version")
 
     def test_unlicensed_deterministic_report_does_not_invoke_ai_provider(self):
         from routes import reports as report_routes

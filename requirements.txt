@@ -62,6 +62,7 @@ requests>=2.31.0
 python-docx>=1.1.0
 docxtpl>=0.16.0
 docxcompose>=1.4.0
+CairoSVG>=2.7.0
 
 # Multi-Provider AI Support
 openai>=1.0.0

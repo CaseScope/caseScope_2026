@@ -218,12 +218,13 @@ Use `git pull --ff-only` for normal branch updates so the update fails instead o
 Refresh the virtual environment dependencies after pulling code:
 
 ```bash
+sudo apt install -y libcairo2
 sudo -u casescope /opt/casescope/venv/bin/pip install --upgrade pip
 sudo -u casescope /opt/casescope/venv/bin/pip install -r /opt/casescope/requirements.txt
 sudo -u casescope /opt/casescope/venv/bin/pip install volatility3
 ```
 
-Run the requirements install after updates so new parser dependencies, such as `dissect.etl` and Airbus CERT `etl-parser` for ETL trace decoding, are present before workers restart. `volatility3` is installed separately because CaseScope expects the `vol` command. Optional external backends such as NTFS Log Tracker are not installed by `requirements.txt`; keep them managed as local forensic tooling and expose them to workers through `/etc/casescope/casescope.env`.
+Run the requirements install after updates so new parser dependencies, such as `dissect.etl` and Airbus CERT `etl-parser` for ETL trace decoding, are present before workers restart. `libcairo2` is required by CairoSVG for local report graph rasterization. `volatility3` is installed separately because CaseScope expects the `vol` command. Optional external backends such as NTFS Log Tracker are not installed by `requirements.txt`; keep them managed as local forensic tooling and expose them to workers through `/etc/casescope/casescope.env`.
 
 ## 6. Review And Run Migrations
 
