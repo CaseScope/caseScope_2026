@@ -130,6 +130,18 @@ def _non_negative_int(value: Any, *, name: str) -> int:
     return parsed
 
 
+def _bounded_int(value: Any, *, name: str, default: int, minimum: int, maximum: int) -> int:
+    if value in (None, ""):
+        return default
+    try:
+        parsed = int(value)
+    except (TypeError, ValueError):
+        raise GraphQueryError(f"Invalid {name}")
+    if parsed < minimum or parsed > maximum:
+        raise GraphQueryError(f"{name} must be between {minimum} and {maximum}")
+    return parsed
+
+
 def _split_filter_values(values: Any) -> list[str]:
     if values in (None, ""):
         return []
@@ -499,12 +511,8 @@ class GraphQueryService:
         self._get_entity(case_id, source_id)
         self._get_entity(case_id, target_id)
         effective_direction = _validate_direction(direction)
-        requested_depth = int(max_depth or 3)
-        requested_paths = int(max_paths or 3)
-        if requested_depth < 1 or requested_depth > MAX_PATH_DEPTH:
-            raise GraphQueryError(f"max_depth must be between 1 and {MAX_PATH_DEPTH}")
-        if requested_paths < 1 or requested_paths > MAX_PATHS:
-            raise GraphQueryError(f"max_paths must be between 1 and {MAX_PATHS}")
+        requested_depth = _bounded_int(max_depth, name="max_depth", default=3, minimum=1, maximum=MAX_PATH_DEPTH)
+        requested_paths = _bounded_int(max_paths, name="max_paths", default=3, minimum=1, maximum=MAX_PATHS)
         relationship_type_values = _validate_relationship_types(relationship_types)
 
         if source_id == target_id:
@@ -514,18 +522,19 @@ class GraphQueryService:
                 "nodes": [_entity_dict(node)],
                 "edges": [],
                 "effective_limits": self._path_limits(requested_depth, requested_paths),
+                "visited_node_count": 1,
+                "examined_edge_count": 0,
                 "truncated": False,
                 "truncation_reason": None,
                 "result_statement": "Graph path from entity to itself.",
             }
 
         paths: list[dict[str, list[int]]] = []
-        edge_ids: set[int] = set()
-        node_ids: set[int] = {source_id, target_id}
         visited_nodes: set[int] = {source_id}
         frontier = deque([(source_id, [source_id], [])])
         truncated = False
         truncation_reason = None
+        examined_edge_count = 0
 
         while frontier and not truncated:
             if len(paths) >= requested_paths:
@@ -549,14 +558,13 @@ class GraphQueryService:
             if node_truncated:
                 truncated = True
                 truncation_reason = "per-node expansion limit reached"
+            examined_edge_count += len(relationships)
             for relationship in relationships:
                 next_id = self._next_node_for_path(current_id, relationship, effective_direction)
                 if next_id is None or next_id in path_node_ids:
                     continue
                 next_node_path = path_node_ids + [next_id]
                 next_edge_path = path_edge_ids + [relationship.id]
-                node_ids.update(next_node_path)
-                edge_ids.add(relationship.id)
                 if next_id == target_id:
                     paths.append({"node_ids": next_node_path, "edge_ids": next_edge_path})
                     if len(paths) >= requested_paths:
@@ -569,11 +577,19 @@ class GraphQueryService:
                         truncation_reason = "visited node limit reached"
                         break
 
-        entities = GraphEntity.query.filter(GraphEntity.case_id == case_id, GraphEntity.id.in_(node_ids)).all()
+        result_node_ids: set[int] = set()
+        result_edge_ids: set[int] = set()
+        for path in paths:
+            result_node_ids.update(path["node_ids"])
+            result_edge_ids.update(path["edge_ids"])
+        if not paths:
+            result_node_ids.update({source_id, target_id})
+
+        entities = GraphEntity.query.filter(GraphEntity.case_id == case_id, GraphEntity.id.in_(result_node_ids)).all()
         relationships = GraphRelationship.query.filter(
             GraphRelationship.case_id == case_id,
-            GraphRelationship.id.in_(edge_ids),
-        ).all() if edge_ids else []
+            GraphRelationship.id.in_(result_edge_ids),
+        ).all() if result_edge_ids else []
         support_counts = self._support_counts(case_id, [relationship.id for relationship in relationships])
         statement = (
             f"Found {len(paths)} graph path(s) within depth {requested_depth}."
@@ -587,6 +603,8 @@ class GraphQueryService:
             "nodes": [_entity_dict(entity) for entity in sorted(entities, key=lambda item: item.id)],
             "edges": [_relationship_dict(relationship, support_counts.get(relationship.id, 0)) for relationship in sorted(relationships, key=lambda item: item.id)],
             "effective_limits": self._path_limits(requested_depth, requested_paths),
+            "visited_node_count": len(visited_nodes),
+            "examined_edge_count": examined_edge_count,
             "truncated": truncated,
             "truncation_reason": truncation_reason,
             "result_statement": statement,

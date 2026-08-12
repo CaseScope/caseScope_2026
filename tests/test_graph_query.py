@@ -260,6 +260,41 @@ class GraphQueryServiceTestCase(unittest.TestCase):
         with self.assertRaises(GraphNotFoundError):
             self.service.path_search(1, source_entity_id=a.id, target_entity_id=other.id, max_depth=3)
 
+    def test_path_search_rejects_nonnumeric_depth_and_path_limits(self):
+        a = self.entity(1, GraphEntityType.HOST, "a", "A")
+        b = self.entity(1, GraphEntityType.HOST, "b", "B")
+        db.session.commit()
+
+        with self.assertRaises(GraphQueryError):
+            self.service.path_search(1, source_entity_id=a.id, target_entity_id=b.id, max_depth="banana")
+        with self.assertRaises(GraphQueryError):
+            self.service.path_search(1, source_entity_id=a.id, target_entity_id=b.id, max_paths="banana")
+
+    def test_path_response_contains_only_returned_path_union_not_traversal_workspace(self):
+        a = self.entity(1, GraphEntityType.HOST, "a", "A")
+        b = self.entity(1, GraphEntityType.HOST, "b", "B")
+        c = self.entity(1, GraphEntityType.HOST, "c", "C")
+        dead = self.entity(1, GraphEntityType.HOST, "dead", "DEAD")
+        dead_child = self.entity(1, GraphEntityType.HOST, "dead-child", "DEAD-CHILD")
+        path_edge_1 = self.relationship(1, a, GraphRelationshipType.REFERENCES, b)
+        path_edge_2 = self.relationship(1, b, GraphRelationshipType.REFERENCES, c)
+        dead_edge_1 = self.relationship(1, a, GraphRelationshipType.REFERENCES, dead)
+        dead_edge_2 = self.relationship(1, dead, GraphRelationshipType.REFERENCES, dead_child)
+        db.session.commit()
+
+        result = self.service.path_search(1, source_entity_id=a.id, target_entity_id=c.id, direction="out", max_depth=3)
+        result_node_ids = {node["id"] for node in result["nodes"]}
+        result_edge_ids = {edge["id"] for edge in result["edges"]}
+
+        self.assertEqual(result_node_ids, {a.id, b.id, c.id})
+        self.assertEqual(result_edge_ids, {path_edge_1.id, path_edge_2.id})
+        self.assertNotIn(dead.id, result_node_ids)
+        self.assertNotIn(dead_child.id, result_node_ids)
+        self.assertNotIn(dead_edge_1.id, result_edge_ids)
+        self.assertNotIn(dead_edge_2.id, result_edge_ids)
+        self.assertGreaterEqual(result["visited_node_count"], 3)
+        self.assertGreaterEqual(result["examined_edge_count"], 3)
+
     def test_path_traversal_ceiling_reports_truncated_not_global_no_path(self):
         root = self.entity(1, GraphEntityType.HOST, "root", "ROOT")
         target = self.entity(1, GraphEntityType.HOST, "target", "TARGET")

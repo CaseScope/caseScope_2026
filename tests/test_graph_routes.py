@@ -1,10 +1,19 @@
 import unittest
+from datetime import datetime
 from types import SimpleNamespace
 from unittest.mock import Mock, patch
 
 from flask import Flask
+from flask_login import LoginManager
 
+from config import PermissionLevel
+from models.case import Case
+from models.client import Client
+from models.database import db
+from models.graph import GraphEntity, GraphRelationship, GraphRelationshipEvidence
+from models.user import User
 import routes.graph as graph_routes
+from utils.graph_identity import GraphEntityType
 from utils.graph_query import GraphNotFoundError, GraphQueryError
 
 
@@ -103,6 +112,126 @@ class GraphRoutesTestCase(unittest.TestCase):
 
         self.assertTrue(self._json(response)["success"])
         service.exact_evidence.assert_called_once_with(7, key)
+
+
+class GraphRouteAuthorizationIntegrationTestCase(unittest.TestCase):
+    def setUp(self):
+        self.app = Flask(__name__)
+        self.app.config.update(
+            SQLALCHEMY_DATABASE_URI="sqlite:///:memory:",
+            SQLALCHEMY_TRACK_MODIFICATIONS=False,
+            TESTING=True,
+            SECRET_KEY="test-secret",
+        )
+        db.init_app(self.app)
+        login_manager = LoginManager()
+        login_manager.init_app(self.app)
+
+        @login_manager.user_loader
+        def load_user(user_id):
+            return db.session.get(User, int(user_id))
+
+        self.app.register_blueprint(graph_routes.graph_bp)
+        self.ctx = self.app.app_context()
+        self.ctx.push()
+        for table in (
+            Client.__table__,
+            Case.__table__,
+            User.__table__,
+            GraphEntity.__table__,
+            GraphRelationship.__table__,
+            GraphRelationshipEvidence.__table__,
+        ):
+            table.create(db.engine)
+        self.case_a = Case(id=101, uuid="case-a", name="Case A", company="Client", created_by="tester")
+        self.case_b = Case(id=202, uuid="case-b", name="Case B", company="Client", created_by="tester")
+        self.viewer = User(
+            id=1,
+            username="viewer",
+            full_name="Case Viewer",
+            email="viewer@example.test",
+            password_hash="not-used",
+            permission_level=PermissionLevel.VIEWER,
+            assigned_cases=[self.case_a.id],
+            is_active=True,
+        )
+        self.source = GraphEntity(
+            case_id=self.case_a.id,
+            entity_type=GraphEntityType.HOST,
+            entity_key="host:a",
+            display_value="A",
+            canonical_value="A",
+            first_seen_at=datetime(2026, 1, 1, 12, 0, 0),
+            last_seen_at=datetime(2026, 1, 1, 12, 0, 0),
+            metadata_json={},
+        )
+        self.target = GraphEntity(
+            case_id=self.case_a.id,
+            entity_type=GraphEntityType.HOST,
+            entity_key="host:b",
+            display_value="B",
+            canonical_value="B",
+            first_seen_at=datetime(2026, 1, 1, 12, 0, 0),
+            last_seen_at=datetime(2026, 1, 1, 12, 0, 0),
+            metadata_json={},
+        )
+        db.session.add_all([self.case_a, self.case_b, self.viewer, self.source, self.target])
+        db.session.commit()
+
+    def tearDown(self):
+        db.session.remove()
+        db.drop_all()
+        self.ctx.pop()
+
+    def _client_as_viewer(self):
+        client = self.app.test_client()
+        with client.session_transaction() as session:
+            session["_user_id"] = str(self.viewer.id)
+            session["_fresh"] = True
+        return client
+
+    def test_authorized_viewer_can_read_graph_summary_through_flask_login(self):
+        response = self._client_as_viewer().get("/api/graph/case-a/summary")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(response.get_json()["success"])
+        self.assertEqual(response.get_json()["total_entities"], 2)
+
+    def test_authorized_viewer_can_post_path_search_through_flask_login(self):
+        response = self._client_as_viewer().post(
+            "/api/graph/case-a/paths",
+            json={
+                "source_entity_id": self.source.id,
+                "target_entity_id": self.target.id,
+                "max_depth": 3,
+                "max_paths": 3,
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(response.get_json()["success"])
+        self.assertEqual({node["id"] for node in response.get_json()["nodes"]}, {self.source.id, self.target.id})
+
+    def test_malformed_path_limits_return_400_through_route(self):
+        for field in ("max_depth", "max_paths"):
+            payload = {
+                "source_entity_id": self.source.id,
+                "target_entity_id": self.target.id,
+                "max_depth": 3,
+                "max_paths": 3,
+            }
+            payload[field] = "banana"
+
+            response = self._client_as_viewer().post("/api/graph/case-a/paths", json=payload)
+
+            self.assertEqual(response.status_code, 400)
+            self.assertFalse(response.get_json()["success"])
+            self.assertIn(field, response.get_json()["error"])
+
+    def test_viewer_assigned_to_another_case_cannot_access_graph_routes(self):
+        response = self._client_as_viewer().get("/api/graph/case-b/summary")
+
+        self.assertEqual(response.status_code, 403)
 
 
 if __name__ == "__main__":

@@ -257,6 +257,7 @@ function resetGraph(clearRoot = true) {
     graphState.lastPathEdgeIds.clear();
     graphState.selectedNodeId = null;
     graphState.selectedEdgeId = null;
+    graphState.pathStartId = null;
     if (clearRoot) graphState.rootId = null;
     renderGraph();
     const inspector = document.getElementById("graph-inspector-content");
@@ -410,25 +411,33 @@ function renderRelationshipInspector(relationship) {
 
 async function loadRelationshipEvidence(edgeId, cursor = "") {
     const panel = document.getElementById("graph-evidence-panel");
-    graphClear(panel);
     panel.classList.remove("text-muted");
-    graphAppendText(panel, "graph-empty-results", "Loading provenance...");
+    if (!cursor) {
+        graphClear(panel);
+    } else {
+        const existingMore = panel.querySelector(".graph-evidence-more");
+        if (existingMore) existingMore.remove();
+    }
+    graphAppendText(panel, "graph-empty-results graph-evidence-loading", "Loading provenance...");
     try {
         const params = new URLSearchParams({ limit: "50" });
         if (cursor) params.set("cursor", cursor);
         const data = await graphFetch(`${graphApiBase}/relationships/${edgeId}/evidence?${params.toString()}`);
-        renderEvidenceRows(edgeId, data.evidence || [], data.pagination || {});
+        renderEvidenceRows(edgeId, data.evidence || [], data.pagination || {}, Boolean(cursor));
     } catch (err) {
-        graphClear(panel);
+        const loading = panel.querySelector(".graph-evidence-loading");
+        if (loading) loading.remove();
+        if (!cursor) graphClear(panel);
         graphAppendText(panel, "graph-error", err.message || "Unable to load provenance");
     }
 }
 
-function renderEvidenceRows(edgeId, rows, pagination) {
+function renderEvidenceRows(edgeId, rows, pagination, append = false) {
     const panel = document.getElementById("graph-evidence-panel");
-    graphClear(panel);
+    panel.querySelectorAll(".graph-evidence-loading").forEach(el => el.remove());
+    if (!append) graphClear(panel);
     if (!rows.length) {
-        graphAppendText(panel, "graph-empty-results", "No provenance rows found.");
+        if (!append) graphAppendText(panel, "graph-empty-results", "No provenance rows found.");
         return;
     }
     rows.forEach(row => {
@@ -443,7 +452,7 @@ function renderEvidenceRows(edgeId, rows, pagination) {
     if (pagination.has_more) {
         const more = document.createElement("button");
         more.type = "button";
-        more.className = "btn btn-secondary btn-sm";
+        more.className = "btn btn-secondary btn-sm graph-evidence-more";
         more.textContent = "Load More Evidence";
         more.addEventListener("click", () => loadRelationshipEvidence(edgeId, pagination.next_cursor || ""));
         panel.appendChild(more);

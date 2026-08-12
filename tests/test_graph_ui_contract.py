@@ -44,6 +44,15 @@ class GraphUIContractTestCase(unittest.TestCase):
         self.assertNotIn("Create Thread", source)
         self.assertNotIn("Delete Relationship", source)
 
+    def test_graph_reset_clears_path_start_and_evidence_pages_append(self):
+        with open("/opt/casescope/static/templates/case_graph.html", encoding="utf-8") as handle:
+            source = handle.read()
+
+        self.assertIn("graphState.pathStartId = null;", source)
+        self.assertIn("renderEvidenceRows(edgeId, data.evidence || [], data.pagination || {}, Boolean(cursor));", source)
+        self.assertIn("if (!append) graphClear(panel);", source)
+        self.assertIn("graph-evidence-more", source)
+
     def test_hunting_selector_key_deep_link_support_exists(self):
         with open("/opt/casescope/static/templates/case_hunting.html", encoding="utf-8") as handle:
             source = handle.read()
