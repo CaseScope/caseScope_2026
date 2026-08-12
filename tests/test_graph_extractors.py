@@ -52,11 +52,10 @@ class GraphExtractorTestCase(unittest.TestCase):
         self.assertTrue(candidates)
         self.assertNotIn(GraphRelationshipType.__dict__.get('SPAWNED', 'SPAWNED'), [c.relationship_type for c in candidates])
 
-    def test_process_connected_to_ip_requires_same_record_process_and_destination(self):
+    def test_connected_to_is_disabled_until_process_execution_can_be_resolved(self):
         candidates = extract_event_relationships(event(event_id='3', channel='Microsoft-Windows-Sysmon/Operational', dst_ip='93.184.216.34'))
 
-        self.assertEqual(len(candidates), 1)
-        self.assertEqual(candidates[0].relationship_type, GraphRelationshipType.CONNECTED_TO)
+        self.assertEqual(candidates, [])
 
     def test_network_src_ip_does_not_create_host_owns_ip(self):
         candidates = extract_event_relationships(event(event_id='3', channel='Microsoft-Windows-Sysmon/Operational', src_ip='10.0.0.5', dst_ip='93.184.216.34'))
@@ -108,6 +107,32 @@ class GraphExtractorTestCase(unittest.TestCase):
             relationship_types,
             sorted([GraphRelationshipType.LOGGED_ON_TO, GraphRelationshipType.LOGON_AS, GraphRelationshipType.ON_HOST]),
         )
+
+    def test_failed_logon_does_not_create_successful_logon_edges(self):
+        candidates = extract_event_relationships(
+            event(
+                event_id='4625',
+                channel='Security',
+                process_path='',
+                process_id=None,
+                logon_id='0x3e7',
+            )
+        )
+
+        self.assertEqual(candidates, [])
+
+    def test_explicit_credential_attempt_does_not_create_session_edges(self):
+        candidates = extract_event_relationships(
+            event(
+                event_id='4648',
+                channel='Security',
+                process_path='',
+                process_id=None,
+                logon_id='0x3e7',
+            )
+        )
+
+        self.assertEqual(candidates, [])
 
     def test_temporal_proximity_does_not_create_relationships(self):
         first = event(event_id='3', channel='Microsoft-Windows-Sysmon/Operational', process_id=None, dst_ip='93.184.216.34')

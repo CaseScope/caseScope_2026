@@ -121,8 +121,6 @@ class GraphRelationship(db.Model):
             'relationship_type',
             'target_entity_id',
             'derivation_type',
-            'extractor_name',
-            'extractor_version',
             name='uq_graph_relationship_canonical_edge',
         ),
         db.Index('idx_graph_relationship_case_type', 'case_id', 'relationship_type'),

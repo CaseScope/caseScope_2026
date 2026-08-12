@@ -1,5 +1,7 @@
 import unittest
+from dataclasses import replace
 from datetime import datetime
+from types import SimpleNamespace
 
 from flask import Flask
 
@@ -9,8 +11,8 @@ from models.agent import Agent
 from models.database import db
 from models.graph import GraphEntity, GraphEntityObservation, GraphRelationship, GraphRelationshipEvidence
 from models.known_system import KnownSystem, KnownSystemAlias
-from utils.graph_extractors import extract_event_relationships
-from utils.graph_materializer import GraphMaterializer, clear_case_graph
+from utils.graph_extractors import GRAPH_EXTRACTOR_EVENT_COLUMNS, extract_event_relationships
+from utils.graph_materializer import GraphMaterializer, clear_case_graph, materialize_events_for_case
 from utils.graph_identity import GraphRelationshipType
 
 
@@ -111,6 +113,30 @@ class GraphMaterializerTestCase(unittest.TestCase):
         self.assertEqual(GraphRelationshipEvidence.query.filter_by(case_id=1).count(), 1)
         self.assertEqual(GraphRelationshipEvidence.query.filter_by(case_id=2).count(), 1)
 
+    def test_candidate_case_mismatch_is_rejected(self):
+        candidate = extract_event_relationships(process_event(case_id=1))[0]
+
+        with self.assertRaises(ValueError):
+            GraphMaterializer().materialize_candidate(2, candidate)
+
+    def test_invalid_evidence_record_key_is_rejected(self):
+        candidate = extract_event_relationships(process_event(key='erk:v2:not-valid'))[0]
+
+        with self.assertRaises(ValueError):
+            GraphMaterializer().materialize_candidate(1, candidate)
+
+    def test_same_canonical_edge_from_new_extractor_version_reuses_edge(self):
+        candidate = extract_event_relationships(process_event(key=evidence_key('a')))[0]
+        GraphMaterializer().materialize_candidate(1, candidate)
+        GraphMaterializer().materialize_candidate(
+            1,
+            replace(candidate, evidence_record_key=evidence_key('b'), extractor_version='2'),
+        )
+        db.session.commit()
+
+        self.assertEqual(GraphRelationship.query.count(), 1)
+        self.assertEqual(GraphRelationshipEvidence.query.count(), 2)
+
     def test_rebuild_by_clear_and_replay_is_deterministic(self):
         ev = process_event(key=evidence_key('a'))
         self._materialize(ev)
@@ -139,6 +165,46 @@ class GraphMaterializerTestCase(unittest.TestCase):
         ]
 
         self.assertEqual(before_edges, after_edges)
+
+    def test_materialize_events_for_case_uses_streaming_query(self):
+        class _Stream:
+            def __init__(self, rows):
+                self.rows = rows
+                self.source = SimpleNamespace(column_names=GRAPH_EXTRACTOR_EVENT_COLUMNS)
+
+            def __enter__(self):
+                return iter(self.rows)
+
+            def __exit__(self, exc_type, exc, tb):
+                return False
+
+        class StreamingClient:
+            def __init__(self, rows):
+                self.rows = rows
+                self.stream_called = False
+                self.query_called = False
+                self.last_query = ''
+
+            def query_rows_stream(self, query, parameters=None, settings=None):
+                self.stream_called = True
+                self.last_query = query
+                return _Stream(self.rows)
+
+            def query(self, *args, **kwargs):
+                self.query_called = True
+                return SimpleNamespace(result_rows=[])
+
+        ev = process_event()
+        row = tuple(ev.get(column) for column in GRAPH_EXTRACTOR_EVENT_COLUMNS)
+        client = StreamingClient([row])
+
+        result = materialize_events_for_case(1, client=client)
+
+        self.assertTrue(client.stream_called)
+        self.assertFalse(client.query_called)
+        self.assertIn("event_id = '4624'", client.last_query)
+        self.assertNotIn('raw_json', client.last_query)
+        self.assertEqual(result['relationships_materialized'], 1)
 
 
 if __name__ == '__main__':

@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import logging
+import re
 from datetime import datetime
 from typing import Any, Dict, Iterable, Optional
 
@@ -40,6 +41,7 @@ from utils.graph_identity import (
 )
 
 logger = logging.getLogger(__name__)
+EVIDENCE_RECORD_KEY_RE = re.compile(r'^erk:v2:[0-9a-f]{64}$')
 
 
 def _clean(value: Any) -> str:
@@ -167,9 +169,11 @@ class GraphMaterializer:
             return None
 
     def materialize_candidate(self, case_id: int, candidate: GraphRelationshipCandidate) -> GraphRelationship:
+        if candidate.case_id != int(case_id):
+            raise ValueError('Graph relationship candidate case_id does not match materialization case')
         if candidate.derivation_type not in GraphDerivationType.AUTHORITATIVE_EXTRACTOR_TYPES:
             raise ValueError(f'Authoritative extractor cannot materialize {candidate.derivation_type}')
-        if not _clean(candidate.evidence_record_key).startswith('erk:v2:'):
+        if not EVIDENCE_RECORD_KEY_RE.fullmatch(_clean(candidate.evidence_record_key)):
             raise ValueError('Graph relationship provenance requires Evidence Identity v2 key')
 
         observed_at = _coerce_datetime(candidate.observed_at)
@@ -340,8 +344,6 @@ class GraphMaterializer:
             relationship_type=relationship_type,
             target_entity_id=target_entity_id,
             derivation_type=derivation_type,
-            extractor_name=extractor_name,
-            extractor_version=extractor_version,
         ).first()
         if relationship is None:
             relationship = GraphRelationship(
@@ -368,8 +370,6 @@ class GraphMaterializer:
                     relationship_type=relationship_type,
                     target_entity_id=target_entity_id,
                     derivation_type=derivation_type,
-                    extractor_name=extractor_name,
-                    extractor_version=extractor_version,
                 ).first()
                 if relationship is None:
                     raise
@@ -460,20 +460,66 @@ def materialize_events_for_case(case_id: int, *, client=None, batch_size: int = 
     FROM events
     WHERE case_id = {{case_id:UInt32}}
       AND evidence_record_key != ''
+      AND (
+        (
+          source_host != ''
+          AND process_id IS NOT NULL
+          AND process_path != ''
+          AND (
+            event_id = '4688'
+            OR (event_id = '1' AND positionCaseInsensitive(channel, 'Sysmon') > 0)
+            OR (artifact_type = 'crowdstrike' AND event_id = 'ProcessRollup2')
+          )
+        )
+        OR (
+          (target_path != '' OR process_path != '')
+          AND (file_hash_sha256 != '' OR file_hash_sha1 != '' OR file_hash_md5 != '')
+        )
+        OR (
+          source_host != ''
+          AND positionCaseInsensitive(extra_fields, 'host_ip') > 0
+        )
+        OR (
+          event_id = '4624'
+          AND lower(channel) = 'security'
+          AND source_host != ''
+          AND logon_id != ''
+          AND (sid != '' OR (domain != '' AND username != ''))
+        )
+      )
     ORDER BY timestamp_utc, evidence_record_key
     """
-    result = client.query(sql, parameters={'case_id': int(case_id)})
     materializer = GraphMaterializer()
     events_seen = 0
     candidates_seen = 0
     errors = 0
-    for row in result.result_rows:
+
+    def iter_rows():
+        if hasattr(client, 'query_rows_stream'):
+            try:
+                from utils.clickhouse import migration_source_query_settings
+                settings = migration_source_query_settings()
+            except Exception:
+                settings = {'max_block_size': int(batch_size)}
+            with client.query_rows_stream(
+                sql,
+                parameters={'case_id': int(case_id)},
+                settings=settings,
+            ) as rows:
+                for streamed_row in rows:
+                    yield streamed_row
+        else:
+            result = client.query(sql, parameters={'case_id': int(case_id)})
+            for result_row in result.result_rows:
+                yield result_row
+
+    for row in iter_rows():
         event = event_from_clickhouse_row(row)
         events_seen += 1
         try:
             candidates = extract_event_relationships(event)
             candidates_seen += materializer.materialize_candidates(case_id, candidates)
-            if candidates or events_seen % batch_size == 0:
+            if events_seen % batch_size == 0:
                 db.session.commit()
         except Exception as exc:
             errors += 1

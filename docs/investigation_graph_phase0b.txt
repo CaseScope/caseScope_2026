@@ -30,12 +30,15 @@ fallback is authority/domain plus username. Host-local username fallback is
 available only with a host scope. Bare username alone is rejected.
 
 PROCESS: A process is an execution instance, not a PID. Identity requires host
-identity, PID, and either process start time or the durable evidence_record_key
-as an execution anchor. Same PID alone never merges process executions.
+identity, PID, and a defensible execution anchor such as process start time.
+Durable evidence_record_key anchoring is reserved for source records that
+themselves prove a process execution instance; network records are not used as
+process execution anchors. Same PID alone never merges process executions.
 
 FILE_PATH: File paths are path observations, separate from content. Windows
-paths normalize separators, repeated slashes, drive-letter case, and case for
-the initial Windows evidence sources. Host scope is included when available.
+paths normalize separators inside the path, drive-letter case, and case for the
+initial Windows evidence sources. UNC and \\?\ device prefixes are preserved.
+Host scope is included when available.
 
 FILE_HASH: Hash identity is algorithm plus normalized digest, such as
 sha256:<digest>. MD5, SHA1, and SHA256 are distinct identities and lengths are
@@ -64,10 +67,6 @@ PROCESS RUNS_IMAGE FILE_PATH: Created only from process creation records that
 co-locate source_host, process_id, process_path, and Evidence Identity v2 key.
 Initial sources are Windows 4688, Sysmon 1, and CrowdStrike ProcessRollup2.
 
-PROCESS CONNECTED_TO IP_ADDRESS: Created only when one network event co-locates
-process_id and dst_ip. Initial sources are Sysmon 3 and CrowdStrike
-NetworkConnectIP4.
-
 FILE_PATH HAD_CONTENT FILE_HASH: Created only when one event co-locates a path
 and one or more file hash columns. This is a time-sensitive observation.
 
@@ -76,8 +75,10 @@ in extra_fields with source_host present. Network src_ip is explicitly not used
 for ownership.
 
 USER LOGGED_ON_TO HOST, LOGON_SESSION LOGON_AS USER, LOGON_SESSION ON_HOST HOST:
-Created only from Windows Security logon events 4624, 4625, 4634, 4647, or 4648
-with source_host, logon_id, and SID or scoped username authority.
+Created only from Windows Security successful logon event 4624 with source_host,
+logon_id, and SID or scoped username authority. Failed logons (4625),
+explicit-credential attempts (4648), and logoff events (4634/4647) do not
+create successful-logon/session-creation edges in Phase 0B.
 
 Anti-Inference Rules
 Phase 0B does not infer same PID means same process, same username means same
@@ -96,8 +97,8 @@ locator is case_id plus evidence_record_key.
 
 Idempotency and Rebuildability
 Database uniqueness enforces one canonical entity per case/type/key, one
-canonical edge per case/source/type/target/derivation/extractor/version, and
-one provenance row per relationship/evidence/role/extractor/version.
+canonical edge per case/source/type/target/derivation, and one provenance row
+per relationship/evidence/role/extractor/version.
 GraphMaterializer uses these constraints for get-or-create behavior. A case
 graph can be cleared and regenerated from retained ClickHouse events with
 Evidence Identity v2 keys.
@@ -109,9 +110,12 @@ locked. Phase 0B only consumes evidence_record_key values that begin with
 erk:v2:.
 
 Known Limitations
-SPAWNED is not implemented because parent PID alone is insufficient and current
-normalized records do not safely resolve both executions. DNS RESOLVED_TO is
-not implemented because network_logs currently lacks Evidence Identity v2
+CONNECTED_TO is not implemented because current network records do not provide a
+defensible process execution identity; Sysmon ProcessGuid or strict
+process-creation anchor resolution should be investigated next. SPAWNED is not
+implemented because parent PID alone is insufficient and current normalized
+records do not safely resolve both executions. DNS RESOLVED_TO is not
+implemented because network_logs currently lacks Evidence Identity v2
 provenance. SERVICE_RUNS_IMAGE and SERVICE_RAN_AS are not implemented because
 service account/image fields are not normalized strongly enough for a generic
 authoritative extractor. HOST OWNS_IP is limited to explicit host_ip metadata

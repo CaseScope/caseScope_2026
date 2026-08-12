@@ -120,7 +120,20 @@ def normalize_username(value: Any) -> str:
 
 def normalize_windows_path(value: Any) -> str:
     path = _clean(value).replace('/', '\\')
-    path = re.sub(r'\\+', r'\\', path)
+    if path.startswith('\\\\?\\UNC\\'):
+        prefix = '\\\\?\\UNC\\'
+        body = re.sub(r'\\+', r'\\', path[len(prefix):])
+        path = prefix + body
+    elif path.startswith('\\\\?\\'):
+        prefix = '\\\\?\\'
+        body = re.sub(r'\\+', r'\\', path[len(prefix):])
+        path = prefix + body
+    elif path.startswith('\\\\'):
+        prefix = '\\\\'
+        body = re.sub(r'\\+', r'\\', path[2:])
+        path = prefix + body
+    else:
+        path = re.sub(r'\\+', r'\\', path)
     if len(path) >= 2 and path[1] == ':':
         path = path[0].upper() + path[1:]
     # Windows paths are case-insensitive for the supported initial sources.

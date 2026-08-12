@@ -44,7 +44,6 @@ GRAPH_EXTRACTOR_EVENT_COLUMNS = (
     'dst_ip',
     'src_port',
     'dst_port',
-    'raw_json',
     'extra_fields',
     'parser_version',
     'evidence_record_key',
@@ -68,6 +67,7 @@ AI_OR_ANALYTIC_CONTEXT_KEYS = {
 
 @dataclass(frozen=True)
 class GraphRelationshipCandidate:
+    case_id: int
     source: EntitySpec
     relationship_type: str
     target: EntitySpec
@@ -106,8 +106,7 @@ def _source_context(event: Dict[str, Any]) -> str:
         _clean(event.get('source_table') or 'events'),
         _clean(event.get('case_file_id')),
         _clean(event.get('source_file')),
-        _clean(event.get('source_path')),
-        _clean(event.get('evidence_record_key')),
+        _clean(event.get('artifact_type')),
     ]
     return '|'.join(part for part in parts if part)
 
@@ -180,6 +179,7 @@ class GraphRelationshipExtractor:
         if derivation_type not in GraphDerivationType.AUTHORITATIVE_EXTRACTOR_TYPES:
             raise ValueError(f'Extractor cannot author {derivation_type} graph edges')
         return GraphRelationshipCandidate(
+            case_id=int(event.get('case_id')),
             source=source,
             relationship_type=relationship_type,
             target=target,
@@ -232,6 +232,12 @@ class ProcessConnectedToIpExtractor(GraphRelationshipExtractor):
     version = '1'
 
     def supports(self, event: Dict[str, Any]) -> bool:
+        # Disabled for Phase 0B review hardening. Network records prove the
+        # connection record exists, but not a defensible process execution
+        # identity unless a source-native execution identifier such as Sysmon
+        # ProcessGuid is normalized or a strict process-creation anchor is
+        # resolved first.
+        return False
         if not (_is_set(event.get('evidence_record_key')) and _is_set(event.get('source_host'))):
             return False
         if event.get('process_id') is None or not _is_set(event.get('dst_ip')):
@@ -327,11 +333,10 @@ class HostOwnsIpExtractor(GraphRelationshipExtractor):
 class LogonRelationshipsExtractor(GraphRelationshipExtractor):
     name = 'windows_logon_relationships'
     version = '1'
-    LOGON_EVENT_IDS = {'4624', '4625', '4634', '4647', '4648'}
 
     def supports(self, event: Dict[str, Any]) -> bool:
         return (
-            _clean(event.get('event_id')) in self.LOGON_EVENT_IDS
+            _clean(event.get('event_id')) == '4624'
             and _clean(event.get('channel')).lower() == 'security'
             and _is_set(event.get('evidence_record_key'))
             and _is_set(event.get('source_host'))
@@ -371,7 +376,6 @@ class LogonRelationshipsExtractor(GraphRelationshipExtractor):
 
 DEFAULT_EVENT_EXTRACTORS: tuple[GraphRelationshipExtractor, ...] = (
     ProcessRunsImageExtractor(),
-    ProcessConnectedToIpExtractor(),
     FilePathHadContentExtractor(),
     HostOwnsIpExtractor(),
     LogonRelationshipsExtractor(),

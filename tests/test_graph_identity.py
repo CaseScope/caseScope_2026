@@ -27,6 +27,12 @@ class GraphIdentityTestCase(unittest.TestCase):
 
         self.assertNotEqual(first.entity_key, second.entity_key)
 
+    def test_same_unresolved_host_same_source_scope_is_stable(self):
+        first = build_host_entity('WKS-1', source_context='events|99|Security.evtx|evtx')
+        second = build_host_entity('WKS-1', source_context='events|99|Security.evtx|evtx')
+
+        self.assertEqual(first.entity_key, second.entity_key)
+
     def test_user_sid_is_strongest_identity(self):
         first = build_user_entity('CONTOSO\\jsmith', sid='S-1-5-21-1-2-3-1001', domain='CONTOSO')
         second = build_user_entity('OTHER\\renamed', sid='s-1-5-21-1-2-3-1001', domain='OTHER')
@@ -64,6 +70,15 @@ class GraphIdentityTestCase(unittest.TestCase):
         self.assertEqual(path.entity_type, GraphEntityType.FILE_PATH)
         self.assertEqual(file_hash.entity_type, GraphEntityType.FILE_HASH)
         self.assertNotEqual(path.entity_key, file_hash.entity_key)
+
+    def test_unc_and_device_path_prefixes_are_preserved(self):
+        unc = build_file_path_entity(r'\\SERVER\\Share\\Folder\\tool.exe')
+        device = build_file_path_entity(r'\\?\C:\Temp\\tool.exe')
+        device_unc = build_file_path_entity(r'\\?\UNC\SERVER\\Share\\tool.exe')
+
+        self.assertTrue(unc.canonical_value.startswith(r'\\SERVER'))
+        self.assertTrue(device.canonical_value.startswith(r'\\?\C:'))
+        self.assertTrue(device_unc.canonical_value.startswith(r'\\?\UNC\SERVER'))
 
     def test_file_hash_algorithm_and_length_are_part_of_identity(self):
         sha256 = build_file_hash_entity('sha256', 'a' * 64)

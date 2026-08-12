@@ -1,6 +1,13 @@
 {
-  "version": "4.13.0",
+  "version": "4.13.1",
   "changelog": [
+    {
+      "version": "4.13.1",
+      "date": "2026-08-12",
+      "changes": [
+        "Hardened Phase 0B graph extraction by disabling unsafe process-network edges, limiting logon session facts to 4624, streaming graph rebuild reads, and tightening provenance and path identity validation"
+      ]
+    },
     {
       "version": "4.13.0",
       "date": "2026-08-12",
