@@ -1,5 +1,6 @@
 from tests.phase0d_test_support import Phase0DSQLiteTestCase, actor
 from utils.graph_saved_views import GraphSavedViewService
+from utils.investigation_threads import InvestigationThreadService
 
 
 class GraphSavedViewRoutesTestCase(Phase0DSQLiteTestCase):
@@ -94,6 +95,40 @@ class GraphSavedViewRoutesTestCase(Phase0DSQLiteTestCase):
         self.assertEqual(first.status_code, 200)
         self.assertEqual(stale.status_code, 409)
         self.assertTrue(stale.get_json()["stale_version"])
+
+    def test_stale_delete_returns_409(self):
+        view = self.create_view()
+        self.service.update_view(
+            1,
+            view["view"]["uuid"],
+            expected_version=1,
+            title="Updated",
+            actor=self.analyst_actor,
+        )
+        self.login_as("analyst")
+
+        stale = self.client.delete(f"/api/graph/case-a/views/{view['view']['uuid']}?expected_version=1")
+
+        self.assertEqual(stale.status_code, 409)
+        self.assertTrue(stale.get_json()["stale_version"])
+
+    def test_referenced_view_delete_returns_409_with_thread_uuids(self):
+        view = self.create_view()
+        thread_service = InvestigationThreadService()
+        thread = thread_service.create_thread(1, title="Thread", actor=self.analyst_actor)
+        thread_service.update_thread(
+            1,
+            thread["uuid"],
+            expected_version=1,
+            actor=self.analyst_actor,
+            current_saved_view_uuid=view["view"]["uuid"],
+        )
+        self.login_as("analyst")
+
+        response = self.client.delete(f"/api/graph/case-a/views/{view['view']['uuid']}?expected_version=1")
+
+        self.assertEqual(response.status_code, 409)
+        self.assertIn(thread["uuid"], response.get_json()["referencing_thread_uuids"])
 
 
 if __name__ == "__main__":

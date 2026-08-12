@@ -1,10 +1,14 @@
-from utils.graph_identity import GraphEntityType
+from datetime import datetime
+
+from utils.graph_identity import GraphDerivationType, GraphEntityType, GraphRelationshipType
 from utils.graph_materializer import clear_case_graph
 from utils.graph_saved_views import GraphSavedViewConflictError, GraphSavedViewError, GraphSavedViewService
 
 from models.database import db
+from models.graph import GraphRelationship
 from models.graph_saved_view import GraphSavedView
 from tests.phase0d_test_support import Phase0DSQLiteTestCase, actor
+from utils.investigation_threads import InvestigationThreadService
 
 
 class GraphSavedViewsTestCase(Phase0DSQLiteTestCase):
@@ -70,6 +74,59 @@ class GraphSavedViewsTestCase(Phase0DSQLiteTestCase):
         self.assertFalse(restored["resolved"]["unresolved_entity_references"])
         self.assertFalse(restored["resolved"]["unresolved_relationship_references"])
 
+    def test_restore_payload_returns_only_saved_relationships_after_graph_gains_new_edge(self):
+        source, _target, saved_relationship = self.make_relationship()
+        extra_target = self.make_entity(
+            entity_type=GraphEntityType.FILE_PATH,
+            entity_key=r"host:host:alpha:path:C:\TOOLS\POWERSHELL.EXE",
+            display=r"C:\Tools\powershell.exe",
+        )
+        extra_relationship = GraphRelationship(
+            case_id=1,
+            source_entity_id=source.id,
+            relationship_type=GraphRelationshipType.RUNS_IMAGE,
+            target_entity_id=extra_target.id,
+            confidence=1.0,
+            derivation_type=GraphDerivationType.DETERMINISTIC,
+            extractor_name="extractor-a",
+            extractor_version="1",
+            validation_state="ACTIVE",
+        )
+        db.session.add(extra_relationship)
+        db.session.flush()
+        created = self.service.create_view(
+            1,
+            title="Exact A-B",
+            view_payload={
+                "root_entity_ids": [source.id],
+                "expanded_entity_ids": [source.id],
+                "visible_relationship_ids": [saved_relationship.id],
+            },
+            actor=self.actor,
+        )
+
+        restored = self.service.restore_payload(1, created["view"]["uuid"])
+
+        self.assertEqual(restored["resolved"]["visible_relationship_ids"], [saved_relationship.id])
+        self.assertNotIn(extra_relationship.id, restored["resolved"]["visible_relationship_ids"])
+
+    def test_restore_payload_preserves_zero_visible_relationships(self):
+        source, _target, _relationship = self.make_relationship()
+        created = self.service.create_view(
+            1,
+            title="No visible relationships",
+            view_payload={
+                "root_entity_ids": [source.id],
+                "expanded_entity_ids": [source.id],
+                "visible_relationship_ids": [],
+            },
+            actor=self.actor,
+        )
+
+        restored = self.service.restore_payload(1, created["view"]["uuid"])
+
+        self.assertEqual(restored["resolved"]["visible_relationship_ids"], [])
+
     def test_unresolved_refs_reported_and_stored_state_unchanged(self):
         source, _target, relationship = self.make_relationship()
         created = self.service.create_view(
@@ -111,6 +168,62 @@ class GraphSavedViewsTestCase(Phase0DSQLiteTestCase):
         self.assertEqual(updated["view"]["version"], 2)
         with self.assertRaises(GraphSavedViewConflictError):
             self.service.update_view(1, created["view"]["uuid"], expected_version=1, title="stale", actor=self.actor)
+
+    def test_stale_version_delete_conflicts(self):
+        source, _target, _relationship = self.make_relationship()
+        created = self.service.create_view(
+            1,
+            title="Versioned delete",
+            view_payload={"root_entity_ids": [source.id]},
+            actor=self.actor,
+        )
+        self.service.update_view(
+            1,
+            created["view"]["uuid"],
+            expected_version=1,
+            title="Updated before delete",
+            actor=self.actor,
+        )
+
+        with self.assertRaises(GraphSavedViewConflictError):
+            self.service.delete_view(1, created["view"]["uuid"], expected_version=1, actor=self.actor)
+
+        self.assertEqual(GraphSavedView.query.filter_by(uuid=created["view"]["uuid"]).count(), 1)
+
+    def test_referenced_saved_view_cannot_be_deleted_until_thread_detaches(self):
+        source, _target, _relationship = self.make_relationship()
+        created = self.service.create_view(
+            1,
+            title="Referenced",
+            view_payload={"root_entity_ids": [source.id]},
+            actor=self.actor,
+        )
+        thread_service = InvestigationThreadService()
+        thread = thread_service.create_thread(1, title="Thread", actor=self.actor)
+        updated_thread = thread_service.update_thread(
+            1,
+            thread["uuid"],
+            expected_version=1,
+            actor=self.actor,
+            current_saved_view_uuid=created["view"]["uuid"],
+        )
+
+        with self.assertRaises(GraphSavedViewConflictError) as ctx:
+            self.service.delete_view(1, created["view"]["uuid"], expected_version=1, actor=self.actor)
+        self.assertIn(thread["uuid"], ctx.exception.details["referencing_thread_uuids"])
+
+        detached = thread_service.update_thread(
+            1,
+            thread["uuid"],
+            expected_version=updated_thread["version"],
+            actor=self.actor,
+            current_saved_view_uuid=None,
+        )
+        deleted = self.service.delete_view(1, created["view"]["uuid"], expected_version=1, actor=self.actor)
+
+        self.assertTrue(deleted["deleted"])
+        self.assertGreater(detached["version"], updated_thread["version"])
+        self.assertEqual(GraphSavedView.query.filter_by(uuid=created["view"]["uuid"]).count(), 0)
 
     def test_fingerprint_deterministic_for_equivalent_reference_sets(self):
         source, target, relationship = self.make_relationship()
@@ -157,6 +270,41 @@ class GraphSavedViewsTestCase(Phase0DSQLiteTestCase):
                 view_payload={"expanded_entity_ids": entity_ids},
                 actor=self.actor,
             )
+
+    def test_coordinate_stable_key_must_be_present_in_saved_entity_refs(self):
+        source, _target, _relationship = self.make_relationship()
+        saved = self.service.create_view(
+            1,
+            title="Coordinate source",
+            view_payload={"root_entity_ids": [source.id]},
+            actor=self.actor,
+        )
+        stable_key = saved["view"]["root_entity_references"][0]["stable_reference_key"]
+
+        with self.assertRaises(GraphSavedViewError):
+            self.service.create_view(
+                1,
+                title="Opaque coordinate",
+                view_payload={"node_coordinates_json": {stable_key: {"x": 1, "y": 2}}},
+                actor=self.actor,
+            )
+
+    def test_aware_time_range_is_normalized_to_utc_naive(self):
+        source, _target, _relationship = self.make_relationship()
+        created = self.service.create_view(
+            1,
+            title="Time range",
+            view_payload={
+                "root_entity_ids": [source.id],
+                "time_start": "2026-08-12T10:00:00-04:00",
+                "time_end": "2026-08-12T11:00:00-04:00",
+            },
+            actor=self.actor,
+        )
+        row = GraphSavedView.query.filter_by(uuid=created["view"]["uuid"]).one()
+
+        self.assertEqual(row.time_start, datetime(2026, 8, 12, 14, 0, 0))
+        self.assertEqual(row.time_end, datetime(2026, 8, 12, 15, 0, 0))
 
 
 if __name__ == "__main__":

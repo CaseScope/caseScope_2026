@@ -176,6 +176,27 @@ Limits:
   Thread list default 50 / max 200
   Thread total memberships <= 2000
 
+
+4.15.1 corrective review disposition:
+
+- Initial evidence attachment now requires exact case-scoped ERK proof.
+  A syntactically valid but nonexistent ERK is rejected. ClickHouse/query
+  infrastructure failure fails the operation instead of creating a degraded
+  snapshot. Later source disappearance still leaves already-frozen snapshots
+  readable with live_source_available=false.
+- Saved view restore now fetches exactly the saved resolved entity and
+  relationship references. It no longer replays neighborhood expansion while
+  loading a saved arrangement. Analysts can explicitly Expand after restore.
+- Saved view DELETE is atomic on expected version. Views referenced by a Thread
+  return 409 with referencing Thread UUIDs; analysts must detach/change the
+  Thread through the normal versioned Thread update path before deletion.
+- Real AuditLog integration tests now exercise production AuditLog.log/log_many
+  and verify hash-chain validity after Thread and Saved View mutations.
+- Saved view coordinates must reference entities already present in the saved
+  entity reference set; opaque coordinate-only stable hashes are rejected and no
+  whole-case stable-key scan is used.
+- Aware saved-view datetimes are normalized to UTC-naive before storage.
+
 Known limitations:
 
 - Full immutable report snapshot creation is Phase 0F (criteria 39/59 foundation only).

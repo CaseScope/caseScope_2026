@@ -31,12 +31,14 @@ def _load_case(case_uuid: str):
 
 def _error_response(exc: Exception):
     if isinstance(exc, GraphSavedViewConflictError):
-        return jsonify({
+        payload = {
             "success": False,
             "error": str(exc),
             "stale_version": True,
             "current_version": exc.current_version,
-        }), 409
+        }
+        payload.update(getattr(exc, "details", {}) or {})
+        return jsonify(payload), 409
     if isinstance(exc, (GraphSavedViewNotFoundError, GraphNotFoundError)):
         return jsonify({"success": False, "error": str(exc)}), 404
     if isinstance(exc, (GraphSavedViewError, GraphQueryError, InvestigationReferenceError)):

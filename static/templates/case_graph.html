@@ -964,15 +964,33 @@ async function loadSelectedGraphView() {
         ]);
         if (resolved.selected_entity_id) entityIds.add(Number(resolved.selected_entity_id));
         await Promise.all(Array.from(entityIds).map(id => fetchGraphEntity(id).catch(() => null)));
-        for (const id of Array.from(new Set([...rootIds, ...(resolved.expanded_entity_ids || []).map(Number)]))) {
-            await expandNode(id, false);
+        const relationshipIds = (resolved.visible_relationship_ids || []).map(Number);
+        if (resolved.selected_relationship_id) relationshipIds.push(Number(resolved.selected_relationship_id));
+        await Promise.all(Array.from(new Set(relationshipIds)).map(id => fetchGraphRelationship(id).catch(() => null)));
+        const visible = new Set((resolved.visible_relationship_ids || []).map(Number));
+        Array.from(graphState.edges.keys()).forEach(id => {
+            if (!visible.has(Number(id))) graphState.edges.delete(Number(id));
+        });
+        const allowedEntityIds = new Set([
+            ...Array.from(entityIds),
+            ...Array.from(graphState.edges.values()).flatMap(edge => [Number(edge.source_entity_id), Number(edge.target_entity_id)])
+        ]);
+        Array.from(graphState.nodes.keys()).forEach(id => {
+            if (!allowedEntityIds.has(Number(id))) graphState.nodes.delete(Number(id));
+        });
+        if (resolved.unresolved_entity_references && resolved.unresolved_entity_references.length) {
+            graphAppendText(
+                document.getElementById("graph-inspector-content"),
+                "graph-truncated-note",
+                `${resolved.unresolved_entity_references.length} saved entity reference(s) could not be resolved.`
+            );
         }
-        await Promise.all((resolved.visible_relationship_ids || []).map(id => fetchGraphRelationship(Number(id)).catch(() => null)));
-        if ((resolved.visible_relationship_ids || []).length) {
-            const visible = new Set((resolved.visible_relationship_ids || []).map(Number));
-            Array.from(graphState.edges.keys()).forEach(id => {
-                if (!visible.has(Number(id))) graphState.edges.delete(Number(id));
-            });
+        if (resolved.unresolved_relationship_references && resolved.unresolved_relationship_references.length) {
+            graphAppendText(
+                document.getElementById("graph-inspector-content"),
+                "graph-truncated-note",
+                `${resolved.unresolved_relationship_references.length} saved relationship reference(s) could not be resolved.`
+            );
         }
         graphState.selectedNodeId = resolved.selected_entity_id ? Number(resolved.selected_entity_id) : null;
         graphState.selectedEdgeId = resolved.selected_relationship_id ? Number(resolved.selected_relationship_id) : null;

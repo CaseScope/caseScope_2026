@@ -410,6 +410,7 @@ class InvestigationThreadService:
     ):
         case = self._require_case(case_id)
         thread = self._get_thread(case.id, thread_uuid)
+        self._ensure_expected_version_current(thread, expected_version)
         entity_ids = self._dedupe(entity_ids or [])
         relationship_ids = self._dedupe(relationship_ids or [])
         evidence_record_keys = self._dedupe(evidence_record_keys or [])
@@ -453,7 +454,6 @@ class InvestigationThreadService:
 
         added_total = sum(bucket["added"] for bucket in counts.values())
         if not added_total:
-            self._ensure_expected_version_current(thread, expected_version)
             return {
                 "version": thread.version,
                 "evidence_set_fingerprint": thread.evidence_set_fingerprint,
@@ -603,6 +603,7 @@ class InvestigationThreadService:
         if existing:
             self._ensure_expected_version_current(thread, expected_version)
             return {"added": False, "version": thread.version, "evidence": self._serialize_evidence_membership(existing)}
+        self._ensure_expected_version_current(thread, expected_version)
         self._ensure_membership_capacity(thread, 1)
         membership = self._build_evidence_membership(
             case.id,
@@ -1222,15 +1223,9 @@ class InvestigationThreadService:
                 target_entity=target,
             )
         event = None
-        source_available = False
-        try:
-            live = GraphQueryService().exact_evidence(case_id, erk)
-            event = live.get("event") or {}
-            source_available = True
-        except (GraphNotFoundError, GraphQueryError):
-            source_available = False
-        except Exception:
-            source_available = False
+        source_available = True
+        live = GraphQueryService().exact_evidence(case_id, erk)
+        event = live.get("event") or {}
         summary = self._validate_text("analyst_visible_summary", analyst_visible_summary, 2000)
         snapshot = build_evidence_snapshot(
             case_id=case_id,

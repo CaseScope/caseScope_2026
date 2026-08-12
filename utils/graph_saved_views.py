@@ -7,7 +7,7 @@ from __future__ import annotations
 
 import math
 import re
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any
 
 from models.audit_log import AuditAction, AuditEntityType, AuditLog
@@ -51,9 +51,10 @@ class GraphSavedViewError(ValueError):
 class GraphSavedViewConflictError(GraphSavedViewError):
     """Raised when optimistic concurrency detects a stale write."""
 
-    def __init__(self, message, *, current_version):
+    def __init__(self, message, *, current_version, details=None):
         super().__init__(message)
         self.current_version = current_version
+        self.details = details or {}
 
 
 class GraphSavedViewNotFoundError(GraphSavedViewError):
@@ -253,11 +254,6 @@ class GraphSavedViewService:
         case_id = _case_id(case_id)
         expected_version = _expected_version(expected_version)
         view = _get_view_or_404(case_id, view_uuid)
-        if view.version != expected_version:
-            raise GraphSavedViewConflictError(
-                "Saved graph view was modified by another user",
-                current_version=view.version,
-            )
 
         actor_info = _actor_info(actor)
         final_state = _view_dict(view, include_state=True)
@@ -273,11 +269,29 @@ class GraphSavedViewService:
             .all()
         )
         affected_thread_uuids = [thread.uuid for thread in affected_threads]
-        for thread in affected_threads:
-            thread.current_saved_view_id = None
-            thread.updated_at = datetime.utcnow()
+        if affected_thread_uuids:
+            raise GraphSavedViewConflictError(
+                "Saved graph view is currently referenced by investigation threads",
+                current_version=view.version,
+                details={"referencing_thread_uuids": affected_thread_uuids},
+            )
 
-        db.session.delete(view)
+        deleted = (
+            GraphSavedView.query.filter(
+                GraphSavedView.case_id == case_id,
+                GraphSavedView.uuid == str(view_uuid),
+                GraphSavedView.version == expected_version,
+            ).delete(synchronize_session=False)
+        )
+        if deleted != 1:
+            db.session.rollback()
+            latest = GraphSavedView.query.filter_by(case_id=case_id, uuid=str(view_uuid)).first()
+            if latest is None:
+                raise GraphSavedViewNotFoundError("Saved graph view not found")
+            raise GraphSavedViewConflictError(
+                "Saved graph view was modified by another user",
+                current_version=latest.version,
+            )
         db.session.flush()
         AuditLog.log(
             entity_type=AUDIT_ENTITY_TYPE,
@@ -291,14 +305,11 @@ class GraphSavedViewService:
                 "action": "deleted",
                 "case_id": case_id,
                 "final_state": final_state,
-                "cleared_current_saved_view_thread_count": len(affected_thread_uuids),
-                "cleared_current_saved_view_thread_uuids": affected_thread_uuids,
             },
         )
         return {
             "deleted": True,
             "view_uuid": str(view_uuid),
-            "cleared_current_saved_view_thread_count": len(affected_thread_uuids),
         }
 
     def restore_payload(self, case_id, view_uuid):
@@ -416,16 +427,7 @@ def _normalize_view_payload(case_id: int, payload: Any) -> dict[str, Any]:
         known_entity_refs=known_entity_refs,
     )
 
-    entity_refs_for_limits = _unique_refs(
-        [
-            *known_entity_refs,
-            *[
-                {"stable_reference_key": stable_key}
-                for stable_key in node_coordinates
-                if stable_key not in {ref["stable_reference_key"] for ref in known_entity_refs}
-            ],
-        ]
-    )
+    entity_refs_for_limits = _unique_refs([*known_entity_refs])
     relationship_refs_for_limits = _unique_refs(
         [
             *visible_relationship_refs,
@@ -607,11 +609,14 @@ def _coordinate_stable_key(case_id: int, raw_key: Any, known_keys: set[str]) -> 
         raise GraphSavedViewError("node coordinate key is required")
     if _is_int_like(key):
         entity = require_graph_entity(case_id, int(key))
-        return entity_reference_from_graph_entity(entity)["stable_reference_key"]
-    if _THREADREF_RE.fullmatch(key):
-        return key
+        stable_key = entity_reference_from_graph_entity(entity)["stable_reference_key"]
+        if stable_key not in known_keys:
+            raise GraphSavedViewError("node coordinate entity must also be present in saved entity references")
+        return stable_key
     if key in known_keys:
         return key
+    if _THREADREF_RE.fullmatch(key):
+        raise GraphSavedViewError("node coordinate stable keys must also be present in saved entity references")
     raise GraphSavedViewError("node coordinate keys must be entity IDs or stable reference keys")
 
 
@@ -642,14 +647,6 @@ def _live_resolution(case_id: int, state: dict[str, Any]) -> dict[str, Any]:
         )
         if not live_available:
             unresolved_relationships.append(ref)
-
-    for stable_key in (state.get("node_coordinates") or {}):
-        if stable_key in entity_resolution:
-            continue
-        entity_id = _resolve_entity_id_by_stable_key(case_id, stable_key)
-        entity_resolution[stable_key] = entity_id
-        if entity_id is None:
-            unresolved_entities.append({"stable_reference_key": stable_key})
 
     return {
         "live_resolution": {
@@ -748,25 +745,6 @@ def _case_uuid(case_id: int) -> str | None:
 
     case_uuid = db.session.query(Case.uuid).filter(Case.id == case_id).scalar()
     return str(case_uuid) if case_uuid else None
-
-
-def _resolve_entity_id_by_stable_key(case_id: int, stable_key: str) -> int | None:
-    if not _THREADREF_RE.fullmatch(str(stable_key or "")):
-        return None
-
-    from models.graph import GraphEntity
-
-    rows = (
-        GraphEntity.query.with_entities(GraphEntity.id, GraphEntity.entity_type, GraphEntity.entity_key)
-        .filter(GraphEntity.case_id == case_id)
-        .order_by(GraphEntity.id.asc())
-        .all()
-    )
-    for entity_id, entity_type, entity_key in rows:
-        ref = build_entity_reference(case_id=case_id, entity_type=entity_type, entity_key=entity_key)
-        if ref["stable_reference_key"] == stable_key:
-            return entity_id
-    return None
 
 
 def _actor_info(actor: Any) -> dict[str, Any]:
@@ -903,7 +881,9 @@ def _parse_datetime(value: Any, field_name: str) -> datetime | None:
         parsed = datetime.fromisoformat(raw)
     except ValueError as exc:
         raise GraphSavedViewError(f"{field_name} must be an ISO datetime string") from exc
-    return parsed.replace(tzinfo=None) if parsed.tzinfo else parsed
+    if parsed.tzinfo is not None:
+        return parsed.astimezone(timezone.utc).replace(tzinfo=None)
+    return parsed
 
 
 def _finite_number(value: Any, field_name: str) -> float:

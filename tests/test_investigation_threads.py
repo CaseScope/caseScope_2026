@@ -106,6 +106,50 @@ class InvestigationThreadsTestCase(Phase0DSQLiteTestCase):
         self.assertFalse(payload["evidence"][0]["live_source_available"])
         self.assertEqual(payload["evidence"][0]["snapshot_sha256"], snapshot_hash)
 
+    def test_nonexistent_valid_erk_cannot_be_attached_initially(self):
+        thread = self.create_thread()
+        erk = evidence_key("b")
+        with patch("utils.investigation_threads.GraphQueryService.exact_evidence", side_effect=GraphNotFoundError("Evidence not found")):
+            with self.assertRaises(GraphNotFoundError):
+                self.service.link_evidence(1, thread["uuid"], expected_version=1, evidence_record_key=erk, actor=self.actor)
+
+        self.assertEqual(InvestigationThreadEvidence.query.count(), 0)
+        self.assertEqual(InvestigationThread.query.filter_by(uuid=thread["uuid"]).one().version, 1)
+
+    def test_case_a_erk_cannot_be_attached_to_case_b_thread(self):
+        thread = self.service.create_thread(2, title="Case B", actor=self.actor)
+        erk = evidence_key("c")
+
+        def exact_evidence(case_id, key):
+            if case_id == 1 and key == erk:
+                return exact_evidence_payload(case_id, key)
+            raise GraphNotFoundError("Evidence not found")
+
+        with patch("utils.investigation_threads.GraphQueryService.exact_evidence", side_effect=exact_evidence):
+            with self.assertRaises(GraphNotFoundError):
+                self.service.link_evidence(2, thread["uuid"], expected_version=1, evidence_record_key=erk, actor=self.actor)
+
+        self.assertEqual(InvestigationThreadEvidence.query.filter_by(case_id=2).count(), 0)
+
+    def test_clickhouse_failure_during_evidence_attach_rolls_back_membership_and_version(self):
+        thread = self.create_thread()
+        with patch(
+            "utils.investigation_threads.GraphQueryService.exact_evidence",
+            side_effect=OperationalError("SELECT", {}, Exception("clickhouse unavailable")),
+        ):
+            with self.assertRaises(OperationalError):
+                self.service.link_evidence(
+                    1,
+                    thread["uuid"],
+                    expected_version=1,
+                    evidence_record_key=evidence_key("d"),
+                    actor=self.actor,
+                )
+
+        db.session.rollback()
+        self.assertEqual(InvestigationThreadEvidence.query.count(), 0)
+        self.assertEqual(InvestigationThread.query.filter_by(uuid=thread["uuid"]).one().version, 1)
+
     def test_optimistic_concurrency_update(self):
         thread = self.create_thread()
         updated = self.service.update_thread(1, thread["uuid"], expected_version=1, actor=self.actor, title="Updated")

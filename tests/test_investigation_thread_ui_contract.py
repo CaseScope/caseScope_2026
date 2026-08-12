@@ -28,6 +28,16 @@ class InvestigationThreadUIContractTestCase(unittest.TestCase):
         self.assertIn("Save View", graph)
         self.assertIn("Load View", graph)
 
+    def test_saved_view_restore_does_not_replay_neighborhood_expansion(self):
+        graph = self.templates["case_graph.html"]
+        start = graph.index("async function loadSelectedGraphView()")
+        end = graph.index("async function findPathToSelected()", start)
+        restore_source = graph[start:end]
+
+        self.assertNotIn("expandNode(", restore_source)
+        self.assertIn("fetchGraphEntity", restore_source)
+        self.assertIn("fetchGraphRelationship", restore_source)
+
     def test_thread_detail_has_snapshot_retained_text(self):
         self.assertIn("Snapshot retained", self.templates["case_investigation_thread_detail.html"])
 

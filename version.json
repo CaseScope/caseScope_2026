@@ -1,6 +1,16 @@
 {
-  "version": "4.15.0",
+  "version": "4.15.1",
   "changelog": [
+    {
+      "version": "4.15.1",
+      "date": "2026-08-12",
+      "changes": [
+        "Corrected Phase 0D evidence attachment to require exact case-scoped ERK proof before creating frozen Thread evidence snapshots",
+        "Corrected saved graph view restore/delete semantics: restore now uses only saved stable references, delete is expected-version atomic, and referenced views return conflict instead of silently mutating Threads",
+        "Added real unified AuditLog and audit-chain integration coverage for Investigation Threads and Saved Graph Views",
+        "Tightened saved-view coordinate validation to avoid opaque hash full-case scans and normalized aware saved-view times to UTC"
+      ]
+    },
     {
       "version": "4.15.0",
       "date": "2026-08-12",
