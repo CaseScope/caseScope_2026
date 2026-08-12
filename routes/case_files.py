@@ -1337,6 +1337,7 @@ def delete_case_file(file_id):
                     target.id,
                     e,
                 )
+                db.session.rollback()
                 for restore_id in pending_target_ids:
                     try:
                         lifecycle.restore_case_file_support_if_source_remains(

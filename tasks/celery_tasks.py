@@ -395,6 +395,7 @@ def _delete_standard_case_file_scope(
             logger.error(
                 f"Graph support pre-{lifecycle_mode} marking failed for CaseFile {record.id}: {exc}"
             )
+            db.session.rollback()
             for restore_id in pending_ids:
                 try:
                     lifecycle.restore_case_file_support_if_source_remains(

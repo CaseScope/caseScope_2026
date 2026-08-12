@@ -433,62 +433,67 @@ class GraphSupportLifecycleService:
         reason: str,
         evidence_record_keys: Optional[Iterable[str]],
     ) -> Dict[str, Any]:
-        relationship_ids: Set[int] = set()
-        updated = 0
-        ioc_updated = 0
+        try:
+            relationship_ids: Set[int] = set()
+            updated = 0
+            ioc_updated = 0
 
-        # Prefer direct source_ref matches.
-        direct = self._mark_source_pending(
-            case_id=case_id,
-            source_ref_type=GraphSourceRefType.CASE_FILE,
-            source_ref_id=case_file_id,
-            pending_state=pending_state,
-            reason=reason,
-            commit=False,
-        )
-        updated += direct['support_updated']
-        relationship_ids.update(direct['relationship_ids'])
-
-        ioc_updated += self._mark_ioc_matches_pending(
-            case_id=case_id,
-            source_ref_type=GraphSourceRefType.CASE_FILE,
-            source_ref_id=case_file_id,
-            pending_state=pending_state,
-            evidence_record_keys=[],
-            include_source_ref=True,
-        )
-
-        # Also bind by ERK batches collected BEFORE deletion for legacy rows
-        # lacking source_ref. Do not collect a whole CaseFile into memory.
-        for keys in _iter_clean_key_batches(evidence_record_keys, self.batch_size):
-            erk_summary = self._mark_erks_pending(
+            # Prefer direct source_ref matches.
+            direct = self._mark_source_pending(
                 case_id=case_id,
-                evidence_record_keys=keys,
-                pending_state=pending_state,
-                reason=reason,
                 source_ref_type=GraphSourceRefType.CASE_FILE,
                 source_ref_id=case_file_id,
+                pending_state=pending_state,
+                reason=reason,
+                commit=False,
             )
-            updated += erk_summary['support_updated']
-            relationship_ids.update(erk_summary['relationship_ids'])
+            updated += direct['support_updated']
+            relationship_ids.update(direct['relationship_ids'])
+
             ioc_updated += self._mark_ioc_matches_pending(
                 case_id=case_id,
                 source_ref_type=GraphSourceRefType.CASE_FILE,
                 source_ref_id=case_file_id,
                 pending_state=pending_state,
-                evidence_record_keys=keys,
-                include_source_ref=False,
+                evidence_record_keys=[],
+                include_source_ref=True,
             )
 
-        # Pending support must not count as authoritative.
-        revalidated = self.revalidate_relationships(case_id, relationship_ids)
-        return {
-            'support_updated': updated,
-            'relationships_touched': len(relationship_ids),
-            'relationship_ids': sorted(relationship_ids),
-            'ioc_matches_updated': ioc_updated,
-            'revalidation': revalidated,
-        }
+            # Also bind by ERK batches collected BEFORE deletion for legacy rows
+            # lacking source_ref. Do not collect a whole CaseFile into memory.
+            for keys in _iter_clean_key_batches(evidence_record_keys, self.batch_size):
+                erk_summary = self._mark_erks_pending(
+                    case_id=case_id,
+                    evidence_record_keys=keys,
+                    pending_state=pending_state,
+                    reason=reason,
+                    source_ref_type=GraphSourceRefType.CASE_FILE,
+                    source_ref_id=case_file_id,
+                )
+                updated += erk_summary['support_updated']
+                relationship_ids.update(erk_summary['relationship_ids'])
+                ioc_updated += self._mark_ioc_matches_pending(
+                    case_id=case_id,
+                    source_ref_type=GraphSourceRefType.CASE_FILE,
+                    source_ref_id=case_file_id,
+                    pending_state=pending_state,
+                    evidence_record_keys=keys,
+                    include_source_ref=False,
+                )
+
+            # Pending support must not count as authoritative.
+            revalidated = self.revalidate_relationships(case_id, relationship_ids, commit=False)
+            self.session.commit()
+            return {
+                'support_updated': updated,
+                'relationships_touched': len(relationship_ids),
+                'relationship_ids': sorted(relationship_ids),
+                'ioc_matches_updated': ioc_updated,
+                'revalidation': revalidated,
+            }
+        except Exception:
+            self.session.rollback()
+            raise
 
     def _mark_source_pending(
         self,
@@ -544,15 +549,15 @@ class GraphSupportLifecycleService:
                 GraphRelationshipEvidence.case_id == case_id,
                 GraphRelationshipEvidence.evidence_record_key.in_(chunk),
                 GraphRelationshipEvidence.support_state == GraphSupportState.ACTIVE,
+                GraphRelationshipEvidence.source_ref_type.is_(None),
+                GraphRelationshipEvidence.source_ref_id.is_(None),
             ).all()
             for row in rows:
                 row.support_state = pending_state
                 row.support_state_reason = reason
                 row.support_state_changed_at = now
-                # Backfill source locator when discovered via ERK set.
-                if not row.source_ref_type:
-                    row.source_ref_type = source_ref_type
-                    row.source_ref_id = int(source_ref_id)
+                row.source_ref_type = source_ref_type
+                row.source_ref_id = int(source_ref_id)
                 relationship_ids.add(row.relationship_id)
                 updated += 1
             self.session.flush()
@@ -621,7 +626,12 @@ class GraphSupportLifecycleService:
             )
         keys = [k for k in evidence_record_keys if k]
         if keys:
-            clauses.append(IOCEvidenceMatch.evidence_record_key.in_(keys))
+            fallback_clause = and_(
+                IOCEvidenceMatch.evidence_record_key.in_(keys),
+                IOCEvidenceMatch.source_ref_type.is_(None),
+                IOCEvidenceMatch.source_ref_id.is_(None),
+            )
+            clauses.append(fallback_clause)
         if not clauses:
             return 0
         q = IOCEvidenceMatch.query.filter(

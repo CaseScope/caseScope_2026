@@ -11,7 +11,7 @@ ACTIVE after their supporting evidence is removed.
 --------------------
 Version: 4.15.1
 Commit:  7740eaea31c24a8006d6ac7b9a0326dd670d9ea7
-Release: 4.16.3 corrective pass over 4.16.0/4.16.1/4.16.2
+Release: 4.16.4 corrective pass over 4.16.0/4.16.1/4.16.2/4.16.3
 
 Phases 0A–0D remain ACCEPTED / LOCKED.
 
@@ -143,6 +143,12 @@ CaseFile ERK fallback support is processed in batches. Source-ref-less
 IOCEvidenceMatch rows discovered through the exact CaseFile ERK set are
 backfilled with CASE_FILE + case_file_id before becoming pending, so later
 restore/finalize operations are symmetric.
+As of 4.16.4, one CaseFile preparation is failure-atomic: direct source-ref
+support, exact IOC matches, batched ERK fallback, and relationship revalidation
+commit only after the whole preparation succeeds. Failed preparation rolls back
+before any destructive caller restores previously prepared files. ERK fallback
+only claims genuinely unbound legacy graph/IOC support and does not transition
+support already owned by another CaseFile, PCAP, memory job, or native source.
 
 19. Failure / recovery
 ----------------------

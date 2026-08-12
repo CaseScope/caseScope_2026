@@ -1,6 +1,15 @@
 {
-  "version": "4.16.3",
+  "version": "4.16.4",
   "changelog": [
+    {
+      "version": "4.16.4",
+      "date": "2026-08-12",
+      "changes": [
+        "Made CaseFile graph support preparation failure-atomic across direct source-ref updates, IOC updates, ERK batches, and relationship revalidation",
+        "Restricted CaseFile ERK fallback to genuinely unbound legacy graph and IOC support so evidence owned by another source is not transitioned",
+        "Added executable multi-batch lifecycle tests for rollback, cross-source protection, and legacy fallback behavior"
+      ]
+    },
     {
       "version": "4.16.3",
       "date": "2026-08-12",

@@ -108,6 +108,56 @@ class GraphSupportLifecycleTestCase(unittest.TestCase):
         db.session.add_all([self.support_a, self.support_b])
         db.session.commit()
 
+    def _add_graph_support(
+        self,
+        evidence_record_key,
+        *,
+        case_file_id=None,
+        support_state=GraphSupportState.ACTIVE,
+    ):
+        support = GraphRelationshipEvidence(
+            case_id=self.case.id,
+            relationship_id=self.rel.id,
+            evidence_record_key=evidence_record_key,
+            source_table='events',
+            evidence_role='supporting_record',
+            extractor_name='test',
+            extractor_version='1',
+            support_state=support_state,
+            source_ref_type=GraphSourceRefType.CASE_FILE if case_file_id is not None else None,
+            source_ref_id=case_file_id,
+            metadata_json={},
+        )
+        db.session.add(support)
+        db.session.commit()
+        return support
+
+    def _add_ioc_match(
+        self,
+        evidence_record_key,
+        *,
+        case_file_id=None,
+        support_state=GraphSupportState.ACTIVE,
+        ioc_uuid='44444444-4444-4444-4444-444444444444',
+    ):
+        match = IOCEvidenceMatch(
+            case_id=self.case.id,
+            ioc_id=1,
+            ioc_uuid=ioc_uuid,
+            ioc_type='Domain',
+            matched_value='example.test',
+            matched_field='search_blob',
+            evidence_record_key=evidence_record_key,
+            source_table='events',
+            source_ref_type=GraphSourceRefType.CASE_FILE if case_file_id is not None else None,
+            source_ref_id=case_file_id,
+            support_state=support_state,
+            metadata_json={},
+        )
+        db.session.add(match)
+        db.session.commit()
+        return match
+
     def tearDown(self):
         db.session.remove()
         db.drop_all()
@@ -192,6 +242,49 @@ class GraphSupportLifecycleTestCase(unittest.TestCase):
         self.assertEqual(restored['ioc_matches_restored'], 1)
         self.assertEqual(match.support_state, GraphSupportState.ACTIVE)
 
+    def test_graph_erk_fallback_does_not_claim_other_case_file_support(self):
+        owned_by_other = self._add_graph_support(erk('c'), case_file_id=202)
+
+        self.service.begin_case_file_removal(
+            case_id=self.case.id,
+            case_file_id=101,
+            evidence_record_keys=[erk('c')],
+        )
+        db.session.refresh(owned_by_other)
+        self.assertEqual(owned_by_other.support_state, GraphSupportState.ACTIVE)
+        self.assertEqual(owned_by_other.source_ref_type, GraphSourceRefType.CASE_FILE)
+        self.assertEqual(owned_by_other.source_ref_id, 202)
+
+    def test_ioc_erk_fallback_does_not_claim_other_case_file_support(self):
+        owned_by_other = self._add_ioc_match(
+            erk('c'),
+            case_file_id=202,
+            ioc_uuid='55555555-5555-5555-5555-555555555555',
+        )
+
+        self.service.begin_case_file_removal(
+            case_id=self.case.id,
+            case_file_id=101,
+            evidence_record_keys=[erk('c')],
+        )
+        db.session.refresh(owned_by_other)
+        self.assertEqual(owned_by_other.support_state, GraphSupportState.ACTIVE)
+        self.assertEqual(owned_by_other.source_ref_type, GraphSourceRefType.CASE_FILE)
+        self.assertEqual(owned_by_other.source_ref_id, 202)
+
+    def test_legacy_graph_erk_fallback_backfills_source_and_marks_pending(self):
+        legacy = self._add_graph_support(erk('c'), case_file_id=None)
+
+        self.service.begin_case_file_removal(
+            case_id=self.case.id,
+            case_file_id=303,
+            evidence_record_keys=[erk('c')],
+        )
+        db.session.refresh(legacy)
+        self.assertEqual(legacy.support_state, GraphSupportState.PENDING_REMOVAL)
+        self.assertEqual(legacy.source_ref_type, GraphSourceRefType.CASE_FILE)
+        self.assertEqual(legacy.source_ref_id, 303)
+
     def test_erk_fallback_ioc_match_backfills_source_and_restores(self):
         match = IOCEvidenceMatch(
             case_id=self.case.id,
@@ -255,6 +348,155 @@ class GraphSupportLifecycleTestCase(unittest.TestCase):
         self.assertEqual(match.source_ref_type, GraphSourceRefType.CASE_FILE)
         self.assertEqual(match.source_ref_id, 101)
         self.assertEqual(match.support_state, GraphSupportState.UNAVAILABLE)
+
+    def test_case_file_begin_failure_rolls_back_partial_batched_removal(self):
+        self.service.batch_size = 1
+        legacy_supports = [
+            self._add_graph_support(erk(char), case_file_id=None)
+            for char in ('c', 'd', 'e')
+        ]
+        legacy_matches = [
+            self._add_ioc_match(
+                erk(char),
+                case_file_id=None,
+                ioc_uuid=f'66666666-6666-6666-6666-66666666666{idx}',
+            )
+            for idx, char in enumerate(('c', 'd', 'e'))
+        ]
+
+        self.service.begin_case_file_removal(case_id=self.case.id, case_file_id=101)
+        db.session.refresh(self.support_a)
+        self.assertEqual(self.support_a.support_state, GraphSupportState.PENDING_REMOVAL)
+
+        def failing_keys():
+            for char in ('c', 'd', 'e'):
+                yield erk(char)
+            raise RuntimeError('second case ERK stream failed')
+
+        with self.assertRaisesRegex(RuntimeError, 'second case ERK stream failed'):
+            self.service.begin_case_file_removal(
+                case_id=self.case.id,
+                case_file_id=202,
+                evidence_record_keys=failing_keys(),
+            )
+
+        db.session.expire_all()
+        self.assertEqual(
+            GraphRelationshipEvidence.query.filter_by(
+                case_id=self.case.id,
+                source_ref_id=202,
+                support_state=GraphSupportState.PENDING_REMOVAL,
+            ).count(),
+            0,
+        )
+        self.assertEqual(
+            IOCEvidenceMatch.query.filter_by(
+                case_id=self.case.id,
+                source_ref_id=202,
+                support_state=GraphSupportState.PENDING_REMOVAL,
+            ).count(),
+            0,
+        )
+        self.assertEqual(GraphRelationshipEvidence.query.get(self.support_b.id).support_state, GraphSupportState.ACTIVE)
+        for support in legacy_supports:
+            current = GraphRelationshipEvidence.query.get(support.id)
+            self.assertEqual(current.support_state, GraphSupportState.ACTIVE)
+            self.assertIsNone(current.source_ref_type)
+            self.assertIsNone(current.source_ref_id)
+        for match in legacy_matches:
+            current = IOCEvidenceMatch.query.get(match.id)
+            self.assertEqual(current.support_state, GraphSupportState.ACTIVE)
+            self.assertIsNone(current.source_ref_type)
+            self.assertIsNone(current.source_ref_id)
+
+        self.service.restore_case_file_support_if_source_remains(
+            case_id=self.case.id,
+            case_file_id=101,
+        )
+        db.session.expire_all()
+        self.assertEqual(GraphRelationshipEvidence.query.get(self.support_a.id).support_state, GraphSupportState.ACTIVE)
+        self.assertEqual(GraphRelationshipEvidence.query.get(self.support_b.id).support_state, GraphSupportState.ACTIVE)
+        for support in legacy_supports:
+            self.assertEqual(GraphRelationshipEvidence.query.get(support.id).support_state, GraphSupportState.ACTIVE)
+
+    def test_case_file_begin_failure_rolls_back_partial_batched_revalidation(self):
+        self.service.batch_size = 1
+        legacy_supports = [
+            self._add_graph_support(erk(char), case_file_id=None)
+            for char in ('f', 'g', 'h')
+        ]
+        legacy_matches = [
+            self._add_ioc_match(
+                erk(char),
+                case_file_id=None,
+                ioc_uuid=f'77777777-7777-7777-7777-77777777777{idx}',
+            )
+            for idx, char in enumerate(('f', 'g', 'h'))
+        ]
+
+        self.service.begin_case_file_revalidation(case_id=self.case.id, case_file_id=101)
+
+        def failing_keys():
+            for char in ('f', 'g', 'h'):
+                yield erk(char)
+            raise RuntimeError('revalidation ERK stream failed')
+
+        with self.assertRaisesRegex(RuntimeError, 'revalidation ERK stream failed'):
+            self.service.begin_case_file_revalidation(
+                case_id=self.case.id,
+                case_file_id=202,
+                evidence_record_keys=failing_keys(),
+            )
+
+        db.session.expire_all()
+        self.assertEqual(GraphRelationshipEvidence.query.get(self.support_b.id).support_state, GraphSupportState.ACTIVE)
+        for support in legacy_supports:
+            current = GraphRelationshipEvidence.query.get(support.id)
+            self.assertEqual(current.support_state, GraphSupportState.ACTIVE)
+            self.assertIsNone(current.source_ref_type)
+        for match in legacy_matches:
+            current = IOCEvidenceMatch.query.get(match.id)
+            self.assertEqual(current.support_state, GraphSupportState.ACTIVE)
+            self.assertIsNone(current.source_ref_type)
+
+        self.service.restore_case_file_support_if_source_remains(
+            case_id=self.case.id,
+            case_file_id=101,
+        )
+        db.session.expire_all()
+        self.assertEqual(GraphRelationshipEvidence.query.get(self.support_a.id).support_state, GraphSupportState.ACTIVE)
+
+    def test_case_file_erk_batches_cover_all_legacy_support_once(self):
+        self.service.batch_size = 1
+        supports = [
+            self._add_graph_support(erk(char), case_file_id=None)
+            for char in ('i', 'j', 'k')
+        ]
+        matches = [
+            self._add_ioc_match(
+                erk(char),
+                case_file_id=None,
+                ioc_uuid=f'88888888-8888-8888-8888-88888888888{idx}',
+            )
+            for idx, char in enumerate(('i', 'j', 'k'))
+        ]
+
+        result = self.service.begin_case_file_removal(
+            case_id=self.case.id,
+            case_file_id=303,
+            evidence_record_keys=[erk('i'), erk('j'), erk('k')],
+        )
+
+        self.assertEqual(result['support_updated'], 3)
+        self.assertEqual(result['ioc_matches_updated'], 3)
+        for support in supports:
+            current = GraphRelationshipEvidence.query.get(support.id)
+            self.assertEqual(current.support_state, GraphSupportState.PENDING_REMOVAL)
+            self.assertEqual(current.source_ref_id, 303)
+        for match in matches:
+            current = IOCEvidenceMatch.query.get(match.id)
+            self.assertEqual(current.support_state, GraphSupportState.PENDING_REMOVAL)
+            self.assertEqual(current.source_ref_id, 303)
 
     def test_legacy_dns_extractor_support_invalidated_and_relationship_revalidated(self):
         dns_rel = GraphRelationship(

@@ -71,24 +71,30 @@ def _graph_lifecycle_stub(lifecycle=None):
 
 
 class _TrackingGraphSupportLifecycle(_NoopGraphSupportLifecycle):
-    def __init__(self, *, fail_begin=False):
+    def __init__(self, *, fail_begin=False, fail_begin_ids=None):
         self.fail_begin = fail_begin
+        self.fail_begin_ids = set(fail_begin_ids or [])
         self.begun = []
         self.finalized = []
         self.restored = []
+        self.events = []
 
     def begin_case_file_removal(self, **kwargs):
-        if self.fail_begin:
+        file_id = kwargs['case_file_id']
+        if self.fail_begin or file_id in self.fail_begin_ids:
             raise RuntimeError('prep failed')
-        self.begun.append(kwargs['case_file_id'])
+        self.begun.append(file_id)
+        self.events.append(('begin', file_id))
         return {}
 
     def finalize_case_file_removal(self, **kwargs):
         self.finalized.append(kwargs['case_file_id'])
+        self.events.append(('finalize', kwargs['case_file_id']))
         return {}
 
     def restore_case_file_support_if_source_remains(self, **kwargs):
         self.restored.append(kwargs['case_file_id'])
+        self.events.append(('restore', kwargs['case_file_id']))
         return {}
 
     def begin_pcap_revalidation(self, **kwargs):
@@ -936,6 +942,53 @@ class CaseFileDeleteFailureContractTestCase(unittest.TestCase):
         self.assertFalse(response.get_json()['success'])
         delete_events_mock.assert_not_called()
 
+    def test_delete_case_file_rolls_back_failed_prepare_before_restoring_prior_target(self):
+        case = types.SimpleNamespace(id=14, uuid='case-uuid')
+        child = types.SimpleNamespace(
+            id=10,
+            case_uuid='case-uuid',
+            filename='child.evtx',
+            file_path=None,
+            sha256_hash='def',
+            file_size=456,
+        )
+        case_file = types.SimpleNamespace(
+            id=9,
+            case_uuid='case-uuid',
+            filename='artifact.evtx',
+            file_path=None,
+            sha256_hash='abc',
+            file_size=123,
+        )
+        query_mock = Mock()
+        query_mock.get.return_value = case_file
+        query_mock.filter_by.return_value.all.return_value = [child]
+        lifecycle = _TrackingGraphSupportLifecycle(fail_begin_ids={10})
+
+        with self.app.test_request_context('/api/files/delete/9', method='POST'):
+            with patch.object(case_files_routes, 'current_user', types.SimpleNamespace(permission_level='administrator', username='admin')):
+                with patch.object(case_files_routes.CaseFile, 'query', query_mock):
+                    with patch.object(case_files_routes.Case, 'get_by_uuid', return_value=case):
+                        with _graph_lifecycle_stub(lifecycle):
+                            with patch('utils.clickhouse.count_file_events', return_value=11):
+                                with patch('utils.clickhouse.delete_file_events') as delete_events_mock:
+                                    with patch.object(
+                                        case_files_routes.db.session,
+                                        'rollback',
+                                        side_effect=lambda: lifecycle.events.append(('rollback', None)),
+                                    ) as rollback_mock:
+                                        response, status_code = case_files_routes.delete_case_file.__wrapped__(9)
+
+        self.assertEqual(status_code, 500)
+        self.assertFalse(response.get_json()['success'])
+        delete_events_mock.assert_not_called()
+        rollback_mock.assert_called_once()
+        self.assertEqual(lifecycle.restored, [9])
+        self.assertLess(
+            lifecycle.events.index(('rollback', None)),
+            lifecycle.events.index(('restore', 9)),
+        )
+
     def test_delete_case_file_partial_failure_does_not_restore_deleted_source(self):
         case = types.SimpleNamespace(id=14, uuid='case-uuid')
         child = types.SimpleNamespace(
@@ -1019,6 +1072,33 @@ class CaseFileDeleteFailureContractTestCase(unittest.TestCase):
 
         delete_mock.assert_not_called()
         commit_mock.assert_not_called()
+
+    def test_delete_standard_case_file_scope_rolls_back_failed_prepare_before_restore(self):
+        if TASK_IMPORT_ERROR is not None:
+            self.skipTest(f'task module dependencies unavailable: {TASK_IMPORT_ERROR}')
+
+        lifecycle = _TrackingGraphSupportLifecycle(fail_begin_ids={10})
+        records = [
+            types.SimpleNamespace(id=9, events_indexed=1),
+            types.SimpleNamespace(id=10, events_indexed=1),
+        ]
+
+        with _graph_lifecycle_stub(lifecycle):
+            with patch('utils.clickhouse.delete_file_events') as delete_events_mock:
+                with patch(
+                    'models.database.db.session.rollback',
+                    side_effect=lambda: lifecycle.events.append(('rollback', None)),
+                ) as rollback_mock:
+                    with self.assertRaisesRegex(RuntimeError, 'Graph support pre-removal marking failed'):
+                        celery_tasks._delete_standard_case_file_scope('case-uuid', 7, records)
+
+        delete_events_mock.assert_not_called()
+        rollback_mock.assert_called_once()
+        self.assertEqual(lifecycle.restored, [9])
+        self.assertLess(
+            lifecycle.events.index(('rollback', None)),
+            lifecycle.events.index(('restore', 9)),
+        )
 
     def test_remove_duplicate_events_requires_force_for_large_artifacts(self):
         case = types.SimpleNamespace(id=14, uuid='case-uuid')
