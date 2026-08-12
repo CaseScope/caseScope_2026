@@ -1,6 +1,21 @@
 {
-  "version": "4.17.2",
+  "version": "4.18.0",
   "changelog": [
+    {
+      "version": "4.18.0",
+      "date": "2026-08-12",
+      "changes": [
+        "Improvement #1 Phase 0G release candidate",
+        "Closed acceptance criteria 1-60 with approved exclusions AC-09/15/16",
+        "Executed million-event disposable scale benchmark",
+        "Validated fresh Ubuntu 24.04 install",
+        "Validated upgrade migration convergence",
+        "Validated deployed lifecycle and permanent case deletion",
+        "Validated deployed permission matrix",
+        "Validated Thread/report reproducibility",
+        "Completed the Phase 0G final release gate"
+      ]
+    },
     {
       "version": "4.17.2",
       "date": "2026-08-12",

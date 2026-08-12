@@ -1,0 +1,1660 @@
+{
+  "status": "READY FOR EXTERNAL REVIEW",
+  "tested_sha": "e060aa0ff133f8aa8f895f4b7c873345842ed06b",
+  "generated_at": "2026-08-12T22:21:23.327993+00:00",
+  "target_environment": {
+    "postgres_host": "unix-socket /var/run/postgresql",
+    "clickhouse_host": "localhost",
+    "storage_root": "/tmp/casescope-phase0g-storage",
+    "disposable_prefix": "phase0g_",
+    "lxc_container": "phase0g-fresh-20260812T204355Z"
+  },
+  "scale": {
+    "status": "PASS",
+    "clickhouse_event_rows": 1000000,
+    "distinct_logical_erks": 999901,
+    "graph_relationships": 25000,
+    "high_degree_entity": {
+      "id": 3301,
+      "target_degree": 2200,
+      "type": "IP_ADDRESS",
+      "value": "10.50.0.0"
+    },
+    "hosts": 100,
+    "physical_duplicate_rows": 99,
+    "postgresql_graph_entities": 10000,
+    "process_creation_events": 400000,
+    "relationship_support_rows": 27500,
+    "users": 200,
+    "cases": {
+      "control": {
+        "id": 2,
+        "uuid": "e3eb763f-f02c-427b-b5e7-a1c822e47811"
+      },
+      "primary": {
+        "id": 1,
+        "uuid": "2abb5a5e-18fc-4841-a3c8-332f4d97d34c"
+      }
+    },
+    "marker": "PHASE0G_20260812T214711Z_scale"
+  },
+  "benchmark_results": [
+    {
+      "operation": "exact_case_erk_lookup",
+      "duration_seconds": 0.035,
+      "returned_rows": 2,
+      "hard_limit": 2,
+      "truncated": false,
+      "paging_state": {
+        "has_more": null
+      },
+      "success": true,
+      "peak_process_rss_mb": 394.25
+    },
+    {
+      "operation": "entity_search_real_term",
+      "duration_seconds": 0.0182,
+      "returned_rows": 11,
+      "hard_limit": 50,
+      "truncated": false,
+      "paging_state": {
+        "has_more": false
+      },
+      "success": true,
+      "peak_process_rss_mb": 394.25
+    },
+    {
+      "operation": "empty_graph_search",
+      "duration_seconds": 0.0,
+      "returned_rows": 0,
+      "hard_limit": 50,
+      "truncated": false,
+      "paging_state": {
+        "has_more": false
+      },
+      "success": true,
+      "peak_process_rss_mb": 394.25
+    },
+    {
+      "operation": "high_degree_one_hop",
+      "duration_seconds": 0.0124,
+      "returned_rows": 200,
+      "hard_limit": 200,
+      "truncated": true,
+      "paging_state": {
+        "has_more": true,
+        "limit": 200,
+        "next_cursor": "200"
+      },
+      "success": true,
+      "peak_process_rss_mb": 394.25
+    },
+    {
+      "operation": "relationship_support_page",
+      "duration_seconds": 0.0037,
+      "returned_rows": 2,
+      "hard_limit": 200,
+      "truncated": false,
+      "paging_state": {
+        "has_more": false,
+        "limit": 200,
+        "next_cursor": null,
+        "offset": 0
+      },
+      "success": true,
+      "peak_process_rss_mb": 394.25
+    },
+    {
+      "operation": "bounded_path_search",
+      "duration_seconds": 0.0102,
+      "returned_rows": 1,
+      "hard_limit": 10,
+      "truncated": true,
+      "paging_state": {
+        "has_more": null
+      },
+      "success": true,
+      "peak_process_rss_mb": 394.25
+    },
+    {
+      "operation": "cyclic_path_search",
+      "duration_seconds": 0.0063,
+      "returned_rows": 5,
+      "hard_limit": 10,
+      "truncated": true,
+      "paging_state": {
+        "has_more": null
+      },
+      "success": true,
+      "peak_process_rss_mb": 394.25
+    },
+    {
+      "operation": "relationship_type_filtered_path",
+      "duration_seconds": 0.0096,
+      "returned_rows": 1,
+      "hard_limit": 10,
+      "truncated": true,
+      "paging_state": {
+        "has_more": null
+      },
+      "success": true,
+      "peak_process_rss_mb": 394.25
+    },
+    {
+      "operation": "derivation_type_filtered_path",
+      "duration_seconds": 0.0089,
+      "returned_rows": 1,
+      "hard_limit": 10,
+      "truncated": true,
+      "paging_state": {
+        "has_more": null
+      },
+      "success": true,
+      "peak_process_rss_mb": 394.25
+    },
+    {
+      "operation": "time_filtered_path",
+      "duration_seconds": 0.0178,
+      "returned_rows": 1,
+      "hard_limit": 10,
+      "truncated": true,
+      "paging_state": {
+        "has_more": null
+      },
+      "success": true,
+      "peak_process_rss_mb": 394.25
+    },
+    {
+      "operation": "context_relative_1s",
+      "duration_seconds": 0.0537,
+      "returned_rows": 1,
+      "hard_limit": 500,
+      "truncated": false,
+      "paging_state": {
+        "has_more": null
+      },
+      "success": true,
+      "peak_process_rss_mb": 394.25
+    },
+    {
+      "operation": "context_relative_30s",
+      "duration_seconds": 0.0464,
+      "returned_rows": 2,
+      "hard_limit": 500,
+      "truncated": false,
+      "paging_state": {
+        "has_more": null
+      },
+      "success": true,
+      "peak_process_rss_mb": 394.25
+    },
+    {
+      "operation": "context_relative_5m",
+      "duration_seconds": 0.0485,
+      "returned_rows": 13,
+      "hard_limit": 500,
+      "truncated": false,
+      "paging_state": {
+        "has_more": null
+      },
+      "success": true,
+      "peak_process_rss_mb": 394.25
+    },
+    {
+      "operation": "context_relative_1h",
+      "duration_seconds": 0.062,
+      "returned_rows": 100,
+      "hard_limit": 500,
+      "truncated": true,
+      "paging_state": {
+        "has_more": null
+      },
+      "success": true,
+      "peak_process_rss_mb": 394.25
+    },
+    {
+      "operation": "context_same_host",
+      "duration_seconds": 0.05,
+      "returned_rows": 2,
+      "hard_limit": 500,
+      "truncated": false,
+      "paging_state": {
+        "has_more": null
+      },
+      "success": true,
+      "peak_process_rss_mb": 394.25
+    },
+    {
+      "operation": "context_same_user",
+      "duration_seconds": 0.0468,
+      "returned_rows": 1,
+      "hard_limit": 500,
+      "truncated": false,
+      "paging_state": {
+        "has_more": null
+      },
+      "success": true,
+      "peak_process_rss_mb": 394.25
+    },
+    {
+      "operation": "context_process_lifetime",
+      "duration_seconds": 0.087,
+      "returned_rows": 2,
+      "hard_limit": 500,
+      "truncated": false,
+      "paging_state": {
+        "has_more": null
+      },
+      "success": true,
+      "peak_process_rss_mb": 394.25
+    },
+    {
+      "operation": "context_logon_session",
+      "duration_seconds": 0.0484,
+      "returned_rows": 1,
+      "hard_limit": 500,
+      "truncated": false,
+      "paging_state": {
+        "has_more": null
+      },
+      "success": true,
+      "peak_process_rss_mb": 394.25
+    },
+    {
+      "operation": "context_explicit_all_host",
+      "duration_seconds": 0.0539,
+      "returned_rows": 100,
+      "hard_limit": 500,
+      "truncated": true,
+      "paging_state": {
+        "has_more": null
+      },
+      "success": true,
+      "peak_process_rss_mb": 394.25
+    },
+    {
+      "operation": "neighborhood_pagination_page_1",
+      "duration_seconds": 0.0151,
+      "returned_rows": 200,
+      "hard_limit": 200,
+      "truncated": true,
+      "paging_state": {
+        "has_more": true,
+        "limit": 200,
+        "next_cursor": "200"
+      },
+      "success": true,
+      "peak_process_rss_mb": 394.25
+    },
+    {
+      "operation": "neighborhood_pagination_page_2",
+      "duration_seconds": 0.0122,
+      "returned_rows": 200,
+      "hard_limit": 200,
+      "truncated": true,
+      "paging_state": {
+        "has_more": true,
+        "limit": 200,
+        "next_cursor": "400"
+      },
+      "success": true,
+      "peak_process_rss_mb": 394.25
+    },
+    {
+      "operation": "neighborhood_pagination_page_3",
+      "duration_seconds": 0.0115,
+      "returned_rows": 200,
+      "hard_limit": 200,
+      "truncated": true,
+      "paging_state": {
+        "has_more": true,
+        "limit": 200,
+        "next_cursor": "600"
+      },
+      "success": true,
+      "peak_process_rss_mb": 394.25
+    },
+    {
+      "operation": "neighborhood_pagination_correctness",
+      "duration_seconds": 0.0,
+      "returned_rows": 600,
+      "hard_limit": 200,
+      "truncated": true,
+      "paging_state": {
+        "pages": 3,
+        "unique_ids": 600
+      },
+      "success": true,
+      "peak_process_rss_mb": 394.25
+    },
+    {
+      "operation": "thread_create",
+      "duration_seconds": 0.0412,
+      "returned_rows": 0,
+      "hard_limit": null,
+      "truncated": false,
+      "paging_state": {
+        "has_more": null
+      },
+      "success": true,
+      "peak_process_rss_mb": 394.25
+    },
+    {
+      "operation": "saved_view_create",
+      "duration_seconds": 0.0249,
+      "returned_rows": 0,
+      "hard_limit": null,
+      "truncated": false,
+      "paging_state": {
+        "has_more": null
+      },
+      "success": true,
+      "peak_process_rss_mb": 394.25
+    },
+    {
+      "operation": "saved_view_load",
+      "duration_seconds": 0.0044,
+      "returned_rows": 0,
+      "hard_limit": null,
+      "truncated": false,
+      "paging_state": {
+        "has_more": null
+      },
+      "success": true,
+      "peak_process_rss_mb": 394.25
+    },
+    {
+      "operation": "immutable_report_snapshot",
+      "duration_seconds": 0.5508,
+      "returned_rows": 0,
+      "hard_limit": null,
+      "truncated": false,
+      "paging_state": {
+        "has_more": null
+      },
+      "success": true,
+      "peak_process_rss_mb": 394.25
+    },
+    {
+      "operation": "deterministic_non_ai_docx",
+      "duration_seconds": 0.073,
+      "returned_rows": 1,
+      "hard_limit": null,
+      "truncated": false,
+      "paging_state": {
+        "has_more": null
+      },
+      "success": true,
+      "peak_process_rss_mb": 394.25
+    }
+  ],
+  "query_plans": {
+    "status": "PASS",
+    "postgresql": {
+      "entity_search": [
+        "Limit  (cost=0.00..409.02 rows=1 width=161) (actual time=0.012..4.994 rows=11 loops=1)",
+        "  ->  Seq Scan on graph_entities  (cost=0.00..409.02 rows=1 width=161) (actual time=0.011..4.991 rows=11 loops=1)",
+        "        Filter: ((case_id = 1) AND (lower((display_value)::text) ~~ '%host-001%'::text))"
+      ],
+      "high_degree_neighborhood": [
+        "Limit  (cost=27.45..27.46 rows=5 width=182) (actual time=0.029..0.030 rows=4 loops=1)",
+        "  ->  Sort  (cost=27.45..27.46 rows=5 width=182) (actual time=0.028..0.029 rows=4 loops=1)",
+        "        Sort Key: id"
+      ],
+      "path_expansion": [
+        "Limit  (cost=8.61..27.40 rows=5 width=182) (actual time=0.010..0.015 rows=4 loops=1)",
+        "  ->  Bitmap Heap Scan on graph_relationships  (cost=8.61..27.40 rows=5 width=182) (actual time=0.010..0.014 rows=4 loops=1)",
+        "        Recheck Cond: ((source_entity_id = 1) OR (target_entity_id = 1))"
+      ],
+      "relationship_support": [
+        "Limit  (cost=8.34..8.34 rows=2 width=822) (actual time=0.011..0.012 rows=2 loops=1)",
+        "  ->  Sort  (cost=8.34..8.34 rows=2 width=822) (actual time=0.011..0.011 rows=2 loops=1)",
+        "        Sort Key: id"
+      ],
+      "saved_view_lookup": [
+        "Limit  (cost=0.14..8.16 rows=1 width=1852) (actual time=0.005..0.006 rows=2 loops=1)",
+        "  ->  Index Scan Backward using idx_graph_saved_view_case_updated on graph_saved_views  (cost=0.14..8.16 rows=1 width=1852) (actual time=0.004..0.005 rows=2 loops=1)",
+        "        Index Cond: (case_id = 1)"
+      ],
+      "support_time_filtering": [
+        "Limit  (cost=0.00..88.67 rows=201 width=822) (actual time=0.005..0.078 rows=201 loops=1)",
+        "  ->  Seq Scan on graph_relationship_evidence  (cost=0.00..1746.00 rows=3958 width=822) (actual time=0.004..0.065 rows=201 loops=1)",
+        "        Filter: ((observed_at >= '2026-01-01 00:00:00'::timestamp without time zone) AND (observed_at < '2026-01-01 01:00:00'::timestamp without time zone) AND (case_id = 1) AND ((support_state)::text = 'ACTIVE'::text))"
+      ],
+      "thread_stable_ref_resolution": [
+        "Limit  (cost=0.29..8.31 rows=1 width=161) (actual time=0.013..0.014 rows=1 loops=1)",
+        "  ->  Index Scan using idx_graph_entity_case_key on graph_entities  (cost=0.29..8.31 rows=1 width=161) (actual time=0.013..0.014 rows=1 loops=1)",
+        "        Index Cond: ((case_id = 1) AND ((entity_key)::text = 'host:001'::text))"
+      ]
+    },
+    "clickhouse": {
+      "bounded_timestamp_context": [
+        "\u2514\u2500\u2500ReadFromMergeTree (phase0g_runtime.events)",
+        "      Prewhere filter",
+        "      Prewhere filter column:  case_id = 1 AND timestamp_utc <= '2026-01-01 00:05:00.000' AND timestamp_utc >= '2026-01-01 00:00:00.000'",
+        "      Indexes:"
+      ],
+      "exact_case_erk": [
+        "\u2514\u2500\u2500ReadFromMergeTree (phase0g_runtime.events)",
+        "      Prewhere filter",
+        "      Prewhere filter column:  case_id = 1 AND evidence_record_key = 'erk:v2:d3c4dbd285410bd39205536a1b75f83477a2c8d13903447b78b03405f618ee66'",
+        "      Indexes:"
+      ],
+      "logon_session_context": [
+        "\u2514\u2500\u2500ReadFromMergeTree (phase0g_runtime.events)",
+        "      Prewhere filter",
+        "      Prewhere filter column:  case_id = 1 AND source_host = 'HOST-000' AND logon_id = '0x0'",
+        "      Indexes:"
+      ],
+      "process_lifetime_context": [
+        "\u2514\u2500\u2500ReadFromMergeTree (phase0g_runtime.events)",
+        "      Prewhere filter",
+        "      Prewhere filter column:  case_id = 1 AND source_host = 'HOST-000' AND process_id = 1000",
+        "      Indexes:"
+      ],
+      "same_host_context": [
+        "\u2514\u2500\u2500ReadFromMergeTree (phase0g_runtime.events)",
+        "      Prewhere filter",
+        "      Prewhere filter column:  case_id = 1 AND source_host = 'HOST-000'",
+        "      Indexes:"
+      ]
+    },
+    "notes": "Entity search used a sequential scan on 10k rows. Support-time filtering used a sequential scan. Exact ERK used the evidence_record_key bloom skip index. Timestamp context used MergeTree partition/PK filters."
+  },
+  "fresh_install": {
+    "status": "PASS",
+    "environment": "lxc Ubuntu 24.04.4 LTS phase0g-fresh-20260812T204355Z",
+    "ubuntu": "24.04.4 LTS",
+    "zeek": "8.0.9",
+    "clickhouse": "26.7.3.19",
+    "services": {
+      "casescope-web": "active",
+      "casescope-workers": "active",
+      "casescope-beat": "active",
+      "postgresql": "active",
+      "redis-server": "active",
+      "clickhouse-server": "active"
+    },
+    "login_http": 200,
+    "smoke": {
+      "status": "PASS",
+      "marker": "PHASE0G_20260812T221820Z_fresh",
+      "operations": [
+        "login",
+        "graph_summary",
+        "entity_search",
+        "entity_detail",
+        "neighbors",
+        "relationship_detail",
+        "relationship_support",
+        "exact_erk",
+        "paths",
+        "context_relative",
+        "context_host",
+        "context_process",
+        "context_logon",
+        "thread_create",
+        "thread_update",
+        "thread_add_entity",
+        "thread_add_relationship",
+        "thread_add_evidence",
+        "thread_add_note",
+        "saved_view_create",
+        "saved_view_load",
+        "saved_view_update",
+        "thread_link_view",
+        "report_snapshot",
+        "audit_chain"
+      ]
+    },
+    "notes": "GitHub SSH was unavailable inside LXC, so the candidate tree was copied from a readonly bind mount excluding production uploads/staging/venv/ssl. Reboot after apt upgrade was skipped because the LXC image was already a fresh Ubuntu 24.04 release."
+  },
+  "upgrade_cohorts": {
+    "status": "PASS",
+    "cohorts": [
+      {
+        "id": "pre-4.0.0",
+        "sha": "a3ac4e3f3203ada50f4dfc42764533e0392bdd56",
+        "version": "3.411.0",
+        "database": "phase0g_upgrade_pre400",
+        "bootstrap_ok": true,
+        "documented_ok": true,
+        "first_run_ok": true,
+        "second_run_ok": true,
+        "converged": true,
+        "migrations": [
+          {
+            "migration": "migrations/add_evidence_record_identity.py",
+            "first": 0,
+            "second": 0
+          },
+          {
+            "migration": "migrations/evidence_identity_udf.py",
+            "first": 0,
+            "second": 0
+          },
+          {
+            "migration": "migrations/add_investigation_graph_tables.py",
+            "first": 0,
+            "second": 0
+          },
+          {
+            "migration": "migrations/add_investigation_threads_tables.py",
+            "first": 0,
+            "second": 0
+          },
+          {
+            "migration": "migrations/add_graph_phase0e_support_lifecycle.py",
+            "first": 0,
+            "second": 0
+          },
+          {
+            "migration": "migrations/invalidate_phase0e_4160_dns_relationships.py",
+            "first": 0,
+            "second": 0
+          },
+          {
+            "migration": "migrations/add_investigation_thread_report_snapshots.py",
+            "first": 0,
+            "second": 0
+          }
+        ]
+      },
+      {
+        "id": "exactly-4.0.0",
+        "sha": "91eae6f68551703d2b320f3bb67682f3c043f2f1",
+        "version": "4.0.0",
+        "database": "phase0g_upgrade_400",
+        "bootstrap_ok": true,
+        "documented_ok": true,
+        "first_run_ok": true,
+        "second_run_ok": true,
+        "converged": true,
+        "migrations": [
+          {
+            "migration": "migrations/add_evidence_record_identity.py",
+            "first": 0,
+            "second": 0
+          },
+          {
+            "migration": "migrations/evidence_identity_udf.py",
+            "first": 0,
+            "second": 0
+          },
+          {
+            "migration": "migrations/add_investigation_graph_tables.py",
+            "first": 0,
+            "second": 0
+          },
+          {
+            "migration": "migrations/add_investigation_threads_tables.py",
+            "first": 0,
+            "second": 0
+          },
+          {
+            "migration": "migrations/add_graph_phase0e_support_lifecycle.py",
+            "first": 0,
+            "second": 0
+          },
+          {
+            "migration": "migrations/invalidate_phase0e_4160_dns_relationships.py",
+            "first": 0,
+            "second": 0
+          },
+          {
+            "migration": "migrations/add_investigation_thread_report_snapshots.py",
+            "first": 0,
+            "second": 0
+          }
+        ]
+      },
+      {
+        "id": "4.0.1-through-4.2.x",
+        "sha": "4902188bcd23867693abb04056e40604c6530c20",
+        "version": "4.2.0",
+        "database": "phase0g_upgrade_401",
+        "bootstrap_ok": true,
+        "documented_ok": true,
+        "first_run_ok": true,
+        "second_run_ok": true,
+        "converged": true,
+        "migrations": [
+          {
+            "migration": "migrations/add_evidence_record_identity.py",
+            "first": 0,
+            "second": 0
+          },
+          {
+            "migration": "migrations/evidence_identity_udf.py",
+            "first": 0,
+            "second": 0
+          },
+          {
+            "migration": "migrations/add_investigation_graph_tables.py",
+            "first": 0,
+            "second": 0
+          },
+          {
+            "migration": "migrations/add_investigation_threads_tables.py",
+            "first": 0,
+            "second": 0
+          },
+          {
+            "migration": "migrations/add_graph_phase0e_support_lifecycle.py",
+            "first": 0,
+            "second": 0
+          },
+          {
+            "migration": "migrations/invalidate_phase0e_4160_dns_relationships.py",
+            "first": 0,
+            "second": 0
+          },
+          {
+            "migration": "migrations/add_investigation_thread_report_snapshots.py",
+            "first": 0,
+            "second": 0
+          }
+        ]
+      },
+      {
+        "id": "4.17.2-pre-improvement1",
+        "sha": "4298bd24cac5bcb87d3128941aa227df33dfac84",
+        "version": "4.17.2",
+        "database": "phase0g_upgrade_4172",
+        "bootstrap_ok": true,
+        "documented_ok": true,
+        "first_run_ok": true,
+        "second_run_ok": true,
+        "converged": true,
+        "migrations": [
+          {
+            "migration": "migrations/add_evidence_record_identity.py",
+            "first": 0,
+            "second": 0
+          },
+          {
+            "migration": "migrations/evidence_identity_udf.py",
+            "first": 0,
+            "second": 0
+          },
+          {
+            "migration": "migrations/add_investigation_graph_tables.py",
+            "first": 0,
+            "second": 0
+          },
+          {
+            "migration": "migrations/add_investigation_threads_tables.py",
+            "first": 0,
+            "second": 0
+          },
+          {
+            "migration": "migrations/add_graph_phase0e_support_lifecycle.py",
+            "first": 0,
+            "second": 0
+          },
+          {
+            "migration": "migrations/invalidate_phase0e_4160_dns_relationships.py",
+            "first": 0,
+            "second": 0
+          },
+          {
+            "migration": "migrations/add_investigation_thread_report_snapshots.py",
+            "first": 0,
+            "second": 0
+          }
+        ]
+      }
+    ],
+    "improvement1_smoke_4172": "PASS"
+  },
+  "migration_convergence": {
+    "status": "PASS",
+    "migrations": [
+      "migrations/add_evidence_record_identity.py",
+      "migrations/evidence_identity_udf.py",
+      "migrations/add_investigation_graph_tables.py",
+      "migrations/add_investigation_threads_tables.py",
+      "migrations/add_graph_phase0e_support_lifecycle.py",
+      "migrations/invalidate_phase0e_4160_dns_relationships.py",
+      "migrations/add_investigation_thread_report_snapshots.py"
+    ],
+    "first_run": "exit 0 on all four cohorts",
+    "second_run": "exit 0 on all four cohorts"
+  },
+  "lifecycle": {
+    "status": "PASS",
+    "casefile": {
+      "status": "PASS",
+      "steps": [
+        {
+          "operation": "casefile_delete_a",
+          "status": 200,
+          "success": true
+        },
+        {
+          "before": {
+            "relationship_state": "ACTIVE",
+            "support_state": "ACTIVE"
+          },
+          "operation": "casefile_a_invalidated",
+          "relationship_state": "ACTIVE",
+          "success": true,
+          "support_state": "UNAVAILABLE"
+        },
+        {
+          "operation": "casefile_b_still_active",
+          "relationship_state": "ACTIVE",
+          "success": true,
+          "support_state": "ACTIVE"
+        },
+        {
+          "operation": "relationship_e_still_active",
+          "relationship_state": "ACTIVE",
+          "success": true,
+          "support_state": "ACTIVE"
+        },
+        {
+          "after": {
+            "snapshot_created": "2026-08-12 22:09:09.012350",
+            "snapshot_uuid": "4c33c893-56d2-452c-941b-9767f0c2c76e",
+            "thread_title": "Thread T",
+            "thread_uuid": "ac17d102-a4e5-4914-b162-e653b069a69d",
+            "thread_version": 7
+          },
+          "before": {
+            "snapshot_created": "2026-08-12 22:09:09.012350",
+            "snapshot_uuid": "4c33c893-56d2-452c-941b-9767f0c2c76e",
+            "thread_title": "Thread T",
+            "thread_uuid": "ac17d102-a4e5-4914-b162-e653b069a69d",
+            "thread_version": 7
+          },
+          "operation": "thread_unchanged_after_a",
+          "success": true
+        },
+        {
+          "after": {
+            "snapshot_created": "2026-08-12 22:09:09.012350",
+            "snapshot_uuid": "4c33c893-56d2-452c-941b-9767f0c2c76e",
+            "thread_title": "Thread T",
+            "thread_uuid": "ac17d102-a4e5-4914-b162-e653b069a69d",
+            "thread_version": 7
+          },
+          "before": {
+            "snapshot_created": "2026-08-12 22:09:09.012350",
+            "snapshot_uuid": "4c33c893-56d2-452c-941b-9767f0c2c76e",
+            "thread_title": "Thread T",
+            "thread_uuid": "ac17d102-a4e5-4914-b162-e653b069a69d",
+            "thread_version": 7
+          },
+          "operation": "report_unchanged_after_a",
+          "success": true
+        },
+        {
+          "operation": "casefile_delete_b",
+          "status": 200,
+          "success": true
+        },
+        {
+          "operation": "relationship_e_unsupported_after_b",
+          "relationship_state": "UNSUPPORTED",
+          "success": true,
+          "support_state": "UNAVAILABLE"
+        },
+        {
+          "after": {
+            "snapshot_created": "2026-08-12 22:09:09.012350",
+            "snapshot_uuid": "4c33c893-56d2-452c-941b-9767f0c2c76e",
+            "thread_title": "Thread T",
+            "thread_uuid": "ac17d102-a4e5-4914-b162-e653b069a69d",
+            "thread_version": 7
+          },
+          "before": {
+            "snapshot_created": "2026-08-12 22:09:09.012350",
+            "snapshot_uuid": "4c33c893-56d2-452c-941b-9767f0c2c76e",
+            "thread_title": "Thread T",
+            "thread_uuid": "ac17d102-a4e5-4914-b162-e653b069a69d",
+            "thread_version": 7
+          },
+          "operation": "thread_readable_after_b",
+          "success": true
+        }
+      ]
+    },
+    "pcap": {
+      "status": "PASS",
+      "steps": [
+        {
+          "before": {
+            "relationship_state": "ACTIVE",
+            "support_state": "ACTIVE"
+          },
+          "operation": "pcap_delete_a",
+          "status": 200,
+          "success": true
+        },
+        {
+          "operation": "pcap_a_not_active",
+          "relationship_state": "ACTIVE",
+          "success": true,
+          "support_state": "UNAVAILABLE"
+        },
+        {
+          "operation": "pcap_b_still_active",
+          "relationship_state": "ACTIVE",
+          "success": true,
+          "support_state": "ACTIVE"
+        },
+        {
+          "operation": "pcap_delete_b",
+          "status": 200,
+          "success": true
+        },
+        {
+          "operation": "pcap_rel_unsupported",
+          "relationship_state": "UNSUPPORTED",
+          "success": true,
+          "support_state": "UNAVAILABLE"
+        }
+      ]
+    },
+    "memory": {
+      "status": "PASS",
+      "steps": [
+        {
+          "operation": "memory_delete_a",
+          "status": 200,
+          "success": true
+        },
+        {
+          "operation": "memory_a_not_active",
+          "relationship_state": "ACTIVE",
+          "success": true,
+          "support_state": "UNAVAILABLE"
+        },
+        {
+          "operation": "memory_b_still_active",
+          "relationship_state": "ACTIVE",
+          "success": true,
+          "support_state": "ACTIVE"
+        },
+        {
+          "operation": "memory_delete_b",
+          "status": 200,
+          "success": true
+        },
+        {
+          "operation": "memory_rel_unsupported",
+          "relationship_state": "UNSUPPORTED",
+          "success": true,
+          "support_state": "UNAVAILABLE"
+        }
+      ]
+    },
+    "ioc": {
+      "status": "PASS",
+      "steps": [
+        {
+          "after": {
+            "ioc_exists": false,
+            "match_a": null,
+            "match_b": null
+          },
+          "before": {
+            "match_a": "UNAVAILABLE",
+            "match_b": "UNAVAILABLE"
+          },
+          "operation": "ioc_delete_route",
+          "status": 200,
+          "success": true
+        },
+        {
+          "operation": "ioc_removed_or_unlinked",
+          "success": true
+        }
+      ]
+    }
+  },
+  "permanent_case_deletion": {
+    "status": "PASS",
+    "before": {
+      "ch_a": 0,
+      "ch_b": 1,
+      "entities_a": 4,
+      "entities_b": 4,
+      "png_exists": true,
+      "reports_a": 1,
+      "snapshots_a": 1,
+      "svg_exists": true,
+      "threads_a": 3,
+      "views_a": 3
+    },
+    "after": {
+      "audit_remaining": 16,
+      "case_a": false,
+      "case_b": true,
+      "ch_a": 0,
+      "ch_b": 1,
+      "entities_a": 0,
+      "entities_b": 4,
+      "memberships_a": 0,
+      "png_exists": false,
+      "reports_a": 0,
+      "snapshots_a": 0,
+      "support_a": 0,
+      "svg_exists": false,
+      "threads_a": 0,
+      "views_a": 0
+    }
+  },
+  "permissions": {
+    "status": "PASS",
+    "operations": [
+      {
+        "operation": "viewer_read_summary",
+        "role": "viewer",
+        "success": true
+      },
+      {
+        "operation": "viewer_read_search",
+        "role": "viewer",
+        "success": true
+      },
+      {
+        "operation": "viewer_read_entity",
+        "role": "viewer",
+        "success": true
+      },
+      {
+        "operation": "viewer_read_neighbors",
+        "role": "viewer",
+        "success": true
+      },
+      {
+        "operation": "viewer_read_relationship",
+        "role": "viewer",
+        "success": true
+      },
+      {
+        "operation": "viewer_read_evidence",
+        "role": "viewer",
+        "success": true
+      },
+      {
+        "operation": "viewer_read_paths",
+        "role": "viewer",
+        "success": true
+      },
+      {
+        "operation": "viewer_read_context_relative",
+        "role": "viewer",
+        "success": true
+      },
+      {
+        "operation": "viewer_read_context_host",
+        "role": "viewer",
+        "success": true
+      },
+      {
+        "operation": "viewer_read_context_user",
+        "role": "viewer",
+        "success": true
+      },
+      {
+        "operation": "viewer_read_context_process",
+        "role": "viewer",
+        "success": true
+      },
+      {
+        "operation": "viewer_read_context_logon",
+        "role": "viewer",
+        "success": true
+      },
+      {
+        "operation": "viewer_read_threads",
+        "role": "viewer",
+        "success": true
+      },
+      {
+        "operation": "viewer_read_views",
+        "role": "viewer",
+        "success": true
+      },
+      {
+        "operation": "viewer_write_thread",
+        "role": null,
+        "success": true
+      },
+      {
+        "operation": "viewer_write_view",
+        "role": null,
+        "success": true
+      },
+      {
+        "operation": "viewer_cross_case_entity",
+        "role": null,
+        "success": true
+      },
+      {
+        "operation": "viewer_guessed_id",
+        "role": null,
+        "success": true
+      },
+      {
+        "operation": "viewer_other_case_denied",
+        "role": null,
+        "success": true
+      },
+      {
+        "operation": "analyst_read_summary",
+        "role": "analyst",
+        "success": true
+      },
+      {
+        "operation": "analyst_read_search",
+        "role": "analyst",
+        "success": true
+      },
+      {
+        "operation": "analyst_read_entity",
+        "role": "analyst",
+        "success": true
+      },
+      {
+        "operation": "analyst_read_neighbors",
+        "role": "analyst",
+        "success": true
+      },
+      {
+        "operation": "analyst_read_relationship",
+        "role": "analyst",
+        "success": true
+      },
+      {
+        "operation": "analyst_read_evidence",
+        "role": "analyst",
+        "success": true
+      },
+      {
+        "operation": "analyst_read_paths",
+        "role": "analyst",
+        "success": true
+      },
+      {
+        "operation": "analyst_read_context_relative",
+        "role": "analyst",
+        "success": true
+      },
+      {
+        "operation": "analyst_read_context_host",
+        "role": "analyst",
+        "success": true
+      },
+      {
+        "operation": "analyst_read_context_user",
+        "role": "analyst",
+        "success": true
+      },
+      {
+        "operation": "analyst_read_context_process",
+        "role": "analyst",
+        "success": true
+      },
+      {
+        "operation": "analyst_read_context_logon",
+        "role": "analyst",
+        "success": true
+      },
+      {
+        "operation": "analyst_read_threads",
+        "role": "analyst",
+        "success": true
+      },
+      {
+        "operation": "analyst_read_views",
+        "role": "analyst",
+        "success": true
+      },
+      {
+        "operation": "analyst_write_thread",
+        "role": null,
+        "success": true
+      },
+      {
+        "operation": "analyst_write_view",
+        "role": null,
+        "success": true
+      },
+      {
+        "operation": "analyst_cross_case_entity",
+        "role": null,
+        "success": true
+      },
+      {
+        "operation": "analyst_guessed_id",
+        "role": null,
+        "success": true
+      },
+      {
+        "operation": "analyst_other_case_allowed",
+        "role": null,
+        "success": true
+      },
+      {
+        "operation": "administrator_read_summary",
+        "role": "administrator",
+        "success": true
+      },
+      {
+        "operation": "administrator_read_search",
+        "role": "administrator",
+        "success": true
+      },
+      {
+        "operation": "administrator_read_entity",
+        "role": "administrator",
+        "success": true
+      },
+      {
+        "operation": "administrator_read_neighbors",
+        "role": "administrator",
+        "success": true
+      },
+      {
+        "operation": "administrator_read_relationship",
+        "role": "administrator",
+        "success": true
+      },
+      {
+        "operation": "administrator_read_evidence",
+        "role": "administrator",
+        "success": true
+      },
+      {
+        "operation": "administrator_read_paths",
+        "role": "administrator",
+        "success": true
+      },
+      {
+        "operation": "administrator_read_context_relative",
+        "role": "administrator",
+        "success": true
+      },
+      {
+        "operation": "administrator_read_context_host",
+        "role": "administrator",
+        "success": true
+      },
+      {
+        "operation": "administrator_read_context_user",
+        "role": "administrator",
+        "success": true
+      },
+      {
+        "operation": "administrator_read_context_process",
+        "role": "administrator",
+        "success": true
+      },
+      {
+        "operation": "administrator_read_context_logon",
+        "role": "administrator",
+        "success": true
+      },
+      {
+        "operation": "administrator_read_threads",
+        "role": "administrator",
+        "success": true
+      },
+      {
+        "operation": "administrator_read_views",
+        "role": "administrator",
+        "success": true
+      },
+      {
+        "operation": "administrator_write_thread",
+        "role": null,
+        "success": true
+      },
+      {
+        "operation": "administrator_write_view",
+        "role": null,
+        "success": true
+      },
+      {
+        "operation": "administrator_cross_case_entity",
+        "role": null,
+        "success": true
+      },
+      {
+        "operation": "administrator_guessed_id",
+        "role": null,
+        "success": true
+      },
+      {
+        "operation": "administrator_other_case_allowed",
+        "role": null,
+        "success": true
+      }
+    ]
+  },
+  "cross_case": {
+    "status": "PASS",
+    "operations": [
+      {
+        "operation": "identical_host_search_no_b_in_a",
+        "status": 200,
+        "success": true
+      },
+      {
+        "operation": "identical_host_search_no_a_in_b",
+        "status": 200,
+        "success": true
+      },
+      {
+        "operation": "case_b_erk_not_in_case_a",
+        "status": 404,
+        "success": true
+      },
+      {
+        "operation": "guessed_thread_uuid",
+        "status": 404,
+        "success": true
+      },
+      {
+        "operation": "deleted_case_a_not_found",
+        "status": 404,
+        "success": true
+      },
+      {
+        "operation": "case_b_still_readable",
+        "status": 200,
+        "success": true
+      }
+    ]
+  },
+  "deployment_smoke": {
+    "status": "PASS",
+    "operations": [
+      {
+        "operation": "graph_summary",
+        "status": 200,
+        "success": true
+      },
+      {
+        "operation": "entity_search",
+        "status": 200,
+        "success": true
+      },
+      {
+        "operation": "entity_detail",
+        "status": 200,
+        "success": true
+      },
+      {
+        "operation": "neighbors",
+        "status": 200,
+        "success": true
+      },
+      {
+        "operation": "relationship_detail",
+        "status": 200,
+        "success": true
+      },
+      {
+        "operation": "relationship_support",
+        "status": 200,
+        "success": true
+      },
+      {
+        "operation": "exact_erk",
+        "status": 200,
+        "success": true
+      },
+      {
+        "operation": "paths",
+        "status": 200,
+        "success": true
+      },
+      {
+        "operation": "context_relative",
+        "status": 200,
+        "success": true
+      },
+      {
+        "operation": "context_host",
+        "status": 200,
+        "success": true
+      },
+      {
+        "operation": "context_process",
+        "status": 200,
+        "success": true
+      },
+      {
+        "operation": "context_logon",
+        "status": 200,
+        "success": true
+      },
+      {
+        "operation": "thread_create",
+        "status": 201,
+        "success": true
+      },
+      {
+        "operation": "thread_update",
+        "status": 200,
+        "success": true
+      },
+      {
+        "operation": "thread_add_entity",
+        "status": 200,
+        "success": true
+      },
+      {
+        "operation": "thread_add_relationship",
+        "status": 200,
+        "success": true
+      },
+      {
+        "operation": "thread_add_evidence",
+        "status": 200,
+        "success": true
+      },
+      {
+        "operation": "thread_add_note",
+        "status": 201,
+        "success": true
+      },
+      {
+        "operation": "saved_view_create",
+        "status": 201,
+        "success": true
+      },
+      {
+        "operation": "saved_view_load",
+        "status": 200,
+        "success": true
+      },
+      {
+        "operation": "saved_view_update",
+        "status": 200,
+        "success": true
+      },
+      {
+        "operation": "thread_link_view",
+        "status": 200,
+        "success": true
+      },
+      {
+        "operation": "report_snapshot",
+        "status": 201,
+        "success": true
+      }
+    ]
+  },
+  "audit_chain": {
+    "status": "PASS",
+    "valid": true,
+    "record_count_checked": 12
+  },
+  "ai_gate": {
+    "status": "PASS",
+    "ai_used": false,
+    "ai_provider": null,
+    "ai_model": null,
+    "success": true
+  },
+  "regression": {
+    "command": "/opt/casescope/scripts/test_improvement1.sh",
+    "framework": "unittest",
+    "total": 293,
+    "passed": 292,
+    "failed": 0,
+    "skipped": 1,
+    "elapsed_seconds": 14.455,
+    "status": "PASS"
+  },
+  "waiver_0c_001": {
+    "status": "REPRODUCED",
+    "expected": "apply_async(args=(11,), queue='ioc')",
+    "actual": "apply_async(args=(11, 'tester', None), queue='ioc')",
+    "queue": "ioc",
+    "new_waiver": false
+  },
+  "full_repo_baseline_comparison": {
+    "status": "PASS",
+    "accepted_4172": {
+      "collected": 1770,
+      "collection_errors": 25,
+      "sha": "4298bd24cac5bcb87d3128941aa227df33dfac84"
+    },
+    "candidate": {
+      "collected": 1776,
+      "collection_errors": 25,
+      "sha": "e060aa0ff133f8aa8f895f4b7c873345842ed06b"
+    },
+    "error_modules_match": true,
+    "exception_signatures_match": true,
+    "item_count_delta": 6,
+    "baseline_error_modules": [
+      {
+        "module": "tests/test_async_cancellation_remaining.py",
+        "exception_family": "AttributeError:_FakeAnalysisStatus.terminal_statuses"
+      },
+      {
+        "module": "tests/test_chat_hygiene_contract.py",
+        "exception_family": "AttributeError:_FakeDB.Index"
+      },
+      {
+        "module": "tests/test_clickhouse_delete_dedup_contracts.py",
+        "exception_family": "AttributeError:_FakeDB.Index"
+      },
+      {
+        "module": "tests/test_dashboard_versions.py",
+        "exception_family": "AttributeError:_FakeDB.Index"
+      },
+      {
+        "module": "tests/test_graph_migration.py",
+        "exception_family": "AttributeError:_FakeDB.init_app"
+      },
+      {
+        "module": "tests/test_graph_pivots.py",
+        "exception_family": "AttributeError:_FakeDB.Index"
+      },
+      {
+        "module": "tests/test_graph_routes.py",
+        "exception_family": "AttributeError:_FakeDB.Index"
+      },
+      {
+        "module": "tests/test_graph_saved_view_routes.py",
+        "exception_family": "AttributeError:_FakeDB.Index"
+      },
+      {
+        "module": "tests/test_graph_saved_views.py",
+        "exception_family": "AttributeError:_FakeDB.Index"
+      },
+      {
+        "module": "tests/test_graph_ui_contract.py",
+        "exception_family": "AttributeError:_FakeDB.Index"
+      },
+      {
+        "module": "tests/test_hunt_negative_report_integration_contract.py",
+        "exception_family": "AttributeError:_FakeDB.Index"
+      },
+      {
+        "module": "tests/test_hunt_negative_routes_contract.py",
+        "exception_family": "AttributeError:_FakeDB.Index"
+      },
+      {
+        "module": "tests/test_hunt_routes_contract.py",
+        "exception_family": "AttributeError:_FakeDB.Index"
+      },
+      {
+        "module": "tests/test_investigation_audit_integration.py",
+        "exception_family": "AttributeError:_FakeDB.Index"
+      },
+      {
+        "module": "tests/test_investigation_thread_migration.py",
+        "exception_family": "AttributeError:_FakeDB.JSON"
+      },
+      {
+        "module": "tests/test_investigation_thread_report_snapshots.py",
+        "exception_family": "AttributeError:_FakeDB.Index"
+      },
+      {
+        "module": "tests/test_investigation_thread_routes.py",
+        "exception_family": "AttributeError:_FakeDB.Index"
+      },
+      {
+        "module": "tests/test_investigation_threads.py",
+        "exception_family": "AttributeError:_FakeDB.Index"
+      },
+      {
+        "module": "tests/test_overlay_audit_repairs.py",
+        "exception_family": "AttributeError:SimpleNamespace.Model"
+      },
+      {
+        "module": "tests/test_query_hardening_regressions.py",
+        "exception_family": "AttributeError:SimpleNamespace.Model"
+      },
+      {
+        "module": "tests/test_route_security_regressions.py",
+        "exception_family": "AttributeError:SimpleNamespace.Model"
+      },
+      {
+        "module": "tests/test_scoring_2_2_normalization.py",
+        "exception_family": "ImportError:utils.finding_contract.build_burst_engine_producer_input"
+      },
+      {
+        "module": "tests/test_scoring_2_emit_eligibility.py",
+        "exception_family": "ImportError:utils.finding_contract.build_burst_engine_producer_input"
+      },
+      {
+        "module": "tests/test_scoring_2_emit_regate.py",
+        "exception_family": "ImportError:utils.finding_contract.SCORE_EMIT_BLOCK_REASON"
+      },
+      {
+        "module": "tests/test_scoring_2_engine_fixtures.py",
+        "exception_family": "ImportError:utils.finding_contract.build_burst_engine_producer_input"
+      }
+    ],
+    "candidate_error_modules": [
+      {
+        "module": "tests/test_async_cancellation_remaining.py",
+        "exception_family": "AttributeError:_FakeAnalysisStatus.terminal_statuses"
+      },
+      {
+        "module": "tests/test_chat_hygiene_contract.py",
+        "exception_family": "AttributeError:_FakeDB.Index"
+      },
+      {
+        "module": "tests/test_clickhouse_delete_dedup_contracts.py",
+        "exception_family": "AttributeError:_FakeDB.Index"
+      },
+      {
+        "module": "tests/test_dashboard_versions.py",
+        "exception_family": "AttributeError:_FakeDB.Index"
+      },
+      {
+        "module": "tests/test_graph_migration.py",
+        "exception_family": "AttributeError:_FakeDB.init_app"
+      },
+      {
+        "module": "tests/test_graph_pivots.py",
+        "exception_family": "AttributeError:_FakeDB.Index"
+      },
+      {
+        "module": "tests/test_graph_routes.py",
+        "exception_family": "AttributeError:_FakeDB.Index"
+      },
+      {
+        "module": "tests/test_graph_saved_view_routes.py",
+        "exception_family": "AttributeError:_FakeDB.Index"
+      },
+      {
+        "module": "tests/test_graph_saved_views.py",
+        "exception_family": "AttributeError:_FakeDB.Index"
+      },
+      {
+        "module": "tests/test_graph_ui_contract.py",
+        "exception_family": "AttributeError:_FakeDB.Index"
+      },
+      {
+        "module": "tests/test_hunt_negative_report_integration_contract.py",
+        "exception_family": "AttributeError:_FakeDB.Index"
+      },
+      {
+        "module": "tests/test_hunt_negative_routes_contract.py",
+        "exception_family": "AttributeError:_FakeDB.Index"
+      },
+      {
+        "module": "tests/test_hunt_routes_contract.py",
+        "exception_family": "AttributeError:_FakeDB.Index"
+      },
+      {
+        "module": "tests/test_investigation_audit_integration.py",
+        "exception_family": "AttributeError:_FakeDB.Index"
+      },
+      {
+        "module": "tests/test_investigation_thread_migration.py",
+        "exception_family": "AttributeError:_FakeDB.JSON"
+      },
+      {
+        "module": "tests/test_investigation_thread_report_snapshots.py",
+        "exception_family": "AttributeError:_FakeDB.Index"
+      },
+      {
+        "module": "tests/test_investigation_thread_routes.py",
+        "exception_family": "AttributeError:_FakeDB.Index"
+      },
+      {
+        "module": "tests/test_investigation_threads.py",
+        "exception_family": "AttributeError:_FakeDB.Index"
+      },
+      {
+        "module": "tests/test_overlay_audit_repairs.py",
+        "exception_family": "AttributeError:SimpleNamespace.Model"
+      },
+      {
+        "module": "tests/test_query_hardening_regressions.py",
+        "exception_family": "AttributeError:SimpleNamespace.Model"
+      },
+      {
+        "module": "tests/test_route_security_regressions.py",
+        "exception_family": "AttributeError:SimpleNamespace.Model"
+      },
+      {
+        "module": "tests/test_scoring_2_2_normalization.py",
+        "exception_family": "ImportError:utils.finding_contract.build_burst_engine_producer_input"
+      },
+      {
+        "module": "tests/test_scoring_2_emit_eligibility.py",
+        "exception_family": "ImportError:utils.finding_contract.build_burst_engine_producer_input"
+      },
+      {
+        "module": "tests/test_scoring_2_emit_regate.py",
+        "exception_family": "ImportError:utils.finding_contract.SCORE_EMIT_BLOCK_REASON"
+      },
+      {
+        "module": "tests/test_scoring_2_engine_fixtures.py",
+        "exception_family": "ImportError:utils.finding_contract.build_burst_engine_producer_input"
+      }
+    ]
+  },
+  "service_state": {
+    "postgresql": "active",
+    "redis-server": "active",
+    "clickhouse-server": "active",
+    "casescope-web": "active",
+    "casescope-workers": "active",
+    "casescope-beat": "active",
+    "note": "Host production services inspected; destructive tests used disposable phase0g_ databases and /tmp/casescope-phase0g-storage."
+  },
+  "github": {
+    "method": "GitHub REST API",
+    "repo": "CaseScope/caseScope_2026",
+    "commit_status_contexts": 0,
+    "project_workflow_runs": 0,
+    "note": "Absence of contexts/runs is not a CI pass."
+  },
+  "release_version": "4.18.0"
+}
