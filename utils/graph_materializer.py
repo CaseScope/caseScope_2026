@@ -517,8 +517,10 @@ def materialize_events_for_case(case_id: int, *, client=None, batch_size: int = 
         event = event_from_clickhouse_row(row)
         events_seen += 1
         try:
-            candidates = extract_event_relationships(event)
-            candidates_seen += materializer.materialize_candidates(case_id, candidates)
+            with db.session.begin_nested():
+                candidates = extract_event_relationships(event)
+                materialized = materializer.materialize_candidates(case_id, candidates)
+            candidates_seen += materialized
             if events_seen % batch_size == 0:
                 db.session.commit()
         except Exception as exc:
@@ -529,7 +531,6 @@ def materialize_events_for_case(case_id: int, *, client=None, batch_size: int = 
                 case_id,
                 exc,
             )
-            db.session.rollback()
     db.session.commit()
     return {'events_seen': events_seen, 'relationships_materialized': candidates_seen, 'errors': errors}
 

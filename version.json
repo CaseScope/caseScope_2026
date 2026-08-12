@@ -1,6 +1,13 @@
 {
-  "version": "4.13.1",
+  "version": "4.13.2",
   "changelog": [
+    {
+      "version": "4.13.2",
+      "date": "2026-08-12",
+      "changes": [
+        "Fixed Phase 0B graph materialization transaction handling so bad evidence rows roll back only their event savepoint and graph migrations converge the canonical relationship uniqueness constraint"
+      ]
+    },
     {
       "version": "4.13.1",
       "date": "2026-08-12",
