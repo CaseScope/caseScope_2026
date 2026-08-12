@@ -69,6 +69,17 @@ class InvestigationContextService:
             start = filters.pop("time_start", start)
             end = filters.pop("time_end", end)
         cursor_values = self._decode_cursor(cursor)
+        if filters.pop("unresolved", False):
+            return self._response(
+                anchor=anchor,
+                mode=mode,
+                window=window,
+                identity_resolution=identity_resolution,
+                records=[],
+                truncated=False,
+                next_cursor=None,
+                effective_limit=effective_limit,
+            )
 
         sql_filters = [
             "case_id = {case_id:UInt32}",
@@ -79,7 +90,6 @@ class InvestigationContextService:
             "case_id": case_id,
             "time_start": self._ch_dt(start),
             "time_end": self._ch_dt(end),
-            "limit": effective_limit + 1,
         }
         if source_type_values:
             sql_filters.append("artifact_type IN {source_types:Array(String)}")
@@ -87,32 +97,44 @@ class InvestigationContextService:
         for index, item in enumerate(filters.get("equals", [])):
             field = item["field"]
             name = f"filter_{index}"
-            sql_filters.append(f"{field} = {{{name}:String}}")
+            param_type = item.get("type") or "String"
+            sql_filters.append(f"{field} = {{{name}:{param_type}}}")
             params[name] = item["value"]
         for item in filters.get("not_empty", []):
             sql_filters.append(f"{item} != ''")
-        if cursor_values:
-            sql_filters.append(
-                "(COALESCE(timestamp_utc, timestamp) > {cursor_ts:DateTime64(3)} "
-                "OR (COALESCE(timestamp_utc, timestamp) = {cursor_ts:DateTime64(3)} "
-                "AND evidence_record_key > {cursor_erk:String}))"
-            )
-            params["cursor_ts"] = self._ch_dt(cursor_values["timestamp"])
-            params["cursor_erk"] = cursor_values["evidence_record_key"]
-
-        sql = f"""
-            SELECT {', '.join(EVIDENCE_EVENT_COLUMNS)}
-            FROM events
-            WHERE {' AND '.join(sql_filters)}
-            ORDER BY COALESCE(timestamp_utc, timestamp) ASC, evidence_record_key ASC
-            LIMIT {{limit:UInt32}}
-        """
-        result = client.query(sql, parameters=params)
-        records = [self._summarize_event(row, list(result.column_names)) for row in list(result.result_rows or [])]
-        logical = self._dedupe_logical_records(records)
+        logical = self._fetch_logical_records(
+            client,
+            sql_filters,
+            params,
+            cursor_values=cursor_values,
+            logical_target=effective_limit + 1,
+        )
         page_records = logical[:effective_limit]
         truncated = len(logical) > effective_limit
 
+        return self._response(
+            anchor=anchor,
+            mode=mode,
+            window=window,
+            identity_resolution=identity_resolution,
+            records=page_records,
+            truncated=truncated,
+            next_cursor=self._encode_cursor(page_records[-1]) if truncated and page_records else None,
+            effective_limit=effective_limit,
+        )
+
+    def _response(
+        self,
+        *,
+        anchor: dict[str, Any],
+        mode: str,
+        window: str,
+        identity_resolution: dict[str, Any],
+        records: list[dict[str, Any]],
+        truncated: bool,
+        next_cursor: str | None,
+        effective_limit: int,
+    ) -> dict[str, Any]:
         return {
             "anchor": {
                 "kind": anchor["kind"],
@@ -126,9 +148,9 @@ class InvestigationContextService:
             "window": window,
             "time_boundary": "inclusive: anchor_time - window <= timestamp <= anchor_time + window",
             "identity_resolution": identity_resolution,
-            "records": page_records,
+            "records": records,
             "truncated": truncated,
-            "next_cursor": self._encode_cursor(page_records[-1]) if truncated and page_records else None,
+            "next_cursor": next_cursor,
             "limit": effective_limit,
         }
 
@@ -183,12 +205,18 @@ class InvestigationContextService:
                 filters["equals"].append({"field": "source_host", "value": host})
                 resolution["basis"] = "exact ERK + anchor source_host"
             elif not all_hosts:
-                resolution["warning"] = "Anchor has no source_host; relative context is not host scoped."
+                filters["unresolved"] = True
+                resolution = {
+                    "status": "unresolved",
+                    "basis": "source_host",
+                    "warning": "Anchor has no source_host; relative context is not host scoped.",
+                }
             else:
                 resolution["basis"] = "explicit all-host relative context"
             return filters, resolution
         if mode == "same_host":
             if not host:
+                filters["unresolved"] = True
                 return filters, {"status": "unresolved", "basis": "source_host", "warning": "Anchor has no source_host"}
             filters["equals"].append({"field": "source_host", "value": host})
             return filters, {"status": "resolved", "basis": "exact source_host", "warning": None}
@@ -205,10 +233,12 @@ class InvestigationContextService:
             if username and host:
                 filters["equals"].extend([{"field": "source_host", "value": host}, {"field": "username", "value": username}])
                 return filters, {"status": "ambiguous", "basis": "host-local username", "warning": "Bare username is host-scoped, not globally authoritative."}
+            filters["unresolved"] = True
             return filters, {"status": "unresolved", "basis": "user identity", "warning": "Anchor has no defensible user identity"}
         if mode == "logon_session":
             logon_id = str(event.get("logon_id") or "").strip()
             if not host or not logon_id:
+                filters["unresolved"] = True
                 return filters, {"status": "unresolved", "basis": "host + logon_id", "warning": "Anchor has no host-scoped logon session"}
             filters["equals"].extend([{"field": "source_host", "value": host}, {"field": "logon_id", "value": logon_id}])
             filters["not_empty"].append("logon_id")
@@ -223,7 +253,7 @@ class InvestigationContextService:
         pid = event.get("process_id")
         start = anchor["timestamp_dt"]
         if not host or pid in (None, "") or not self._is_process_creation(event):
-            return {"equals": [], "not_empty": []}, {
+            return {"equals": [], "not_empty": [], "unresolved": True}, {
                 "status": "unresolved",
                 "basis": "process creation evidence",
                 "warning": "Process lifetime requires an exact process creation anchor, not PID alone.",
@@ -234,7 +264,7 @@ class InvestigationContextService:
         status = "resolved" if termination else "partial"
         warning = None if termination else "No exact termination evidence was found; PID reuse is bounded by the next creation when present."
         return {
-            "equals": [{"field": "source_host", "value": host}],
+            "equals": [{"field": "source_host", "value": host}, {"field": "process_id", "value": int(pid), "type": "UInt64"}],
             "not_empty": [],
             "time_start": start,
             "time_end": end,
@@ -281,6 +311,54 @@ class InvestigationContextService:
         result = client.query(sql, parameters=params)
         rows = list(result.result_rows or [])
         return self._parse_timestamp(rows[0][0]) if rows else None
+
+    def _fetch_logical_records(self, client, sql_filters, params, *, cursor_values, logical_target):
+        logical = []
+        seen = set()
+        loop_cursor = cursor_values
+        batch_limit = min(MAX_CONTEXT_LIMIT, max(int(logical_target), 128))
+        max_batches = 8
+        for _ in range(max_batches):
+            batch_filters = list(sql_filters)
+            batch_params = dict(params)
+            batch_params["limit"] = batch_limit
+            if loop_cursor:
+                batch_filters.append(
+                    "(COALESCE(timestamp_utc, timestamp) > {cursor_ts:DateTime64(3)} "
+                    "OR (COALESCE(timestamp_utc, timestamp) = {cursor_ts:DateTime64(3)} "
+                    "AND evidence_record_key > {cursor_erk:String}))"
+                )
+                batch_params["cursor_ts"] = self._ch_dt(loop_cursor["timestamp"])
+                batch_params["cursor_erk"] = loop_cursor["evidence_record_key"]
+            sql = f"""
+                SELECT {', '.join(EVIDENCE_EVENT_COLUMNS)}
+                FROM events
+                WHERE {' AND '.join(batch_filters)}
+                ORDER BY COALESCE(timestamp_utc, timestamp) ASC, evidence_record_key ASC
+                LIMIT {{limit:UInt32}}
+            """
+            result = client.query(sql, parameters=batch_params)
+            records = [self._summarize_event(row, list(result.column_names)) for row in list(result.result_rows or [])]
+            if not records:
+                break
+            for record in records:
+                key = record.get("evidence_record_key") or record.get("selector_key")
+                if key in seen:
+                    continue
+                seen.add(key)
+                logical.append(record)
+                if len(logical) >= logical_target:
+                    return logical
+            if len(records) < batch_limit:
+                break
+            last = records[-1]
+            loop_cursor = {
+                "timestamp": self._parse_timestamp(last.get("timestamp")),
+                "evidence_record_key": last.get("evidence_record_key") or "",
+            }
+            if loop_cursor["timestamp"] is None or not loop_cursor["evidence_record_key"]:
+                break
+        return logical
 
     def _client(self):
         if self.client is not None:

@@ -18,6 +18,7 @@ from datetime import datetime
 from typing import Dict, Any, Optional
 
 from docxtpl import DocxTemplate
+from docx.shared import Inches
 
 from config import Config
 from utils.logger import get_logger
@@ -25,6 +26,7 @@ from utils.logger import get_logger
 logger = get_logger(__name__)
 NEGATIVE_FINDINGS_SECTION_KEY = "negative_findings_section"
 NEGATIVE_FINDINGS_AUDIT_APPENDIX_KEY = "negative_findings_audit_appendix"
+INVESTIGATION_THREAD_SECTION_KEY = "investigation_thread_report_section"
 
 
 class ReportGenerator:
@@ -90,6 +92,13 @@ class ReportGenerator:
             section_key=NEGATIVE_FINDINGS_AUDIT_APPENDIX_KEY,
             title_key="negative_findings_audit_appendix_title",
         )
+        self._append_text_section_fallback(
+            context,
+            placeholders,
+            section_key=INVESTIGATION_THREAD_SECTION_KEY,
+            title_key="investigation_thread_report_section_title",
+        )
+        self._append_investigation_thread_graphs(context)
         self.template.save(output_path)
         
         # Set permissions on file
@@ -139,6 +148,34 @@ class ReportGenerator:
             section_key=NEGATIVE_FINDINGS_SECTION_KEY,
             title_key="negative_findings_section_title",
         )
+
+    def _append_investigation_thread_graphs(self, context: Dict[str, Any]) -> None:
+        """Append frozen graph images produced from immutable Thread snapshots."""
+        images = context.get("investigation_thread_graph_images") or []
+        if not images:
+            return
+
+        doc = getattr(self.template, "docx", None)
+        if doc is None:
+            logger.warning("Could not append investigation thread graphs: template document unavailable")
+            return
+
+        doc.add_page_break()
+        doc.add_heading("Saved Graph Views", level=1)
+        for image in images:
+            image_path = image.get("path")
+            if not image_path or not os.path.exists(image_path):
+                continue
+            title = image.get("title") or "Frozen Saved Graph View"
+            doc.add_heading(str(title), level=2)
+            try:
+                doc.add_picture(image_path, width=Inches(6.5))
+            except Exception:
+                logger.warning("Could not embed investigation thread graph image: %s", image_path, exc_info=True)
+                continue
+            graph_hash = image.get("sha256")
+            if graph_hash:
+                doc.add_paragraph(f"Saved graph render hash: {graph_hash}")
 
 
 def get_case_reports_folder(case_uuid: str) -> str:

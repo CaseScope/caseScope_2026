@@ -289,6 +289,8 @@ def generate_report(case_uuid):
         from utils.hunt_negative_report_adapter import build_negative_findings_report_context
         from utils.investigation_thread_report_adapter import InvestigationThreadReportAdapter
         from utils.investigation_thread_report_snapshots import InvestigationThreadReportSnapshotService
+        from utils.investigation_threads import InvestigationThreadConflictError
+        from utils.graph_saved_views import GraphSavedViewConflictError, GraphSavedViewNotFoundError
 
         if current_user.permission_level == "viewer":
             return _viewer_write_error("Viewers cannot generate reports")
@@ -365,25 +367,48 @@ def generate_report(case_uuid):
         operation_id = str(uuid.uuid4())
         expected_versions = data.get("thread_versions") or {}
         expected_view_versions = data.get("saved_view_versions") or {}
-        for thread in threads_for_report:
-            snapshot_payloads.append(
-                snapshot_service.create_snapshot(
-                    case.id,
-                    thread_uuid=thread.uuid,
-                    expected_thread_version=expected_versions.get(thread.uuid, thread.version),
-                    expected_saved_view_version=(
-                        expected_view_versions.get(thread.current_saved_view.uuid)
-                        if thread.current_saved_view is not None
-                        else None
-                    ),
-                    report_generation_uuid=report_generation_uuid,
-                    actor={
-                        "user_id": getattr(current_user, "id", None),
-                        "username": getattr(current_user, "username", None),
-                    },
-                    operation_id=operation_id,
+        try:
+            for thread in threads_for_report:
+                snapshot_payloads.append(
+                    snapshot_service.create_snapshot(
+                        case.id,
+                        thread_uuid=thread.uuid,
+                        expected_thread_version=expected_versions.get(thread.uuid, thread.version),
+                        expected_saved_view_version=(
+                            expected_view_versions.get(thread.current_saved_view.uuid)
+                            if thread.current_saved_view is not None
+                            else None
+                        ),
+                        report_generation_uuid=report_generation_uuid,
+                        actor={
+                            "user_id": getattr(current_user, "id", None),
+                            "username": getattr(current_user, "username", None),
+                        },
+                        operation_id=operation_id,
+                    )
                 )
-            )
+        except (InvestigationThreadConflictError, GraphSavedViewConflictError) as exc:
+            db.session.rollback()
+            snapshot_service.cleanup_generation(case.id, report_generation_uuid)
+            db.session.commit()
+            return jsonify(
+                {
+                    "success": False,
+                    "error": str(exc),
+                    "stale_version": True,
+                    "current_version": exc.current_version,
+                }
+            ), 409
+        except GraphSavedViewNotFoundError as exc:
+            db.session.rollback()
+            snapshot_service.cleanup_generation(case.id, report_generation_uuid)
+            db.session.commit()
+            return jsonify({"success": False, "error": str(exc)}), 404
+        except Exception:
+            db.session.rollback()
+            snapshot_service.cleanup_generation(case.id, report_generation_uuid)
+            db.session.commit()
+            raise
         if snapshot_payloads:
             context.update(InvestigationThreadReportAdapter().build_context(snapshot_payloads))
         else:
@@ -403,6 +428,8 @@ def generate_report(case_uuid):
         )
 
         if not report_path:
+            snapshot_service.cleanup_generation(case.id, report_generation_uuid)
+            db.session.commit()
             return jsonify({"success": False, "error": "Failed to generate report"}), 500
 
         filename = os.path.basename(report_path)
@@ -419,16 +446,21 @@ def generate_report(case_uuid):
             )
             db.session.add(report_record)
             db.session.flush()
-            for snapshot in snapshot_payloads:
-                row = snapshot_service.get_snapshot(case.id, snapshot["uuid"])
-                from models.investigation_thread import InvestigationThreadReportSnapshot
-                snapshot_row = InvestigationThreadReportSnapshot.query.filter_by(case_id=case.id, uuid=row["uuid"]).first()
-                if snapshot_row:
-                    snapshot_row.case_report_id = report_record.id
+            snapshot_service.link_generation_to_report(case.id, report_generation_uuid, report_record.id)
             db.session.commit()
-        except Exception:
+        except Exception as exc:
             db.session.rollback()
-            logger.warning("Could not create CaseReport record for deterministic report", exc_info=True)
+            if snapshot_payloads:
+                snapshot_service.cleanup_generation(case.id, report_generation_uuid)
+                db.session.commit()
+                try:
+                    if os.path.exists(report_path):
+                        os.remove(report_path)
+                except OSError:
+                    logger.warning("Could not remove unregistered deterministic report: %s", report_path, exc_info=True)
+                logger.error("Could not durably register deterministic report", exc_info=True)
+                return jsonify({"success": False, "error": f"Failed to register durable report: {exc}"}), 500
+            logger.warning("Could not create CaseReport record for report without Thread snapshots", exc_info=True)
         safe_log_case_work_activity(
             case_uuid,
             CaseWorkActivityType.REPORT_ACTION,

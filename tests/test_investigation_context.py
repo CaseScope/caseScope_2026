@@ -70,6 +70,33 @@ class QueueClickHouse:
         return SimpleNamespace(column_names=list(EVIDENCE_EVENT_COLUMNS), result_rows=rows)
 
 
+class LogicalPagingClickHouse:
+    def __init__(self, rows):
+        self.anchor = rows[0]
+        self.rows = list(rows)
+        self.calls = []
+
+    def query(self, sql, parameters=None):
+        parameters = parameters or {}
+        self.calls.append((sql, parameters))
+        if "evidence_record_key = {evidence_record_key:String}" in sql:
+            return SimpleNamespace(column_names=list(EVIDENCE_EVENT_COLUMNS), result_rows=[self.anchor])
+        rows = self.rows
+        cursor_erk = parameters.get("cursor_erk")
+        if cursor_erk:
+            cursor_ts = parameters["cursor_ts"]
+            rows = [
+                row for row in rows
+                if row[EVIDENCE_EVENT_COLUMNS.index("timestamp_utc")] > cursor_ts
+                or (
+                    row[EVIDENCE_EVENT_COLUMNS.index("timestamp_utc")] == cursor_ts
+                    and row[EVIDENCE_EVENT_COLUMNS.index("evidence_record_key")] > cursor_erk
+                )
+            ]
+        limit = parameters.get("limit", len(rows))
+        return SimpleNamespace(column_names=list(EVIDENCE_EVENT_COLUMNS), result_rows=rows[:limit])
+
+
 class InvestigationContextServiceTestCase(unittest.TestCase):
     def test_exact_erk_anchor_dedupes_physical_rows_and_uses_inclusive_boundaries(self):
         anchor = event_row(evidence_record_key=evidence_key("a"))
@@ -145,6 +172,68 @@ class InvestigationContextServiceTestCase(unittest.TestCase):
 
         self.assertEqual(result["identity_resolution"]["status"], "partial")
         self.assertEqual(client.calls[3][1]["time_end"], "2026-01-01 13:00:00.000")
+        sql, params = client.calls[3]
+        self.assertIn("process_id = {filter_1:UInt64}", sql)
+        self.assertEqual(params["filter_0"], "HOST-A")
+        self.assertEqual(params["filter_1"], 1234)
+
+    def test_unresolved_scoped_modes_do_not_broaden_to_case_query(self):
+        cases = [
+            ("same_host", event_row(source_host="")),
+            ("same_user", event_row(source_host="", username="", domain="", sid="")),
+            ("logon_session", event_row(logon_id="")),
+            ("process_lifetime", event_row(process_id="")),
+            ("relative", event_row(source_host="")),
+        ]
+        for mode, anchor in cases:
+            with self.subTest(mode=mode):
+                client = QueueClickHouse([[anchor]])
+                result = InvestigationContextService(client=client).context(1, anchor_erk=evidence_key("a"), mode=mode)
+                self.assertEqual(result["identity_resolution"]["status"], "unresolved")
+                self.assertEqual(result["records"], [])
+                self.assertEqual(len(client.calls), 1)
+
+    def test_relative_all_hosts_is_explicit_case_wide_context(self):
+        anchor = event_row(source_host="")
+        context = event_row(evidence_record_key=evidence_key("b"), source_host="HOST-B")
+        client = QueueClickHouse([[anchor], [context]])
+
+        result = InvestigationContextService(client=client).context(
+            1,
+            anchor_erk=evidence_key("a"),
+            mode="relative",
+            all_hosts=True,
+        )
+
+        self.assertEqual(result["identity_resolution"]["basis"], "explicit all-host relative context")
+        self.assertEqual([row["evidence_record_key"] for row in result["records"]], [evidence_key("b")])
+        self.assertNotIn("source_host = {filter_0:String}", client.calls[1][0])
+
+    def test_logical_pagination_overfetches_physical_duplicates(self):
+        rows = [
+            event_row(evidence_record_key=evidence_key("a"), selector_key=f"selector-a-{index}")
+            for index in range(130)
+        ]
+        rows.extend(
+            [
+                event_row(evidence_record_key=evidence_key("b"), selector_key="selector-b", timestamp_utc="2026-01-01 12:00:01"),
+                event_row(evidence_record_key=evidence_key("c"), selector_key="selector-c", timestamp_utc="2026-01-01 12:00:02"),
+            ]
+        )
+        client = LogicalPagingClickHouse(rows)
+
+        first = InvestigationContextService(client=client).context(1, anchor_erk=evidence_key("a"), limit=2)
+        self.assertEqual([row["evidence_record_key"] for row in first["records"]], [evidence_key("a"), evidence_key("b")])
+        self.assertTrue(first["truncated"])
+
+        second = InvestigationContextService(client=LogicalPagingClickHouse(rows)).context(
+            1,
+            anchor_erk=evidence_key("a"),
+            limit=2,
+            cursor=first["next_cursor"],
+        )
+        self.assertEqual([row["evidence_record_key"] for row in second["records"]], [evidence_key("c")])
+        self.assertFalse(second["truncated"])
 
 
 if __name__ == "__main__":

@@ -14,8 +14,18 @@ class InvestigationThreadReportAdapter:
         return {
             "investigation_threads_included": bool(sections),
             "investigation_thread_sections": sections,
+            "investigation_thread_report_section_title": "Investigation Threads",
             "investigation_thread_report_section": text,
             "investigation_thread_snapshot_hashes": [section["snapshot_sha256"] for section in sections],
+            "investigation_thread_graph_images": [
+                {
+                    "path": section["graph_render_path"],
+                    "sha256": section["graph_render_sha256"],
+                    "title": section["graph_render_title"],
+                }
+                for section in sections
+                if section.get("graph_render_path")
+            ],
         }
 
     def _section(self, row: dict[str, Any]) -> dict[str, Any]:
@@ -57,7 +67,7 @@ class InvestigationThreadReportAdapter:
         lines.extend(["", "Source availability:"])
         lines.extend(self._availability_lines(snapshot.get("source_availability") or []))
         if row.get("graph_render_path"):
-            lines.extend(["", f"Saved graph render: {row.get('graph_render_path')}"])
+            lines.extend(["", "Saved graph view: Embedded frozen graph image."])
             lines.append(f"Saved graph render hash: {row.get('graph_render_sha256') or '-'}")
         elif not saved_view:
             lines.extend(["", "Graph: No Saved Graph View was captured for this Investigation Thread."])
@@ -71,6 +81,7 @@ class InvestigationThreadReportAdapter:
             "snapshot_sha256": row.get("snapshot_sha256"),
             "graph_render_path": row.get("graph_render_path"),
             "graph_render_sha256": row.get("graph_render_sha256"),
+            "graph_render_title": saved_view.get("title") if saved_view else None,
             "text": "\n".join(lines),
         }
 
@@ -127,9 +138,15 @@ class InvestigationThreadReportAdapter:
             return ["- No evidence-source availability entries."]
         lines = []
         for item in items:
-            status = "Yes" if item.get("original_source_retrievable") else "No"
+            availability_status = item.get("original_source_status")
+            if availability_status == "indeterminate":
+                status_text = "Original-source availability could not be determined when this report snapshot was generated."
+            elif availability_status == "available" or item.get("original_source_retrievable") is True:
+                status_text = "Original supporting source currently retrievable: Yes"
+            else:
+                status_text = "Original supporting source currently retrievable: No"
             retained = "Yes" if item.get("snapshot_retained") else "No"
-            line = f"- {item.get('evidence_record_key')}: Snapshot retained: {retained}; Original supporting source currently retrievable: {status}"
+            line = f"- {item.get('evidence_record_key')}: Snapshot retained: {retained}; {status_text}"
             if item.get("warning"):
                 line += f". {item['warning']}"
             lines.append(line)

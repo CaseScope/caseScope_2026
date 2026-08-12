@@ -18,6 +18,19 @@ from sqlalchemy import event
 from utils import evidence_audit as _evidence_audit
 
 
+def _audit_log_id_type():
+    column_type = db.BigInteger
+    try:
+        candidate = db.BigInteger()
+        with_variant = getattr(candidate, "with_variant", None)
+        integer_type = getattr(db, "Integer", None)
+        if callable(with_variant) and integer_type is not None:
+            return with_variant(integer_type, "sqlite")
+    except Exception:
+        pass
+    return column_type
+
+
 class AuditAction:
     """Standardized action types for audit logging"""
     # CRUD operations
@@ -153,7 +166,7 @@ class AuditLog(db.Model):
     __tablename__ = 'audit_log'
     
     # Primary key - using BigInteger for high-volume logging
-    id = db.Column(db.BigInteger, primary_key=True)
+    id = db.Column(_audit_log_id_type(), primary_key=True)
     
     # When - timestamp of the action
     timestamp = db.Column(db.DateTime, nullable=False, default=datetime.utcnow, index=True)

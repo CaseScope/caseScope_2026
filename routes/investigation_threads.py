@@ -8,6 +8,7 @@ from flask_login import current_user, login_required
 
 from models.case import Case
 from routes.route_helpers import _require_case_write_access
+from utils.graph_saved_views import GraphSavedViewConflictError, GraphSavedViewNotFoundError
 from utils.graph_query import GraphNotFoundError, GraphQueryError
 from utils.investigation_references import InvestigationReferenceError
 from utils.investigation_threads import (
@@ -48,14 +49,16 @@ def _service() -> InvestigationThreadService:
 
 
 def _error_response(exc: Exception):
-    if isinstance(exc, InvestigationThreadConflictError):
+    if isinstance(exc, (InvestigationThreadConflictError, GraphSavedViewConflictError)):
         return jsonify({
             "success": False,
             "error": str(exc),
             "stale_version": True,
             "current_version": exc.current_version,
         }), 409
-    if isinstance(exc, InvestigationThreadNotFoundError):
+    if isinstance(exc, (InvestigationThreadNotFoundError, GraphSavedViewNotFoundError)):
+        return jsonify({"success": False, "error": str(exc)}), 404
+    if isinstance(exc, InvestigationThreadReportSnapshotError) and "not found" in str(exc).lower():
         return jsonify({"success": False, "error": str(exc)}), 404
     if isinstance(exc, (InvestigationThreadError, InvestigationContextError, InvestigationThreadReportSnapshotError, InvestigationReferenceError, GraphQueryError)):
         return jsonify({"success": False, "error": str(exc)}), 400

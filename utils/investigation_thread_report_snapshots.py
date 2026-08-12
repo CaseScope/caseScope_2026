@@ -2,7 +2,9 @@
 from __future__ import annotations
 
 import os
+import struct
 import uuid
+import zlib
 from datetime import datetime
 from html import escape
 from typing import Any
@@ -17,6 +19,7 @@ from models.investigation_thread import InvestigationThread, InvestigationThread
 from utils.graph_query import GraphNotFoundError, GraphQueryService
 from utils.graph_saved_views import GraphSavedViewConflictError, GraphSavedViewNotFoundError, GraphSavedViewService
 from utils.investigation_references import (
+    build_entity_reference,
     canonical_json,
     resolve_entity_reference,
     resolve_relationship_reference,
@@ -161,6 +164,40 @@ class InvestigationThreadReportSnapshotService:
         )
         return self.serialize(row)
 
+    def link_generation_to_report(self, case_id: int, report_generation_uuid: str, case_report_id: int) -> None:
+        rows = InvestigationThreadReportSnapshot.query.filter_by(
+            case_id=int(case_id),
+            report_generation_uuid=str(report_generation_uuid),
+        ).all()
+        for row in rows:
+            row.case_report_id = int(case_report_id)
+
+    def cleanup_generation(self, case_id: int, report_generation_uuid: str) -> None:
+        rows = InvestigationThreadReportSnapshot.query.filter_by(
+            case_id=int(case_id),
+            report_generation_uuid=str(report_generation_uuid),
+        ).all()
+        for row in rows:
+            for path in self._render_paths(row.graph_render_path):
+                try:
+                    if path and os.path.exists(path):
+                        os.remove(path)
+                except OSError:
+                    pass
+            db.session.delete(row)
+
+    @staticmethod
+    def _render_paths(render_path: str | None) -> list[str]:
+        if not render_path:
+            return []
+        root, ext = os.path.splitext(render_path)
+        paths = [render_path]
+        if ext.lower() == ".png":
+            paths.append(f"{root}.svg")
+        elif ext.lower() == ".svg":
+            paths.append(f"{root}.png")
+        return paths
+
     def get_snapshot(self, case_id: int, snapshot_uuid: str) -> dict[str, Any]:
         row = InvestigationThreadReportSnapshot.query.filter_by(case_id=int(case_id), uuid=str(snapshot_uuid)).first()
         if row is None:
@@ -256,10 +293,10 @@ class InvestigationThreadReportSnapshotService:
                 "live_available": live_available,
                 "relationship_type": relationship.relationship_type if relationship else ref.get("relationship_type"),
                 "derivation_type": relationship.derivation_type if relationship else ref.get("derivation_type"),
-                "source_reference_key": self._entity_ref_key(source) if source else None,
-                "target_reference_key": self._entity_ref_key(target) if target else None,
-                "source_label": source.display_value if source else ref.get("source_entity_key"),
-                "target_label": target.display_value if target else ref.get("target_entity_key"),
+                "source_reference_key": self._entity_ref_key(source) or self._entity_ref_key_from_relationship_ref(case_id, ref, "source"),
+                "target_reference_key": self._entity_ref_key(target) or self._entity_ref_key_from_relationship_ref(case_id, ref, "target"),
+                "source_label": source.display_value if source else ref.get("source_display_value") or ref.get("source_entity_key"),
+                "target_label": target.display_value if target else ref.get("target_display_value") or ref.get("target_entity_key"),
             }
         return sorted(by_key.values(), key=lambda item: item.get("stable_reference_key") or "")
 
@@ -270,32 +307,53 @@ class InvestigationThreadReportSnapshotService:
         from utils.investigation_references import entity_reference_from_graph_entity
         return entity_reference_from_graph_entity(entity)["stable_reference_key"]
 
+    @staticmethod
+    def _entity_ref_key_from_relationship_ref(case_id: int, ref: dict[str, Any], endpoint: str) -> str | None:
+        entity_type = ref.get(f"{endpoint}_entity_type")
+        entity_key = ref.get(f"{endpoint}_entity_key")
+        if not entity_type or not entity_key:
+            return None
+        return build_entity_reference(case_id=case_id, entity_type=entity_type, entity_key=entity_key)["stable_reference_key"]
+
     def _source_availability(self, case_id: int, evidence_rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
         service = GraphQueryService()
         availability = []
         for row in evidence_rows:
             erk = row.get("evidence_record_key")
-            available = False
+            status = "unavailable"
             if erk:
                 try:
                     service.exact_evidence(case_id, erk)
-                    available = True
+                    status = "available"
                 except GraphNotFoundError:
-                    available = False
+                    status = "unavailable"
                 except Exception:
-                    available = False
+                    status = "indeterminate"
+            available = status == "available"
             availability.append(
                 {
                     "evidence_record_key": erk,
                     "snapshot_retained": bool(row.get("snapshot_available")),
+                    "original_source_status": status,
                     "original_source_retrievable": available,
-                    "warning": None if available else (
-                        "The original supporting source was unavailable when this report snapshot was generated. "
-                        "The Investigation Thread's retained evidence snapshot is shown."
-                    ),
+                    "warning": self._source_availability_warning(status),
                 }
             )
         return availability
+
+    @staticmethod
+    def _source_availability_warning(status: str) -> str | None:
+        if status == "available":
+            return None
+        if status == "indeterminate":
+            return (
+                "The original-source availability check could not be completed due to an infrastructure "
+                "or query failure. The Investigation Thread's retained evidence snapshot is shown."
+            )
+        return (
+            "The original supporting source was unavailable when this report snapshot was generated. "
+            "The Investigation Thread's retained evidence snapshot is shown."
+        )
 
     def _render_graph(self, case_uuid: str, generation_uuid: str, snapshot_json: dict[str, Any]) -> dict[str, Any]:
         saved_view = snapshot_json.get("saved_view")
@@ -305,15 +363,20 @@ class InvestigationThreadReportSnapshotService:
         render_hash = f"{GRAPH_HASH_PREFIX}{snapshot_sha256({'svg': svg})}"
         folder = os.path.join(Config.STORAGE_FOLDER, case_uuid, "reports", "snapshots")
         os.makedirs(folder, exist_ok=True)
-        path = os.path.join(folder, f"{generation_uuid}_{snapshot_json['thread']['uuid']}.svg")
-        with open(path, "w", encoding="utf-8") as handle:
+        base = os.path.join(folder, f"{generation_uuid}_{snapshot_json['thread']['uuid']}")
+        svg_path = f"{base}.svg"
+        png_path = f"{base}.png"
+        with open(svg_path, "w", encoding="utf-8") as handle:
             handle.write(svg)
+        with open(png_path, "wb") as handle:
+            handle.write(self._build_png(saved_view))
         try:
             import shutil
-            shutil.chown(path, user="casescope", group="casescope")
+            shutil.chown(svg_path, user="casescope", group="casescope")
+            shutil.chown(png_path, user="casescope", group="casescope")
         except (PermissionError, LookupError):
             pass
-        return {"format": "svg", "path": path, "sha256": render_hash}
+        return {"format": "png", "path": png_path, "sha256": render_hash}
 
     def _build_svg(self, saved_view: dict[str, Any]) -> str:
         entities = [item for item in saved_view.get("frozen_entities") or [] if not item.get("hidden")]
@@ -356,6 +419,83 @@ class InvestigationThreadReportSnapshotService:
             '<defs><marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto">'
             '<path d="M 0 0 L 10 5 L 0 10 z" fill="#607080"/></marker></defs>'
             f"{body}</svg>"
+        )
+
+    def _build_png(self, saved_view: dict[str, Any]) -> bytes:
+        width, height = 1200, 800
+        pixels = bytearray([255, 255, 255] * width * height)
+        entities = [item for item in saved_view.get("frozen_entities") or [] if not item.get("hidden")]
+        coords = {}
+        for index, entity in enumerate(entities):
+            coord = entity.get("coordinates") or {}
+            coords[entity["stable_reference_key"]] = (
+                int(float(coord.get("x", 120 + (index % 5) * 180))),
+                int(float(coord.get("y", 120 + (index // 5) * 120))),
+            )
+        visible = set(coords)
+        for relationship in saved_view.get("frozen_relationships") or []:
+            source_key = relationship.get("source_reference_key")
+            target_key = relationship.get("target_reference_key")
+            if source_key in visible and target_key in visible:
+                self._draw_line(pixels, width, height, coords[source_key], coords[target_key], (96, 112, 128))
+        for key in sorted(visible):
+            x, y = coords[key]
+            self._draw_circle(pixels, width, height, x, y, 28, (238, 244, 255), fill=True)
+            self._draw_circle(pixels, width, height, x, y, 28, (49, 91, 157), fill=False)
+        return self._png_bytes(width, height, pixels)
+
+    @staticmethod
+    def _set_pixel(pixels: bytearray, width: int, height: int, x: int, y: int, color: tuple[int, int, int]) -> None:
+        if x < 0 or y < 0 or x >= width or y >= height:
+            return
+        offset = (y * width + x) * 3
+        pixels[offset:offset + 3] = bytes(color)
+
+    def _draw_line(self, pixels, width, height, start, end, color):
+        x1, y1 = start
+        x2, y2 = end
+        dx = abs(x2 - x1)
+        dy = -abs(y2 - y1)
+        sx = 1 if x1 < x2 else -1
+        sy = 1 if y1 < y2 else -1
+        err = dx + dy
+        while True:
+            self._set_pixel(pixels, width, height, x1, y1, color)
+            if x1 == x2 and y1 == y2:
+                break
+            doubled = 2 * err
+            if doubled >= dy:
+                err += dy
+                x1 += sx
+            if doubled <= dx:
+                err += dx
+                y1 += sy
+
+    def _draw_circle(self, pixels, width, height, cx, cy, radius, color, *, fill):
+        r2 = radius * radius
+        inner = (radius - 2) * (radius - 2)
+        for y in range(cy - radius, cy + radius + 1):
+            for x in range(cx - radius, cx + radius + 1):
+                d2 = (x - cx) * (x - cx) + (y - cy) * (y - cy)
+                if (fill and d2 <= r2) or (not fill and inner <= d2 <= r2):
+                    self._set_pixel(pixels, width, height, x, y, color)
+
+    @staticmethod
+    def _png_bytes(width: int, height: int, pixels: bytearray) -> bytes:
+        def chunk(kind: bytes, data: bytes) -> bytes:
+            return struct.pack(">I", len(data)) + kind + data + struct.pack(">I", zlib.crc32(kind + data) & 0xFFFFFFFF)
+
+        rows = bytearray()
+        row_width = width * 3
+        for y in range(height):
+            rows.append(0)
+            start = y * row_width
+            rows.extend(pixels[start:start + row_width])
+        return (
+            b"\x89PNG\r\n\x1a\n"
+            + chunk(b"IHDR", struct.pack(">IIBBBBB", width, height, 8, 2, 0, 0, 0))
+            + chunk(b"IDAT", zlib.compress(bytes(rows), level=9))
+            + chunk(b"IEND", b"")
         )
 
     @staticmethod
