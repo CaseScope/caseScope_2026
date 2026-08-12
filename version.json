@@ -1,6 +1,18 @@
 {
-  "version": "4.16.1",
+  "version": "4.16.2",
   "changelog": [
+    {
+      "version": "4.16.2",
+      "date": "2026-08-12",
+      "changes": [
+        "Added one-time Phase 0E reconciliation to invalidate legacy 4.16.0 Zeek DNS RESOLVED_TO graph support and revalidate affected relationships",
+        "Materialized memory graph relationships immediately after successful memory ingestion, including rebuilt MemoryJobs",
+        "Wrapped PCAP reindex in graph support revalidation lifecycle so old PCAP support cannot remain ACTIVE after source log deletion",
+        "Made exact IOC provenance scans fail explicitly on ClickHouse query failure and reject malformed non-v2 ERKs",
+        "Restored exact IOC evidence matches when failed CaseFile removal/revalidation restores source support",
+        "Replaced memory extractor streaming cursors with bounded keyset/page reads and refreshed source locators when support is rematerialized"
+      ]
+    },
     {
       "version": "4.16.1",
       "date": "2026-08-12",

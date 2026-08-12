@@ -149,9 +149,16 @@ class GraphSupportLifecycleService:
             updated += 1
         self.session.flush()
         revalidated = self.revalidate_relationships(case_id, relationship_ids)
+        ioc_restored = self._restore_ioc_matches_for_source(
+            case_id=case_id,
+            source_ref_type=GraphSourceRefType.CASE_FILE,
+            source_ref_id=case_file_id,
+            reason=reason,
+        )
         return {
             'support_restored': updated,
             'relationships_revalidated': revalidated,
+            'ioc_matches_restored': ioc_restored,
         }
 
     def restore_source_support_if_source_remains(
@@ -185,9 +192,16 @@ class GraphSupportLifecycleService:
             updated += 1
         self.session.flush()
         revalidated = self.revalidate_relationships(case_id, relationship_ids)
+        ioc_restored = self._restore_ioc_matches_for_source(
+            case_id=case_id,
+            source_ref_type=source_ref_type,
+            source_ref_id=source_ref_id,
+            reason=reason,
+        )
         return {
             'support_restored': updated,
             'relationships_revalidated': revalidated,
+            'ioc_matches_restored': ioc_restored,
         }
 
     def begin_memory_job_removal(self, *, case_id: int, memory_job_id: int, reason: str = 'memory_job_removal') -> Dict[str, Any]:
@@ -261,6 +275,47 @@ class GraphSupportLifecycleService:
             final_state=GraphSupportState.INVALIDATED,
             reason=reason,
         )
+
+    def invalidate_support_by_extractor(
+        self,
+        *,
+        extractor_name: str,
+        reason: str,
+        case_id: Optional[int] = None,
+    ) -> Dict[str, Any]:
+        """Invalidate current support produced by an extractor withdrawn for correctness."""
+        now = datetime.utcnow()
+        q = GraphRelationshipEvidence.query.filter(
+            GraphRelationshipEvidence.extractor_name == str(extractor_name),
+            GraphRelationshipEvidence.support_state.in_(
+                [
+                    GraphSupportState.ACTIVE,
+                    GraphSupportState.PENDING_REMOVAL,
+                    GraphSupportState.PENDING_REVALIDATION,
+                ]
+            ),
+        )
+        if case_id is not None:
+            q = q.filter(GraphRelationshipEvidence.case_id == int(case_id))
+
+        relationship_ids_by_case: Dict[int, Set[int]] = {}
+        updated = 0
+        for row in q.yield_per(self.batch_size):
+            row.support_state = GraphSupportState.INVALIDATED
+            row.support_state_reason = reason
+            row.support_state_changed_at = now
+            relationship_ids_by_case.setdefault(int(row.case_id), set()).add(int(row.relationship_id))
+            updated += 1
+        self.session.flush()
+
+        revalidation = {}
+        for affected_case_id, relationship_ids in relationship_ids_by_case.items():
+            revalidation[affected_case_id] = self.revalidate_relationships(affected_case_id, relationship_ids)
+        return {
+            'support_updated': updated,
+            'relationships_touched': sum(len(ids) for ids in relationship_ids_by_case.values()),
+            'revalidation': revalidation,
+        }
 
     def revalidate_relationships(self, case_id: int, relationship_ids: Iterable[int]) -> Dict[str, int]:
         """Recalculate relationship validation_state from CURRENT active support only."""
@@ -562,6 +617,38 @@ class GraphSupportLifecycleService:
         self.session.flush()
         self.session.commit()
         return {'updated': updated}
+
+    def _restore_ioc_matches_for_source(
+        self,
+        *,
+        case_id: int,
+        source_ref_type: str,
+        source_ref_id: int,
+        reason: str,
+    ) -> int:
+        now = datetime.utcnow()
+        updated = 0
+        q = IOCEvidenceMatch.query.filter(
+            IOCEvidenceMatch.case_id == case_id,
+            IOCEvidenceMatch.source_ref_type == source_ref_type,
+            IOCEvidenceMatch.source_ref_id == int(source_ref_id),
+            IOCEvidenceMatch.support_state.in_(
+                [
+                    GraphSupportState.PENDING_REMOVAL,
+                    GraphSupportState.PENDING_REVALIDATION,
+                ]
+            ),
+        )
+        for row in q.yield_per(self.batch_size):
+            row.support_state = GraphSupportState.ACTIVE
+            meta = dict(row.metadata_json or {})
+            meta['support_restore_reason'] = reason
+            row.metadata_json = meta
+            row.updated_at = now
+            updated += 1
+        self.session.flush()
+        self.session.commit()
+        return updated
 
     def _active_support_counts(self, case_id: int, relationship_ids: List[int]) -> Dict[int, int]:
         if not relationship_ids:

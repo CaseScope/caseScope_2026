@@ -28,6 +28,7 @@ from sqlalchemy.dialects.postgresql import insert as pg_insert
 from models.database import db
 from models.ioc_evidence_match import IOCEvidenceMatch
 from utils.graph_identity import GraphSourceRefType, GraphSupportState
+from utils.graph_support_locator import is_evidence_record_key
 
 logger = logging.getLogger(__name__)
 
@@ -126,6 +127,8 @@ def record_matches(
         item = _normalize_meta_item(raw)
         if item is None:
             continue
+        if not is_evidence_record_key(item['evidence_record_key']):
+            raise ValueError(f"Invalid Evidence Identity v2 key for IOC provenance: {item['evidence_record_key']}")
         row_ref_type = item.get('source_ref_type', default_source_ref_type)
         row_ref_id = item.get('source_ref_id', default_source_ref_id)
         try:
@@ -315,7 +318,7 @@ def _stream_ioc_matching_erks(
             result = client.query(query)
         except Exception as exc:
             logger.error('IOC provenance ERK stream failed for case %s: %s', case_id, exc)
-            return
+            raise RuntimeError(f'IOC provenance ERK stream failed for case {case_id}') from exc
         rows = result.result_rows or []
         if not rows:
             break

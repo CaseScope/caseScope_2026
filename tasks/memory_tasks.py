@@ -443,6 +443,26 @@ def process_memory_dump(self, job_id: int):
             job.plugins_completed = completed_plugins
             job.plugins_failed = failed_plugins
             db.session.commit()
+
+            graph_result = {'skipped': True}
+            try:
+                from utils.graph_memory_extractors import materialize_memory_for_case
+
+                graph_result = materialize_memory_for_case(
+                    job.case_id,
+                    memory_job_id=job.id,
+                )
+                if graph_result.get('errors'):
+                    raise RuntimeError(f"Memory graph materialization skipped {graph_result['errors']} records")
+            except Exception as graph_exc:
+                recorded_failure = True
+                job.status = 'failed'
+                job.error_message = f'Memory graph materialization failed: {graph_exc}'
+                job.completed_at = datetime.utcnow()
+                db.session.commit()
+                update_job_progress(job_id, job.progress, status='failed')
+                _cleanup_working_base()
+                raise RuntimeError(job.error_message) from graph_exc
             
             # Mark as completed
             job.status = 'completed'
@@ -462,7 +482,8 @@ def process_memory_dump(self, job_id: int):
                 'completed': len(completed_plugins),
                 'failed': len(failed_plugins),
                 'output_folder': output_base,
-                'ingestion': ingest_result
+                'ingestion': ingest_result,
+                'graph_materialization': graph_result,
             }
 
         except MemoryTaskCancelled:

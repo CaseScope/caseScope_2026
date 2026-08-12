@@ -75,6 +75,45 @@ def _valid_remote_ip(value: Any) -> Optional[str]:
     return str(addr)
 
 
+def _iter_job_rows(model, job_id: int, *, page_size: int = 1000):
+    """Yield rows for one MemoryJob using bounded id-keyset pages."""
+    last_id = 0
+    page_size = max(1, int(page_size))
+    while True:
+        rows = (
+            model.query.filter(model.job_id == int(job_id), model.id > last_id)
+            .order_by(model.id.asc())
+            .limit(page_size)
+            .all()
+        )
+        if not rows:
+            break
+        for row in rows:
+            last_id = int(row.id)
+            yield row
+        if len(rows) < page_size:
+            break
+
+
+def _iter_memory_jobs(case_id: int, *, memory_job_id: Optional[int] = None, page_size: int = 500):
+    from models.memory_job import MemoryJob
+
+    last_id = 0
+    page_size = max(1, int(page_size))
+    while True:
+        q = MemoryJob.query.filter(MemoryJob.case_id == int(case_id), MemoryJob.id > last_id)
+        if memory_job_id is not None:
+            q = q.filter(MemoryJob.id == int(memory_job_id))
+        rows = q.order_by(MemoryJob.id.asc()).limit(page_size).all()
+        if not rows:
+            break
+        for row in rows:
+            last_id = int(row.id)
+            yield row
+        if memory_job_id is not None or len(rows) < page_size:
+            break
+
+
 @dataclass(frozen=True)
 class _ProcessRef:
     """Resolved unique memory process identity for a (job, pid)."""
@@ -235,8 +274,7 @@ class MemoryConnectedToIpExtractor(MemoryGraphExtractor):
     def extract_job(self, job, resolver: MemoryProcessResolver) -> Iterable[GraphRelationshipCandidate]:
         from models.memory_data import MemoryNetwork
 
-        rows = MemoryNetwork.query.filter_by(job_id=int(job.id)).yield_per(1000)
-        for row in rows:
+        for row in _iter_job_rows(MemoryNetwork, int(job.id)):
             remote_ip = _valid_remote_ip(row.foreign_addr)
             if remote_ip is None:
                 continue
@@ -276,8 +314,7 @@ class MemoryLoadedModuleExtractor(MemoryGraphExtractor):
     def extract_job(self, job, resolver: MemoryProcessResolver) -> Iterable[GraphRelationshipCandidate]:
         from models.memory_data import MemoryModule
 
-        rows = MemoryModule.query.filter_by(job_id=int(job.id)).yield_per(1000)
-        for row in rows:
+        for row in _iter_job_rows(MemoryModule, int(job.id)):
             mapped_path = _clean(row.mapped_path)
             if not mapped_path:
                 continue
@@ -318,8 +355,7 @@ class MemoryServiceRunsProcessExtractor(MemoryGraphExtractor):
     def extract_job(self, job, resolver: MemoryProcessResolver) -> Iterable[GraphRelationshipCandidate]:
         from models.memory_data import MemoryService
 
-        rows = MemoryService.query.filter_by(job_id=int(job.id)).yield_per(1000)
-        for row in rows:
+        for row in _iter_job_rows(MemoryService, int(job.id)):
             service_name = _clean(row.name)
             if not service_name:
                 continue
@@ -361,8 +397,7 @@ class MemoryHasSecurityContextExtractor(MemoryGraphExtractor):
     def extract_job(self, job, resolver: MemoryProcessResolver) -> Iterable[GraphRelationshipCandidate]:
         from models.memory_data import MemorySID
 
-        rows = MemorySID.query.filter_by(job_id=int(job.id)).yield_per(1000)
-        for row in rows:
+        for row in _iter_job_rows(MemorySID, int(job.id)):
             sid = _clean(row.sid)
             if not sid:
                 continue
@@ -404,20 +439,21 @@ def materialize_memory_for_case(
     session=None,
     extractors: Iterable[MemoryGraphExtractor] = DEFAULT_MEMORY_EXTRACTORS,
     batch_size: int = 1000,
+    memory_job_id: Optional[int] = None,
 ) -> Dict[str, int]:
     """Materialize deterministic graph facts from parsed memory artifacts."""
-    from models.memory_job import MemoryJob
     from utils.graph_materializer import GraphMaterializer
 
     session = session or db.session
     materializer = GraphMaterializer(session=session)
-    jobs = MemoryJob.query.filter_by(case_id=int(case_id)).all()
 
+    jobs_seen = 0
     candidates_seen = 0
     relationships_materialized = 0
     errors = 0
 
-    for job in jobs:
+    for job in _iter_memory_jobs(case_id, memory_job_id=memory_job_id):
+        jobs_seen += 1
         resolver = MemoryProcessResolver(job.id)
         for extractor in extractors:
             for candidate in extractor.extract_job(job, resolver):
@@ -439,7 +475,7 @@ def materialize_memory_for_case(
                     )
     session.commit()
     return {
-        'memory_jobs_seen': len(jobs),
+        'memory_jobs_seen': jobs_seen,
         'candidates_seen': candidates_seen,
         'relationships_materialized': relationships_materialized,
         'errors': errors,

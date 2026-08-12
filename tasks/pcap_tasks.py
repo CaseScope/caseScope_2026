@@ -1104,6 +1104,9 @@ def reindex_pcap_logs(self, pcap_id: int):
         dict with reindexing results
     """
     from models.network_log import delete_pcap_logs
+    from utils.graph_identity import GraphSourceRefType
+    from utils.graph_support_lifecycle import GraphSupportLifecycleService
+
     app = get_flask_app()
     
     with app.app_context():
@@ -1114,13 +1117,50 @@ def reindex_pcap_logs(self, pcap_id: int):
         case = _get_case_for_task(pcap_file.case_uuid)
         if not case:
             raise RuntimeError('Case not found')
-        
-        # Delete existing logs
-        logger.info(f"Deleting existing logs for PCAP {pcap_id}")
-        delete_pcap_logs(pcap_id, case.id, wait=True)
-        
-        # Re-index
-        return index_zeek_logs.run(pcap_id)
+
+        lifecycle = GraphSupportLifecycleService()
+        try:
+            lifecycle.begin_pcap_revalidation(
+                case_id=case.id,
+                pcap_id=pcap_id,
+                reason='pcap_reindex',
+            )
+        except Exception as exc:
+            logger.error(f"Graph support pre-revalidation marking failed for PCAP {pcap_id}: {exc}")
+            raise RuntimeError(
+                f"Graph support pre-revalidation marking failed for PCAP {pcap_id}; reindex aborted before network-log deletion"
+            ) from exc
+
+        deleted_logs = False
+        try:
+            # Delete existing logs
+            logger.info(f"Deleting existing logs for PCAP {pcap_id}")
+            delete_pcap_logs(pcap_id, case.id, wait=True)
+            deleted_logs = True
+
+            # Re-index
+            result = index_zeek_logs.run(pcap_id)
+            lifecycle.finalize_pcap_revalidation(
+                case_id=case.id,
+                pcap_id=pcap_id,
+                reason='pcap_reindex_completed',
+            )
+            return result
+        except Exception:
+            if deleted_logs:
+                lifecycle.finalize_pcap_revalidation(
+                    case_id=case.id,
+                    pcap_id=pcap_id,
+                    reason='pcap_reindex_logs_deleted_before_failure',
+                )
+            else:
+                lifecycle.restore_source_support_if_source_remains(
+                    case_id=case.id,
+                    source_ref_type=GraphSourceRefType.PCAP_FILE,
+                    source_ref_id=pcap_id,
+                    reason='pcap_reindex_delete_failed_restore',
+                )
+            raise
 
 
 @shared_task(bind=True, name='tasks.rebuild_pcap_from_originals')

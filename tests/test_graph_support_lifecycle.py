@@ -163,6 +163,75 @@ class GraphSupportLifecycleTestCase(unittest.TestCase):
         db.session.refresh(self.support_a)
         self.assertEqual(self.support_a.support_state, GraphSupportState.ACTIVE)
 
+    def test_restore_after_failed_removal_restores_ioc_matches(self):
+        match = IOCEvidenceMatch(
+            case_id=self.case.id,
+            ioc_id=1,
+            ioc_uuid='11111111-1111-1111-1111-111111111111',
+            ioc_type='Domain',
+            matched_value='example.com',
+            matched_field='search_blob',
+            evidence_record_key=erk('a'),
+            source_table='events',
+            source_ref_type=GraphSourceRefType.CASE_FILE,
+            source_ref_id=101,
+            support_state=GraphSupportState.ACTIVE,
+            metadata_json={},
+        )
+        db.session.add(match)
+        db.session.commit()
+
+        self.service.begin_case_file_removal(case_id=self.case.id, case_file_id=101)
+        db.session.refresh(match)
+        self.assertEqual(match.support_state, GraphSupportState.PENDING_REMOVAL)
+        restored = self.service.restore_case_file_support_if_source_remains(
+            case_id=self.case.id,
+            case_file_id=101,
+        )
+        db.session.refresh(match)
+        self.assertEqual(restored['ioc_matches_restored'], 1)
+        self.assertEqual(match.support_state, GraphSupportState.ACTIVE)
+
+    def test_legacy_dns_extractor_support_invalidated_and_relationship_revalidated(self):
+        dns_rel = GraphRelationship(
+            case_id=self.case.id,
+            source_entity_id=self.source.id,
+            relationship_type=GraphRelationshipType.RESOLVED_TO,
+            target_entity_id=self.target.id,
+            derivation_type=GraphDerivationType.OBSERVED,
+            extractor_name='zeek_dns_resolved_to_ip',
+            extractor_version='1',
+            validation_state=GraphValidationState.ACTIVE,
+            metadata_json={},
+        )
+        db.session.add(dns_rel)
+        db.session.flush()
+        dns_support = GraphRelationshipEvidence(
+            case_id=self.case.id,
+            relationship_id=dns_rel.id,
+            evidence_record_key='native:v1:zeek_dns:5:0:abcdef',
+            source_table='network_logs',
+            evidence_role='supporting_record',
+            extractor_name='zeek_dns_resolved_to_ip',
+            extractor_version='1',
+            support_state=GraphSupportState.ACTIVE,
+            source_ref_type=GraphSourceRefType.PCAP_FILE,
+            source_ref_id=5,
+            metadata_json={},
+        )
+        db.session.add(dns_support)
+        db.session.commit()
+
+        result = self.service.invalidate_support_by_extractor(
+            extractor_name='zeek_dns_resolved_to_ip',
+            reason='test dns disabled',
+        )
+        db.session.refresh(dns_support)
+        db.session.refresh(dns_rel)
+        self.assertEqual(result['support_updated'], 1)
+        self.assertEqual(dns_support.support_state, GraphSupportState.INVALIDATED)
+        self.assertEqual(dns_rel.validation_state, GraphValidationState.UNSUPPORTED)
+
     def test_reprocess_invalidates_old_then_rematerialize_reactivates(self):
         self.service.begin_case_file_revalidation(case_id=self.case.id, case_file_id=101)
         self.service.finalize_case_file_revalidation(case_id=self.case.id, case_file_id=101)

@@ -864,6 +864,7 @@ def tag_all_iocs_globally(case_id: int, *, updated_by: str = 'system',
 
     # Step 3: Search and mark each IOC
     processed_ioc_ids = set()
+    provenance_complete = True
     idx = 0
     while True:
         pending_iocs = [ioc for ioc in _eligible_iocs() if ioc.id not in processed_ioc_ids]
@@ -929,9 +930,16 @@ def tag_all_iocs_globally(case_id: int, *, updated_by: str = 'system',
                             + provenance.get('matches_recorded', 0)
                         )
                     except Exception as prov_exc:
+                        provenance_complete = False
+                        results['success'] = False
+                        results['error'] = (
+                            f'Exact IOC evidence provenance failed for IOC {ioc.id}; '
+                            'scan not finalized'
+                        )
                         logger.error(
                             f"Error recording IOC evidence provenance for IOC {ioc.id}: {prov_exc}"
                         )
+                        break
 
                     # Get matching systems and create sightings
                     matching_hosts = get_matching_systems_for_ioc(
@@ -993,6 +1001,13 @@ def tag_all_iocs_globally(case_id: int, *, updated_by: str = 'system',
             finally:
                 processed_ioc_ids.add(ioc.id)
                 idx += 1
+        if not provenance_complete:
+            break
+
+    if not provenance_complete:
+        db.session.rollback()
+        clear_tag_progress(case_id)
+        return results
     
     try:
         from utils.ioc_match_provenance import finalize_ioc_match_scan

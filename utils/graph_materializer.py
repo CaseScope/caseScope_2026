@@ -456,10 +456,10 @@ class GraphMaterializer:
                 evidence.support_state = GraphSupportState.ACTIVE
                 evidence.support_state_reason = 'rematerialized'
                 evidence.support_state_changed_at = datetime.utcnow()
-            if source_ref_type and not evidence.source_ref_type:
+            if source_ref_type:
                 evidence.source_ref_type = source_ref_type
                 evidence.source_ref_id = source_ref_id
-            if support_locator and not evidence.support_locator_json:
+            if support_locator:
                 evidence.support_locator_json = support_locator
             evidence.metadata_json = _merge_metadata(evidence.metadata_json, metadata)
             return evidence

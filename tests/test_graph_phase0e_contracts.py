@@ -21,7 +21,7 @@ from utils.graph_support_locator import (
     support_key_for_locator,
     validate_support_provenance,
 )
-from utils.ioc_match_provenance import DEFAULT_MATCHED_FIELD
+from utils.ioc_match_provenance import DEFAULT_MATCHED_FIELD, record_matches
 
 
 class Phase0EUIContractTestCase(unittest.TestCase):
@@ -155,6 +155,18 @@ class Phase0EIOCProvenanceContractTestCase(unittest.TestCase):
     def test_tagger_persists_exact_ioc_uuid(self):
         source = open('/opt/casescope/utils/ioc_artifact_tagger.py', encoding='utf-8').read()
         self.assertIn('record_ioc_evidence_matches', source)
+        self.assertIn('scan not finalized', source)
+
+    def test_ioc_provenance_rejects_malformed_erk(self):
+        with self.assertRaises(ValueError):
+            record_matches(
+                1,
+                1,
+                '11111111-1111-1111-1111-111111111111',
+                'Hash',
+                'aaa',
+                ['not-an-erk'],
+            )
 
 
 class Phase0ELifecycleHookContractTestCase(unittest.TestCase):
@@ -189,6 +201,26 @@ class Phase0ELifecycleHookContractTestCase(unittest.TestCase):
         self.assertIn('begin_memory_job_revalidation', memory_task)
         self.assertIn('restore_source_support_if_source_remains', pcap_route)
         self.assertIn('restore_source_support_if_source_remains', memory_task)
+
+    def test_4162_lifecycle_hooks_are_complete(self):
+        pcap_task = open('/opt/casescope/tasks/pcap_tasks.py', encoding='utf-8').read()
+        memory_task = open('/opt/casescope/tasks/memory_tasks.py', encoding='utf-8').read()
+        memory_extractors = open('/opt/casescope/utils/graph_memory_extractors.py', encoding='utf-8').read()
+        migration = open('/opt/casescope/migrations/invalidate_phase0e_4160_dns_relationships.py', encoding='utf-8').read()
+        self.assertIn('begin_pcap_revalidation', pcap_task)
+        self.assertIn('finalize_pcap_revalidation', pcap_task)
+        self.assertIn('materialize_memory_for_case', memory_task)
+        self.assertIn('memory_job_id=job.id', memory_task)
+        self.assertNotIn('yield_per(1000)', memory_extractors)
+        self.assertIn('zeek_dns_resolved_to_ip', migration)
+        self.assertIn('invalidate_support_by_extractor', migration)
+
+    def test_rematerialization_updates_existing_support_locator(self):
+        materializer = open('/opt/casescope/utils/graph_materializer.py', encoding='utf-8').read()
+        self.assertIn('evidence.source_ref_type = source_ref_type', materializer)
+        self.assertIn('evidence.support_locator_json = support_locator', materializer)
+        self.assertNotIn('source_ref_type and not evidence.source_ref_type', materializer)
+        self.assertNotIn('support_locator and not evidence.support_locator_json', materializer)
 
 
 if __name__ == '__main__':

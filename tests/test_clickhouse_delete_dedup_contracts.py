@@ -91,6 +91,18 @@ class _TrackingGraphSupportLifecycle(_NoopGraphSupportLifecycle):
         self.restored.append(kwargs['case_file_id'])
         return {}
 
+    def begin_pcap_revalidation(self, **kwargs):
+        self.begun.append(kwargs['pcap_id'])
+        return {}
+
+    def finalize_pcap_revalidation(self, **kwargs):
+        self.finalized.append(kwargs['pcap_id'])
+        return {}
+
+    def restore_source_support_if_source_remains(self, **kwargs):
+        self.restored.append(kwargs['source_ref_id'])
+        return {}
+
 
 clickhouse_utils = _load_module('test_clickhouse_utils', os.path.join('utils', 'clickhouse.py'))
 
@@ -761,17 +773,21 @@ class PcapReindexContractTestCase(unittest.TestCase):
         app.secret_key = 'test-secret'
         pcap_record = types.SimpleNamespace(case_uuid='case-uuid')
         case = types.SimpleNamespace(id=77)
+        lifecycle = _TrackingGraphSupportLifecycle()
 
         with patch.object(pcap_tasks, 'get_flask_app', return_value=app):
             with patch.object(pcap_tasks.db.session, 'get', return_value=pcap_record):
                 with patch.object(pcap_tasks, '_get_case_for_task', return_value=case):
-                    with patch('models.network_log.delete_pcap_logs') as delete_logs_mock:
-                        with patch.object(pcap_tasks.index_zeek_logs, 'run', return_value={'success': True}) as index_mock:
-                            result = pcap_tasks.reindex_pcap_logs.run(pcap_id=41)
+                    with _graph_lifecycle_stub(lifecycle):
+                        with patch('models.network_log.delete_pcap_logs') as delete_logs_mock:
+                            with patch.object(pcap_tasks.index_zeek_logs, 'run', return_value={'success': True}) as index_mock:
+                                result = pcap_tasks.reindex_pcap_logs.run(pcap_id=41)
 
         self.assertTrue(result['success'])
         delete_logs_mock.assert_called_once_with(41, 77, wait=True)
         index_mock.assert_called_once_with(41)
+        self.assertEqual(lifecycle.begun, [41])
+        self.assertEqual(lifecycle.finalized, [41])
 
     def test_reindex_raises_when_pcap_is_missing(self):
         if PCAP_TASK_IMPORT_ERROR is not None:

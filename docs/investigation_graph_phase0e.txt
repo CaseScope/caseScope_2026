@@ -11,7 +11,7 @@ ACTIVE after their supporting evidence is removed.
 --------------------
 Version: 4.15.1
 Commit:  7740eaea31c24a8006d6ac7b9a0326dd670d9ea7
-Release: 4.16.1 corrective pass over 4.16.0
+Release: 4.16.2 corrective pass over 4.16.0/4.16.1
 
 Phases 0A–0D remain ACCEPTED / LOCKED.
 
@@ -80,12 +80,20 @@ not Zeek trans_id or another exact DNS transaction/source-record identity.
 Zeek uid identifies the connection carrying DNS messages, not one DNS exchange,
 so repeated identical query/answer activity could collapse support provenance.
 Event PROCESS CONNECTED_TO remains DISABLED.
+Upgrade reconciliation: migrations/invalidate_phase0e_4160_dns_relationships.py
+transitions existing zeek_dns_resolved_to_ip support from 4.16.0 to INVALIDATED
+and revalidates affected relationships so zero-current-support DNS edges become
+UNSUPPORTED historical rows.
 
 11. Exact IOC provenance
 ------------------------
 PostgreSQL table ioc_evidence_matches stores case_id, ioc_uuid, ioc_id,
 evidence_record_key, matched_field/value, source_ref, support_state.
 Written during tagging from known IOC object (exact uuid).
+Retagging uses scan revalidation: previous ACTIVE exact matches become pending,
+current matches are reproven, and unreproved rows become INVALIDATED. Exact
+provenance scans fail explicitly on ClickHouse errors and malformed/non-v2 ERKs
+are rejected rather than persisted.
 events.ioc_types remains display-only and never proves which IOC matched.
 
 12. KnownSystem / KnownUser
@@ -123,7 +131,11 @@ Reprocess sequence:
 3) equivalent support reactivates same canonical edge (extractor version on provenance)
 
 PCAP_FILE and MEMORY_JOB native source deletion/reprocessing paths are routed
-through the same lifecycle boundary as CaseFile event support.
+through the same lifecycle boundary as CaseFile event support. PCAP reindex is
+also wrapped in begin/finalize/restore revalidation. Successful memory ingestion
+materializes Phase 0E memory graph relationships immediately for that MemoryJob.
+Failed CaseFile deletion/revalidation restores both GraphRelationshipEvidence
+and exact IOCEvidenceMatch support when source evidence remains.
 
 19. Failure / recovery
 ----------------------
@@ -162,8 +174,9 @@ Source removal: existing admin/write gates.
 Pivot bounds 25/50/50.
 ERK streaming / batched support updates (DEFAULT_BATCH_SIZE=500).
 IOC match streaming LIMIT/OFFSET.
-Memory process resolution is lazy per PID (two-row ambiguity check) and memory
-candidates are streamed into materialization rather than collected per extractor.
+Memory process resolution is lazy per PID (two-row ambiguity check). Memory
+artifact extraction uses bounded id-keyset pages so commits do not run while a
+PostgreSQL streaming cursor remains open.
 
 26. Known limitations
 ---------------------
@@ -190,5 +203,6 @@ IOC exact support          yes  ioc_evidence_matches               ENABLED
 Support lifecycle          yes  graph_support_lifecycle            ENABLED
 Memory extractors          yes  graph_memory_extractors            ENABLED
 DNS RESOLVED_TO            no   missing trans_id/source-record id  NOT ENABLED — INSUFFICIENT SOURCE CONTRACT
+Legacy DNS reconciliation  yes  4.16.2 migration                   ENABLED
 Event CONNECTED_TO         no   insufficient process identity      NOT ENABLED
 Service/registry/task evt  no   insufficient normalized fields     NOT ENABLED — INSUFFICIENT SOURCE CONTRACT
