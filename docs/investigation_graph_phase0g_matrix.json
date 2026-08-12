@@ -1,0 +1,212 @@
+{
+  "baseline": {
+    "version": "4.17.2",
+    "sha": "4298bd24cac5bcb87d3128941aa227df33dfac84",
+    "branch": "main",
+    "main_head": "4298bd24cac5bcb87d3128941aa227df33dfac84",
+    "status": "PASS"
+  },
+  "support_matrix": {
+    "profiles": [
+      {
+        "id": "ubuntu-2404-single-host",
+        "os": "Ubuntu 24.04 LTS",
+        "app_path": "/opt/casescope",
+        "user_group": "casescope:casescope",
+        "postgresql": "local PostgreSQL service",
+        "clickhouse": "local ClickHouse service, database casescope",
+        "redis_celery": "local Redis, casescope-workers, casescope-beat",
+        "web": "casescope-web systemd service",
+        "ai_rag": "optional Qdrant/Ollama/provider services; core graph/report gate must not require AI",
+        "proof": "wiki/install.md; wiki/update-software.md"
+      }
+    ]
+  },
+  "status_values": [
+    "PASS",
+    "FAIL",
+    "APPROVED_EXCLUSION",
+    "NOT_APPLICABLE"
+  ],
+  "regression_results": {
+    "improvement1_focused": {
+      "command": "/opt/casescope/venv/bin/python -m pytest tests/test_evidence_identity.py tests/test_evidence_identity_migration.py tests/test_evidence_identity_clickhouse_integration.py tests/test_graph_identity.py tests/test_graph_extractors.py tests/test_graph_materializer.py tests/test_graph_migration.py tests/test_graph_query.py tests/test_graph_routes.py tests/test_graph_support_lifecycle.py tests/test_graph_phase0e_contracts.py tests/test_graph_pivots.py tests/test_graph_saved_views.py tests/test_graph_saved_view_routes.py tests/test_investigation_references.py tests/test_investigation_threads.py tests/test_investigation_thread_routes.py tests/test_investigation_thread_ui_contract.py tests/test_investigation_audit_integration.py tests/test_investigation_thread_migration.py tests/test_investigation_context.py tests/test_investigation_thread_report_snapshots.py",
+      "passed": 286,
+      "failed": 0,
+      "skipped": 1,
+      "waived": 0,
+      "elapsed_seconds": 17.36
+    },
+    "improvement1_manifest": {
+      "command": "/opt/casescope/scripts/test_improvement1.sh",
+      "passed": 289,
+      "failed": 0,
+      "skipped": 1,
+      "waived": 0,
+      "elapsed_seconds": 17.27
+    },
+    "full_repository_attempt": {
+      "command": "/opt/casescope/venv/bin/python -m pytest tests",
+      "status": "FAIL",
+      "collected": 1773,
+      "collection_errors": 25,
+      "exit_code": 2,
+      "summary": "Collection failed from pre-existing test stub conflicts: _FakeDB missing SQLAlchemy attributes, fake AnalysisStatus missing terminal_statuses, and scoring tests importing missing symbols from stubbed utils.finding_contract."
+    },
+    "waiver_0c_001": {
+      "command": "/opt/casescope/venv/bin/python -m pytest tests/test_route_security_regressions.py::RouteSecurityRegressionTestCase::test_tag_artifacts_start_routes_to_ioc_queue_and_tracks_task_access",
+      "status": "REPRODUCED",
+      "expected": "apply_async(args=(11,), queue='ioc')",
+      "actual": "apply_async(args=(11, 'tester', None), queue='ioc')",
+      "queue": "ioc"
+    },
+    "large_case_runtime": {
+      "status": "FAIL",
+      "reason": "Mandatory >=1,000,000 row ClickHouse disposable scale run and operation-by-operation benchmark were not completed in this local gate attempt."
+    },
+    "fresh_install_runtime": {
+      "status": "FAIL",
+      "reason": "Fresh supported installation validation was not completed in a separate disposable install."
+    },
+    "upgrade_runtime": {
+      "status": "FAIL",
+      "reason": "Supported upgrade-path migration validation was not completed from historical checkout/database state."
+    },
+    "deployment_smoke": {
+      "status": "FAIL",
+      "reason": "Services were confirmed active, but the full disposable-case post-deployment smoke matrix was not executed."
+    }
+  },
+  "approved_exclusions": [
+    {
+      "id": "EX-0G-AC09",
+      "acceptance_criterion": 9,
+      "current_state": "Generic event PROCESS CONNECTED_TO remains disabled.",
+      "reason": "Network PID alone does not prove a defensible process execution identity.",
+      "missing_contract": "Source-native execution identifier such as Sysmon ProcessGuid or strict process-creation anchor resolution.",
+      "negative_tests": [
+        "tests/test_graph_phase0e_contracts.py::Phase0EExtractorContractTestCase::test_event_connected_to_remains_disabled",
+        "tests/test_graph_extractors.py::GraphExtractorTestCase"
+      ],
+      "future_prerequisites": "Accepted evidence/identity contract, migration/reconciliation plan, and external architecture review."
+    },
+    {
+      "id": "EX-0G-AC15",
+      "acceptance_criterion": 15,
+      "current_state": "Analyst assertion overlay is intentionally unimplemented.",
+      "reason": "Thread membership preserves analyst selection but does not create graph authority.",
+      "missing_contract": "Accepted ANALYST_ASSERTED visual/semantic graph-layer contract.",
+      "negative_tests": [
+        "tests/test_investigation_threads.py",
+        "tests/test_investigation_thread_ui_contract.py"
+      ],
+      "future_prerequisites": "External architecture approval for analyst-authored graph overlay semantics."
+    },
+    {
+      "id": "EX-0G-AC16",
+      "acceptance_criterion": 16,
+      "current_state": "DNS RESOLVED_TO remains disabled and withdrawn support is invalidated by migration.",
+      "reason": "Current Zeek DNS retention lacks exact DNS transaction/source-record identity.",
+      "missing_contract": "Transaction-safe DNS provenance key, migration/reconciliation safety, and duplicate support identity.",
+      "negative_tests": [
+        "tests/test_graph_phase0e_contracts.py::Phase0EExtractorContractTestCase::test_dns_resolved_to_disabled_until_exact_transaction_identity"
+      ],
+      "future_prerequisites": "Accepted DNS provenance contract and external architecture review."
+    }
+  ],
+  "acceptance_criteria": [
+    {"id": 1, "status": "PASS", "phase": "0B/0F", "tests": ["tests/test_graph_identity.py", "tests/test_investigation_context.py"], "proof": "PROCESS identity uses host, PID, and execution anchor; PID reuse context is bounded by creation time."},
+    {"id": 2, "status": "PASS", "phase": "0B", "tests": ["tests/test_graph_extractors.py"], "proof": "PPID-only SPAWNED is not enabled for ambiguous parent candidates."},
+    {"id": 3, "status": "PASS", "phase": "0B", "tests": ["tests/test_graph_identity.py"], "proof": "Host-local users remain scoped when SID is absent."},
+    {"id": 4, "status": "PASS", "phase": "0B", "tests": ["tests/test_graph_identity.py"], "proof": "SID-backed users resolve to one case-scoped account identity."},
+    {"id": 5, "status": "PASS", "phase": "0B", "tests": ["tests/test_graph_extractors.py", "tests/test_graph_materializer.py"], "proof": "FILE_PATH and FILE_HASH are distinct entities with temporal HAD_CONTENT support."},
+    {"id": 6, "status": "PASS", "phase": "0B", "tests": ["tests/test_graph_identity.py", "tests/test_graph_materializer.py"], "proof": "Hash identity is algorithm plus digest and can be supported by multiple path relationships."},
+    {"id": 7, "status": "PASS", "phase": "0B/0D", "tests": ["tests/test_graph_identity.py", "tests/test_graph_materializer.py"], "proof": "KnownSystem lookup is case-scoped and observed host fallback includes source context."},
+    {"id": 8, "status": "PASS", "phase": "0A", "tests": ["tests/test_evidence_identity.py", "tests/test_evidence_identity_clickhouse_integration.py"], "proof": "Evidence Identity v2 includes raw source content in permanent key generation where native ID is absent."},
+    {"id": 9, "status": "APPROVED_EXCLUSION", "phase": "0B/0E", "tests": ["tests/test_graph_phase0e_contracts.py::Phase0EExtractorContractTestCase::test_event_connected_to_remains_disabled"], "proof": "Mapped to EX-0G-AC09."},
+    {"id": 10, "status": "PASS", "phase": "0B/0E", "tests": ["tests/test_graph_materializer.py", "tests/test_graph_support_lifecycle.py"], "proof": "Relationship evidence preserves source_table/source_ref_type and extractor provenance."},
+    {"id": 11, "status": "PASS", "phase": "0B/0E", "tests": ["tests/test_graph_materializer.py", "tests/test_graph_support_lifecycle.py"], "proof": "Idempotent rematerialization reuses canonical edge and updates first/last seen/support state."},
+    {"id": 12, "status": "PASS", "phase": "0B/0C", "tests": ["tests/test_graph_query.py", "tests/test_graph_routes.py"], "proof": "Relationship detail/evidence APIs return support rows for authoritative edges."},
+    {"id": 13, "status": "PASS", "phase": "0B", "tests": ["tests/test_graph_query.py", "tests/test_graph_materializer.py"], "proof": "Support rows serialize extractor/parser/source fields."},
+    {"id": 14, "status": "PASS", "phase": "0B", "tests": ["tests/test_graph_extractors.py", "tests/test_graph_materializer.py"], "proof": "Authoritative materialization rejects non-OBSERVED/DETERMINISTIC derivation."},
+    {"id": 15, "status": "APPROVED_EXCLUSION", "phase": "0D", "tests": ["tests/test_investigation_threads.py", "tests/test_investigation_thread_ui_contract.py"], "proof": "Mapped to EX-0G-AC15."},
+    {"id": 16, "status": "APPROVED_EXCLUSION", "phase": "0E", "tests": ["tests/test_graph_phase0e_contracts.py::Phase0EExtractorContractTestCase::test_dns_resolved_to_disabled_until_exact_transaction_identity"], "proof": "Mapped to EX-0G-AC16."},
+    {"id": 17, "status": "PASS", "phase": "0E", "tests": ["tests/test_graph_phase0e_contracts.py", "tests/test_graph_pivots.py"], "proof": "Network support locators include case and PCAP/source context; no new Zeek graph edge was invented."},
+    {"id": 18, "status": "PASS", "phase": "0B", "tests": ["tests/test_graph_extractors.py"], "proof": "source_host may support HOST context but is not treated as a network endpoint owner."},
+    {"id": 19, "status": "PASS", "phase": "0E", "tests": ["tests/test_graph_phase0e_contracts.py", "tests/test_ioc_case_scope.py"], "proof": "Exact IOC provenance stores IOC UUID and matched evidence."},
+    {"id": 20, "status": "PASS", "phase": "0E", "tests": ["tests/test_graph_phase0e_contracts.py::Phase0EIOCProvenanceContractTestCase::test_ioc_types_alone_cannot_prove_exact_match"], "proof": "events.ioc_types is display-only for graph/support authority."},
+    {"id": 21, "status": "PASS", "phase": "0C", "tests": ["tests/test_graph_query.py", "tests/test_graph_routes.py"], "proof": "Entity detail requires case_id and rejects cross-case object IDs."},
+    {"id": 22, "status": "PASS", "phase": "0C", "tests": ["tests/test_graph_query.py"], "proof": "Relationship evidence listing is case-scoped."},
+    {"id": 23, "status": "PASS", "phase": "0C", "tests": ["tests/test_graph_routes.py", "tests/test_graph_pivots.py"], "proof": "Viewer read paths use existing case access checks."},
+    {"id": 24, "status": "PASS", "phase": "0D", "tests": ["tests/test_investigation_thread_routes.py", "tests/test_graph_saved_view_routes.py"], "proof": "Viewer write attempts are denied for durable Thread/View operations."},
+    {"id": 25, "status": "PASS", "phase": "0C/0D/0F", "tests": ["tests/test_graph_routes.py", "tests/test_investigation_thread_routes.py", "tests/test_graph_saved_view_routes.py", "tests/test_investigation_thread_report_snapshots.py"], "proof": "Object lookup resolves by authorized case before object ID/UUID."},
+    {"id": 26, "status": "PASS", "phase": "0E", "tests": ["tests/test_graph_support_lifecycle.py"], "proof": "Source removal marks old support non-active."},
+    {"id": 27, "status": "PASS", "phase": "0E", "tests": ["tests/test_graph_support_lifecycle.py"], "proof": "Relationships with remaining ACTIVE support stay ACTIVE."},
+    {"id": 28, "status": "PASS", "phase": "0E", "tests": ["tests/test_graph_support_lifecycle.py"], "proof": "Relationships with zero ACTIVE support become UNSUPPORTED/INVALIDATED."},
+    {"id": 29, "status": "PASS", "phase": "0D/0F", "tests": ["tests/test_investigation_threads.py", "tests/test_investigation_thread_report_snapshots.py"], "proof": "Frozen snapshots remain readable and source availability is separate."},
+    {"id": 30, "status": "PASS", "phase": "0C", "tests": ["tests/test_graph_query.py::GraphQueryServiceTestCase::test_high_degree_node_truncates_and_cursor_loads_without_duplicates"], "proof": "Neighborhood uses hard limit and cursor pagination."},
+    {"id": 31, "status": "PASS", "phase": "0C/0F", "tests": ["tests/test_graph_query.py"], "proof": "Path depth/path/frontier/per-node limits are enforced."},
+    {"id": 32, "status": "PASS", "phase": "0C", "tests": ["tests/test_graph_query.py::GraphQueryServiceTestCase::test_bounded_path_finds_path_handles_cycles_and_blocks_cross_case"], "proof": "Cyclic traversal avoids runaway."},
+    {"id": 33, "status": "FAIL", "phase": "0G", "tests": [], "proof": "Mandatory >=1,000,000 row disposable ClickHouse scale benchmark was not executed."},
+    {"id": 34, "status": "PASS", "phase": "0D/0F", "tests": ["tests/test_investigation_threads.py", "tests/test_investigation_thread_report_snapshots.py"], "proof": "Thread durable refs survive graph clear/rebuild."},
+    {"id": 35, "status": "PASS", "phase": "0D/0F", "tests": ["tests/test_graph_saved_views.py", "tests/test_investigation_thread_report_snapshots.py"], "proof": "Saved View state, filters, pins, and coordinates are persisted/frozen."},
+    {"id": 36, "status": "PASS", "phase": "0D", "tests": ["tests/test_investigation_threads.py"], "proof": "Durable Thread mutations increment version."},
+    {"id": 37, "status": "PASS", "phase": "0D", "tests": ["tests/test_investigation_threads.py", "tests/test_investigation_thread_routes.py"], "proof": "Stale Thread update returns conflict."},
+    {"id": 38, "status": "PASS", "phase": "0D/0F", "tests": ["tests/test_investigation_threads.py", "tests/test_investigation_thread_report_snapshots.py"], "proof": "Evidence snapshot hash remains unchanged after graph/current-source changes."},
+    {"id": 39, "status": "PASS", "phase": "0F", "tests": ["tests/test_investigation_thread_report_snapshots.py"], "proof": "Report snapshots pin Thread version, Saved View version, and evidence-set fingerprint."},
+    {"id": 40, "status": "PASS", "phase": "0D/0F", "tests": ["tests/test_investigation_audit_integration.py", "tests/test_investigation_thread_report_snapshots.py"], "proof": "Thread/View/report snapshot operations log unified AuditLog rows."},
+    {"id": 41, "status": "PASS", "phase": "0D/0F", "tests": ["tests/test_investigation_audit_integration.py"], "proof": "Audit rows participate in existing chained AuditLog verification."},
+    {"id": 42, "status": "PASS", "phase": "0E", "tests": ["tests/test_graph_phase0e_contracts.py", "tests/test_investigation_references.py"], "proof": "Malformed/non-v2 ERKs are rejected by provenance/reference builders."},
+    {"id": 43, "status": "PASS", "phase": "0B", "tests": ["tests/test_graph_materializer.py"], "proof": "Candidate case_id mismatch is rejected before mutation."},
+    {"id": 44, "status": "PASS", "phase": "0D", "tests": ["tests/test_graph_materializer.py"], "proof": "Materialization savepoints isolate malformed records and neighboring records continue."},
+    {"id": 45, "status": "PASS", "phase": "0B/0E", "tests": ["tests/test_graph_materializer.py"], "proof": "Canonical edge is reused while extractor version provenance is recorded on support."},
+    {"id": 46, "status": "PASS", "phase": "0D", "tests": ["tests/test_graph_materializer.py"], "proof": "KnownSystem infrastructure exceptions propagate/fail closed."},
+    {"id": 47, "status": "PASS", "phase": "0B", "tests": ["tests/test_graph_extractors.py"], "proof": "Failed logon 4625 does not create successful logon/session edges."},
+    {"id": 48, "status": "PASS", "phase": "0B", "tests": ["tests/test_graph_extractors.py"], "proof": "Explicit credential event does not create successful session edges."},
+    {"id": 49, "status": "PASS", "phase": "0E", "tests": ["tests/test_graph_phase0e_contracts.py"], "proof": "Network PID alone cannot create PROCESS identity or CONNECTED_TO."},
+    {"id": 50, "status": "PASS", "phase": "0B", "tests": ["tests/test_graph_identity.py"], "proof": "UNC/device path prefixes remain preserved/distinct."},
+    {"id": 51, "status": "PASS", "phase": "0C", "tests": ["tests/test_graph_query.py::GraphQueryServiceTestCase::test_entity_search_is_case_scoped_and_empty_search_does_not_dump"], "proof": "Empty graph search returns no entities."},
+    {"id": 52, "status": "PASS", "phase": "0C", "tests": ["tests/test_graph_query.py::GraphQueryServiceTestCase::test_high_degree_node_truncates_and_cursor_loads_without_duplicates"], "proof": "Neighborhood pagination does not duplicate relationships across pages."},
+    {"id": 53, "status": "PASS", "phase": "0F", "tests": ["tests/test_graph_query.py::GraphQueryServiceTestCase::test_path_response_contains_only_returned_path_union_not_traversal_workspace"], "proof": "Path payload contains only returned path union."},
+    {"id": 54, "status": "PASS", "phase": "0F", "tests": ["tests/test_graph_query.py::GraphQueryServiceTestCase::test_path_traversal_ceiling_reports_truncated_not_global_no_path"], "proof": "Truncation wording reports current limits, not global absence."},
+    {"id": 55, "status": "PASS", "phase": "0F", "tests": ["tests/test_graph_query.py::GraphQueryServiceTestCase::test_exact_erk_lookup_uses_case_and_erk_and_preserves_selector"], "proof": "Exact ERK lookup SQL requires case_id + ERK."},
+    {"id": 56, "status": "PASS", "phase": "0F", "tests": ["tests/test_graph_query.py::GraphQueryServiceTestCase::test_exact_erk_lookup_uses_case_and_erk_and_preserves_selector"], "proof": "Duplicate physical ClickHouse rows are reported without multiplying logical evidence."},
+    {"id": 57, "status": "PASS", "phase": "0D", "tests": ["tests/test_investigation_references.py", "tests/test_investigation_threads.py"], "proof": "Thread durable refs use typed stable identity, not transient row IDs only."},
+    {"id": 58, "status": "PASS", "phase": "0D/0F", "tests": ["tests/test_investigation_threads.py", "tests/test_investigation_thread_report_snapshots.py"], "proof": "Snapshot retained is distinct from current source retrievability."},
+    {"id": 59, "status": "PASS", "phase": "0F", "tests": ["tests/test_investigation_thread_report_snapshots.py::InvestigationThreadReportSnapshotTestCase::test_later_thread_view_and_graph_changes_do_not_change_old_snapshot"], "proof": "Previous report snapshot remains unchanged after later Thread/View edits."},
+    {"id": 60, "status": "PASS", "phase": "0F", "tests": ["tests/test_phase6_ai_report_runtime_contract.py", "tests/test_investigation_thread_report_snapshots.py"], "proof": "Core deterministic graph/Thread/report snapshot path does not require AI, and AI provenance fields are presentation-only."}
+  ],
+  "risks": [
+    {"id": "R1", "severity": "CRITICAL", "status": "PASS", "proof": "Identity tests cover PID reuse, username separation, SID merge, host alias, path/hash separation."},
+    {"id": "R2", "severity": "CRITICAL", "status": "PASS", "proof": "Extractor registry and negative tests block temporal, AI, MITRE, IOC display-only, PID-only, and DNS inference."},
+    {"id": "R3", "severity": "HIGH", "status": "PASS", "proof": "Support lifecycle tests cover invalidation, remaining support ACTIVE, zero support unsupported, and reprocess hooks."},
+    {"id": "R4", "severity": "CRITICAL", "status": "PASS", "proof": "Evidence Identity v2 tests cover ERK generation and migration/backfill behavior."},
+    {"id": "R5", "severity": "CRITICAL", "status": "PASS", "proof": "Graph, support, ERK, context, Thread, View, report snapshot, IOC/finding pivot, deletion, and guessed-ID tests are case-scoped in focused suite."},
+    {"id": "R6", "severity": "HIGH", "status": "PASS", "proof": "Graph query tests enforce no empty dump, hard limits, pagination, aggregation, and no raw-event node default."},
+    {"id": "R7", "severity": "HIGH", "status": "PASS", "proof": "Thread stable refs, Saved View persistence, evidence fingerprints, and immutable report snapshots are tested."},
+    {"id": "R8", "severity": "HIGH", "status": "PASS", "proof": "Snapshot/source availability tests keep frozen evidence and report snapshots unchanged."},
+    {"id": "R9", "severity": "HIGH", "status": "PASS", "proof": "Thread/View/report snapshot stale version conflicts are tested."},
+    {"id": "R10", "severity": "MEDIUM", "status": "PASS", "proof": "UI contract tests verify graph/details/context/thread coordination and no Attack Chain label."},
+    {"id": "R11", "severity": "HIGH", "status": "FAIL", "proof": "Actual millions-of-events benchmark was not completed."},
+    {"id": "R12", "severity": "HIGH", "status": "PASS", "proof": "KnownSystem lookup infrastructure errors fail closed."}
+  ],
+  "master_completion_checklist": [
+    {"id": 1, "status": "FAIL", "reason": "Phase 0A migrations are covered by tests, but every supported installation migration validation was not executed."},
+    {"id": 2, "status": "PASS", "reason": "Graph identity/provenance/materialization focused tests pass with no unresolved HIGH/CRITICAL correctness defect except scale gate R11."},
+    {"id": 3, "status": "PASS", "reason": "Graph query/workspace bounded, authorized, and evidence-drillable tests pass."},
+    {"id": 4, "status": "PASS", "reason": "Threads/Saved Views complete and audited in focused tests."},
+    {"id": 5, "status": "PASS", "reason": "Existing-surface pivots/support lifecycle tests pass."},
+    {"id": 6, "status": "PASS", "reason": "Temporal/context/report snapshot tests pass."},
+    {"id": 7, "status": "PASS", "reason": "Criteria 1-41 are PASS or approved exclusion except AC33, which fails pending actual scale run."},
+    {"id": 8, "status": "PASS", "reason": "Criteria 42-60 are mapped PASS in focused tests."},
+    {"id": 9, "status": "FAIL", "reason": "Realistic large-case tests were not executed."},
+    {"id": 10, "status": "PASS", "reason": "Deletion/reprojection/source-removal behavior is covered by focused unit/integration tests, not full deployed smoke."},
+    {"id": 11, "status": "PASS", "reason": "Viewer/analyst/admin permission behavior is covered by route tests."},
+    {"id": 12, "status": "PASS", "reason": "Thread/report snapshots remain reproducible in focused tests."},
+    {"id": 13, "status": "PASS", "reason": "AI cannot author authoritative graph facts under tested deterministic workflows."},
+    {"id": 14, "status": "PASS", "reason": "Authority-language tests/docs review found accepted graph path language in core surfaces."},
+    {"id": 15, "status": "FAIL", "reason": "All supported upgrade paths were not exercised from disposable historical database states."},
+    {"id": 16, "status": "FAIL", "reason": "Full relevant regression suite passed, but fresh install/deployment smoke for each supported installation was not completed."}
+  ],
+  "final_verdict": "NOT READY"
+}

@@ -1,0 +1,347 @@
+CaseScope Investigation Graph Phase 0G
+======================================
+
+A. Accepted baseline
+--------------------
+Version: 4.17.2
+SHA: 4298bd24cac5bcb87d3128941aa227df33dfac84
+Branch: main
+Main HEAD: 4298bd24cac5bcb87d3128941aa227df33dfac84
+
+Phase status at entry:
+- Phase 0A Evidence Identity v2: ACCEPTED / LOCKED
+- Phase 0B Canonical Evidence-Backed Graph: ACCEPTED / LOCKED
+- Phase 0C Graph Query API + Analyst Workspace: ACCEPTED / LOCKED
+- Phase 0D Investigation Threads + Saved Graph Views: ACCEPTED / LOCKED
+- Phase 0E Existing-Surface Integration + Support Lifecycle: ACCEPTED / LOCKED
+- Phase 0F Temporal Context + Timeline + Immutable Reporting: ACCEPTED / LOCKED
+
+Phase 0G scope confirmation:
+This is a verification and release-gate phase, not a new product-feature phase.
+The governing architecture remains locked: PostgreSQL stores the durable
+investigative graph; ClickHouse proves it; events support relationships but do
+not become the graph; Threads preserve analyst selections and conclusions; AI is
+only a reader/suggestion/presentation layer and is not authoritative.
+
+B. Repository support matrix
+----------------------------
+Repository documentation claims one supported deployment profile:
+- Ubuntu 24.04 LTS, single host.
+- Application path: /opt/casescope.
+- Runtime user/group: casescope:casescope.
+- Python environment: /opt/casescope/venv.
+- PostgreSQL: local service and casescope database.
+- ClickHouse: local service and casescope database.
+- Redis/Celery: local Redis, casescope-workers, casescope-beat.
+- Web: casescope-web systemd service.
+- Qdrant/Ollama/provider AI services: optional after the core application works.
+
+Proof:
+- wiki/install.md
+- wiki/update-software.md
+
+C. Requirement-to-code/test coverage matrix
+-------------------------------------------
+Machine-readable coverage is stored in:
+- docs/investigation_graph_phase0g_matrix.json
+
+Status values are limited to:
+- PASS
+- FAIL
+- APPROVED_EXCLUSION
+- NOT_APPLICABLE
+
+Summary:
+- Acceptance criteria represented: 60
+- PASS: 56
+- APPROVED_EXCLUSION: 3
+- FAIL: 1
+- NOT_APPLICABLE: 0
+
+The single failed acceptance criterion is AC-33 because the mandatory
+>=1,000,000 row disposable ClickHouse scale benchmark was not executed in this
+gate attempt.
+
+D. Original criteria 1-41 disposition
+-------------------------------------
+1 PASS - PID reuse is covered by process identity/context tests.
+2 PASS - PPID-only SPAWNED is not enabled for ambiguous parent candidates.
+3 PASS - host-local usernames remain distinct without SID evidence.
+4 PASS - SID-backed observations resolve to one case-scoped account.
+5 PASS - file path and hash identity remain separate with temporal support.
+6 PASS - one hash entity can have multiple path/content supports.
+7 PASS - KnownSystem and observed-host identity avoid unsafe alias overmerge.
+8 PASS - Evidence Identity v2 prevents same-second/no-native-ID collisions.
+9 APPROVED_EXCLUSION - generic event PID-only PROCESS CONNECTED_TO remains disabled.
+10 PASS - support provenance preserves source class and extractor metadata.
+11 PASS - reprojection/idempotency reuses canonical edges and updates support.
+12 PASS - authoritative edge APIs return supporting records.
+13 PASS - support rows identify extractor/parser/source provenance.
+14 PASS - MODEL_SYNTHESIZED/non-authoritative derivations cannot materialize authoritative edges.
+15 APPROVED_EXCLUSION - analyst assertion overlay is intentionally unimplemented.
+16 APPROVED_EXCLUSION - DNS RESOLVED_TO remains disabled pending exact DNS transaction identity.
+17 PASS - Zeek/network support remains case/source/PCAP scoped without inventing new Zeek graph edges.
+18 PASS - source_host is not a network endpoint owner.
+19 PASS - IOC provenance stores exact IOC UUID and evidence match.
+20 PASS - events.ioc_types alone cannot prove an IOC relationship/support fact.
+21 PASS - entity lookup is case scoped.
+22 PASS - relationship support cannot cross case boundaries.
+23 PASS - viewer read access is covered by graph route tests.
+24 PASS - viewer durable writes are denied.
+25 PASS - guessed object identifiers are resolved under the authorized case first.
+26 PASS - source removal invalidates old support.
+27 PASS - remaining support keeps an edge ACTIVE.
+28 PASS - zero-current-support edges become unsupported/invalidated.
+29 PASS - Thread snapshots remain readable and separate retained snapshot from live source availability.
+30 PASS - high-degree neighborhoods are bounded.
+31 PASS - depth/path limits are enforced.
+32 PASS - cycles do not cause traversal runaway.
+33 FAIL - realistic millions-of-events scale benchmark not executed.
+34 PASS - Thread durable refs survive graph rebuild.
+35 PASS - Saved Graph Views restore saved state.
+36 PASS - Thread updates increment version.
+37 PASS - stale Thread updates conflict.
+38 PASS - Thread evidence snapshot hash is immutable.
+39 PASS - report snapshots pin Thread version, Saved View version, and evidence-set fingerprint.
+40 PASS - Thread/View/report snapshot actions produce unified AuditLog records.
+41 PASS - audit rows participate in the existing chained AuditLog.
+
+E. Additional criteria 42-60 disposition
+----------------------------------------
+42 PASS - malformed/non-v2 ERKs are rejected.
+43 PASS - cross-case materialization candidates are rejected before mutation.
+44 PASS - malformed records are isolated by materialization savepoints.
+45 PASS - reprocessing under a new extractor version reuses canonical edge identity and records provenance.
+46 PASS - KnownSystem lookup infrastructure errors fail closed.
+47 PASS - failed Windows logon does not create successful logon/session edges.
+48 PASS - explicit-credential attempt does not create successful session edges.
+49 PASS - network PID alone cannot create PROCESS identity or CONNECTED_TO.
+50 PASS - UNC/device path prefixes remain preserved/distinct.
+51 PASS - empty graph search does not dump the case graph.
+52 PASS - neighborhood pagination avoids relationship duplication.
+53 PASS - path responses contain only returned path nodes/edges.
+54 PASS - traversal truncation uses current-limit semantics.
+55 PASS - exact ERK lookup requires case_id + ERK.
+56 PASS - duplicate ClickHouse rows for one ERK do not multiply logical evidence.
+57 PASS - Thread durable refs do not rely solely on transient PostgreSQL row IDs.
+58 PASS - Thread evidence snapshots distinguish retained snapshot from live source retrievability.
+59 PASS - historical report snapshots remain unchanged after Thread/View edits.
+60 PASS - AI summaries/suggestions cannot mutate graph facts or Thread conclusions without analyst action in tested deterministic workflows.
+
+F. Architecture-approved exclusions
+-----------------------------------
+EX-0G-AC09:
+- Criterion: 9
+- Current state: generic event PROCESS CONNECTED_TO disabled.
+- Reason: network PID alone does not prove process execution identity.
+- Negative proof: tests/test_graph_phase0e_contracts.py.
+- Future prerequisites: accepted execution-anchor contract, migration/reconciliation plan, external architecture review.
+
+EX-0G-AC15:
+- Criterion: 15
+- Current state: analyst assertion overlay unimplemented.
+- Reason: Thread membership is curated narrative state, not graph authority.
+- Negative proof: Thread and UI contract tests.
+- Future prerequisites: accepted ANALYST_ASSERTED layer contract and external architecture review.
+
+EX-0G-AC16:
+- Criterion: 16
+- Current state: DNS RESOLVED_TO disabled; withdrawn support invalidation migration exists.
+- Reason: current retained Zeek DNS data lacks exact transaction/source-record identity.
+- Negative proof: tests/test_graph_phase0e_contracts.py.
+- Future prerequisites: DNS provenance contract, migration safety plan, external architecture review.
+
+G. Risk register R1-R12 closure
+-------------------------------
+R1 CRITICAL PASS - identity tests cover PID reuse, username separation, SID merge, host alias, and path/hash separation.
+R2 CRITICAL PASS - extractor registry and negative tests block relationship hallucination/inference.
+R3 HIGH PASS - lifecycle tests cover invalidation, remaining support, zero support, and reprocess hooks.
+R4 CRITICAL PASS - Evidence Identity v2 tests cover ERK generation and migration/backfill behavior.
+R5 CRITICAL PASS - graph/support/ERK/context/Thread/View/report/IOC/finding/deletion routes are case scoped in tests.
+R6 HIGH PASS - graph APIs enforce empty-search, aggregation, hard limits, pagination, and no raw-event default node explosion.
+R7 HIGH PASS - stable refs, Saved Views, evidence fingerprints, and immutable report snapshots are tested.
+R8 HIGH PASS - frozen snapshots and source availability remain separate.
+R9 HIGH PASS - Thread, View, and snapshot stale-version conflicts are tested.
+R10 MEDIUM PASS - UI contract tests cover progressive graph/context/thread language and no Attack Chain label.
+R11 HIGH FAIL - actual millions-of-events scale benchmark was not executed.
+R12 HIGH PASS - KnownSystem lookup infrastructure errors fail closed.
+
+H. Large-case benchmark results
+-------------------------------
+NOT EXECUTED.
+
+Required but missing:
+- >=1,000,000 normalized ClickHouse event rows in a dedicated disposable case.
+- realistic topology with high-degree entity, cycles, multiple cases, duplicate ERKs, and support rows.
+- operation-by-operation metrics for exact ERK, search, neighborhood, evidence, paths, context windows, Thread/View/report snapshot operations.
+- query-plan/index review under the generated scale corpus.
+
+Because R11 and AC-33 are HIGH/mandatory, Phase 0G is NOT READY.
+
+I. Migration validation
+-----------------------
+Inventory of Improvement #1 migration files:
+- migrations/add_evidence_record_identity.py
+- migrations/evidence_identity_udf.py
+- migrations/add_investigation_graph_tables.py
+- migrations/add_investigation_threads_tables.py
+- migrations/add_graph_phase0e_support_lifecycle.py
+- migrations/invalidate_phase0e_4160_dns_relationships.py
+- migrations/add_investigation_thread_report_snapshots.py
+
+Fresh install and historical upgrade-path validation were not completed in
+separate disposable environments. Migration unit tests passed in the focused
+regression suite, but that is not sufficient for Phase 0G final release.
+
+J. Deletion/reprojection/source-removal validation
+--------------------------------------------------
+Focused tests cover:
+- CaseFile support invalidation and revalidation hooks.
+- PCAP and Memory lifecycle hook presence.
+- remaining support keeps relationships active.
+- zero support makes relationships unsupported/invalidated.
+- graph clear/rebuild with Thread/Saved View/report snapshot stability.
+
+Full deployed end-to-end lifecycle smoke over CaseFile, PCAP, MemoryJob, IOC
+source support, and permanent case deletion was not executed in this gate
+attempt.
+
+K. Permission matrix
+--------------------
+Focused route tests cover:
+- Viewer read access for graph/Thread/View/snapshot routes.
+- Viewer write denial for Thread/View/snapshot durable mutations.
+- case authorization before object lookup for guessed IDs.
+
+A full deployed role x capability matrix over Viewer, Analyst, and Administrator
+was not executed against a disposable case.
+
+L. Thread/report reproducibility validation
+-------------------------------------------
+Focused tests prove:
+- Thread stable refs survive graph clear/rebuild.
+- Saved View version/state are frozen into report snapshots.
+- evidence-set fingerprint is pinned.
+- report snapshot hash and graph render hash remain unchanged after later
+  Thread/View/graph changes.
+- deterministic DOCX generation uses snapshot-derived state.
+
+M. AI non-authorship validation
+-------------------------------
+Focused tests and code review prove the deterministic graph, Thread, context,
+Saved View, and report snapshot paths do not require AI. Snapshot AI provenance
+fields are presentation metadata and do not mutate graph facts, Thread
+conclusions, Thread membership, support provenance, or frozen report snapshots.
+
+N. UI/documentation authority-language audit
+--------------------------------------------
+Reviewed files include:
+- static/templates/case_graph.html
+- static/js/graph_pivot.js
+- static/templates/case_investigation_threads.html
+- static/templates/case_hunting*.html
+- docs/investigation_graph_phase0b.txt
+- docs/investigation_threads_phase0d.txt
+- docs/investigation_graph_phase0e.txt
+- docs/investigation_graph_phase0f.txt
+- wiki/install.md
+- wiki/update-software.md
+
+Core graph surfaces use graph/path/relationship language. The accepted docs
+explicitly state that temporal context, Thread membership, and AI output do not
+author graph relationships. No production wording change was required in this
+gate attempt.
+
+O. Full regression results
+--------------------------
+Focused Improvement #1 regression command:
+/opt/casescope/venv/bin/python -m pytest tests/test_evidence_identity.py tests/test_evidence_identity_migration.py tests/test_evidence_identity_clickhouse_integration.py tests/test_graph_identity.py tests/test_graph_extractors.py tests/test_graph_materializer.py tests/test_graph_migration.py tests/test_graph_query.py tests/test_graph_routes.py tests/test_graph_support_lifecycle.py tests/test_graph_phase0e_contracts.py tests/test_graph_pivots.py tests/test_graph_saved_views.py tests/test_graph_saved_view_routes.py tests/test_investigation_references.py tests/test_investigation_threads.py tests/test_investigation_thread_routes.py tests/test_investigation_thread_ui_contract.py tests/test_investigation_audit_integration.py tests/test_investigation_thread_migration.py tests/test_investigation_context.py tests/test_investigation_thread_report_snapshots.py
+
+Result:
+- passed: 286
+- failed: 0
+- skipped: 1
+- waived: 0
+- elapsed: 17.36 seconds
+
+Manifest command:
+/opt/casescope/scripts/test_improvement1.sh
+
+Manifest result:
+- passed: 289
+- failed: 0
+- skipped: 1
+- waived: 0
+- elapsed: 17.27 seconds
+
+Full repository test attempt:
+/opt/casescope/venv/bin/python -m pytest tests
+
+Full repository result:
+- collected: 1773
+- collection errors: 25
+- exit code: 2
+- result: FAIL
+
+Collection failed from existing test stub conflicts, including:
+- _FakeDB missing SQLAlchemy attributes such as Index, JSON, init_app, and Model.
+- fake AnalysisStatus missing terminal_statuses.
+- scoring contract tests importing missing symbols from stubbed utils.finding_contract.
+
+WAIVER-0C-001:
+- command: /opt/casescope/venv/bin/python -m pytest tests/test_route_security_regressions.py::RouteSecurityRegressionTestCase::test_tag_artifacts_start_routes_to_ioc_queue_and_tracks_task_access
+- status: REPRODUCED
+- expected: apply_async(args=(11,), queue='ioc')
+- actual: apply_async(args=(11, 'tester', None), queue='ioc')
+- queue: ioc
+- no expansion of the waiver is requested.
+
+P. Deployment smoke results
+---------------------------
+Local service state observed before docs/tests edits:
+- postgresql: active
+- redis-server: active
+- clickhouse-server: active
+- casescope-web: active
+- casescope-workers: active
+- casescope-beat: active
+
+The required disposable-case deployment smoke matrix was not executed.
+
+Q. Known limitations
+--------------------
+Intentional architecture exclusions:
+- EX-0G-AC09 generic event PID-only PROCESS CONNECTED_TO remains disabled.
+- EX-0G-AC15 analyst assertion overlay remains unimplemented.
+- EX-0G-AC16 DNS RESOLVED_TO remains disabled.
+
+Unfinished required 0G validation:
+- AC-33/R11 realistic large-case scale benchmark.
+- Fresh install validation.
+- Upgrade-path validation from historical/disposable starting states.
+- Full deployed smoke and complete role/capability matrix.
+- GitHub CI/status after push.
+
+R. GitHub CI/status
+-------------------
+Not checked yet in this gate attempt because final artifacts had not been
+committed/pushed at the time this closure document was updated.
+
+S. Final release-gate verdict
+-----------------------------
+NOT READY
+
+Reason:
+The accepted baseline and focused regression suite are healthy, and criteria
+42-60 are mapped PASS. However, Phase 0G requires actual scale, fresh install,
+upgrade, deployment smoke, and GitHub status evidence. Those runtime gates are
+mandatory and were not completed here. Version remains 4.17.2; this document
+does not declare Improvement #1 100% COMPLETE.
+
+External reviewer focus areas:
+- Independently execute the million-row ClickHouse scale dataset and operation
+  benchmarks.
+- Validate fresh install on Ubuntu 24.04 LTS.
+- Validate supported upgrade path(s) using documented migration procedure.
+- Execute deployed role/capability matrix and disposable-case smoke.
+- Confirm GitHub Actions/status after the final pushed release-gate commit.
