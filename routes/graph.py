@@ -86,18 +86,18 @@ def _graph_status_payload(case):
     active_ingest = has_active_ingest(case.uuid)
     graph_empty = counts["graph_entities"] == 0 and counts["graph_relationships"] == 0
     state_status = state.status if state else "untracked"
-    if not graph_empty:
-        empty_state = "completed_graph"
-    elif state_status in ACTIVE_PROJECTION_STATUSES:
+    if state_status in ACTIVE_PROJECTION_STATUSES:
         empty_state = "building"
     elif state_status == "failed":
         empty_state = "failed"
     elif state_status == "no_eligible_evidence":
         empty_state = "no_eligible_evidence"
+    elif not graph_empty:
+        empty_state = "completed_graph"
     else:
         empty_state = "not_built"
     can_build = (
-        graph_empty
+        (graph_empty or state_status == "failed")
         and not active_ingest
         and state_status not in ACTIVE_PROJECTION_STATUSES
         and getattr(current_user, "permission_level", None) != "viewer"
@@ -146,17 +146,18 @@ def graph_build(case_uuid):
         return denied
     try:
         counts = graph_counts(case.id)
-        if counts["graph_entities"] > 0 or counts["graph_relationships"] > 0:
+        state = get_projection_state(case.id)
+        if (counts["graph_entities"] > 0 or counts["graph_relationships"] > 0) and not (state and state.status == "failed"):
             return jsonify({"success": False, "error": "Graph already exists; rebuild is not part of this action"}), 409
         if has_active_ingest(case.uuid):
             return jsonify({"success": False, "error": "Case ingest is active; graph build deferred"}), 409
-        state = get_projection_state(case.id)
         if state and state.status in ACTIVE_PROJECTION_STATUSES:
             return jsonify({"success": False, "error": "Graph build is already queued or running", **_graph_status_payload(case)}), 409
         client = get_fresh_client()
         if not graph_eligible_probe(client, case.id):
             state = ensure_projection_state(case, mode="manual_build", status="no_eligible_evidence")
             return jsonify({"success": True, **_graph_status_payload(case), "projection": serialize_projection_state(state)})
+        resume_failed = bool(state and state.status == "failed")
         state = ensure_projection_state(case, mode="manual_build", status="pending")
         from tasks.celery_tasks import materialize_case_graph_task
 
@@ -167,6 +168,7 @@ def graph_build(case_uuid):
                 "mode": "manual_build",
                 "projection_state_id": state.id,
                 "requested_by": getattr(current_user, "username", "system"),
+                "resume": resume_failed,
             }
         )
         mark_projection_state(state, status="pending", mode="manual_build", task_id=task.id)

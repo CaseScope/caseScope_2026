@@ -314,6 +314,45 @@ class GraphRouteAuthorizationIntegrationTestCase(unittest.TestCase):
         self.assertEqual(response.status_code, 409)
         self.assertIn("already queued or running", response.get_json()["error"])
 
+    def test_failed_partial_projection_shows_retry_state(self):
+        db.session.add(GraphProjectionState(
+            case_id=self.case_a.id,
+            case_uuid=self.case_a.uuid,
+            status="failed",
+            mode="historical_backfill",
+            projection_version="graph_events_v1",
+            last_error="stopped after checkpoint",
+        ))
+        db.session.commit()
+
+        response = self._client_as_analyst().get("/api/graph/case-a/status")
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.get_json()
+        self.assertEqual(payload["empty_state"], "failed")
+        self.assertTrue(payload["can_build"])
+
+    def test_retry_failed_partial_projection_queues_resume(self):
+        db.session.add(GraphProjectionState(
+            case_id=self.case_a.id,
+            case_uuid=self.case_a.uuid,
+            status="failed",
+            mode="historical_backfill",
+            projection_version="graph_events_v1",
+            last_error="stopped after checkpoint",
+        ))
+        db.session.commit()
+        queued = SimpleNamespace(id="retry-task")
+
+        with patch.object(graph_routes, "get_fresh_client", return_value=object()), \
+                patch.object(graph_routes, "graph_eligible_probe", return_value=True), \
+                patch("tasks.celery_tasks.materialize_case_graph_task.apply_async", return_value=queued) as apply_async:
+            response = self._client_as_analyst().post("/api/graph/case-a/build")
+
+        self.assertEqual(response.status_code, 202)
+        kwargs = apply_async.call_args.kwargs["kwargs"]
+        self.assertTrue(kwargs["resume"])
+
     def test_no_eligible_evidence_build_records_explanatory_state(self):
         GraphRelationshipEvidence.query.delete()
         GraphRelationship.query.delete()
