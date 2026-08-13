@@ -8,6 +8,17 @@ from flask_login import current_user, login_required
 
 from models.case import Case
 from routes.route_helpers import _require_case_write_access
+from utils.clickhouse import get_fresh_client
+from utils.graph_projection import (
+    ACTIVE_PROJECTION_STATUSES,
+    ensure_projection_state,
+    get_projection_state,
+    graph_counts,
+    graph_eligible_probe,
+    has_active_ingest,
+    mark_projection_state,
+    serialize_projection_state,
+)
 from utils.graph_query import GraphNotFoundError, GraphQueryError, GraphQueryService
 from utils.graph_pivots import GraphPivotError, GraphPivotService
 from utils.graph_saved_views import (
@@ -68,6 +79,38 @@ def _actor():
         "is_ai": False,
     }
 
+
+def _graph_status_payload(case):
+    counts = graph_counts(case.id)
+    state = get_projection_state(case.id)
+    active_ingest = has_active_ingest(case.uuid)
+    graph_empty = counts["graph_entities"] == 0 and counts["graph_relationships"] == 0
+    state_status = state.status if state else "untracked"
+    if not graph_empty:
+        empty_state = "completed_graph"
+    elif state_status in ACTIVE_PROJECTION_STATUSES:
+        empty_state = "building"
+    elif state_status == "failed":
+        empty_state = "failed"
+    elif state_status == "no_eligible_evidence":
+        empty_state = "no_eligible_evidence"
+    else:
+        empty_state = "not_built"
+    can_build = (
+        graph_empty
+        and not active_ingest
+        and state_status not in ACTIVE_PROJECTION_STATUSES
+        and getattr(current_user, "permission_level", None) != "viewer"
+    )
+    return {
+        **counts,
+        "graph_empty": graph_empty,
+        "empty_state": empty_state,
+        "active_ingest": active_ingest,
+        "can_build": can_build,
+        "projection": serialize_projection_state(state),
+    }
+
 @graph_bp.route("/graph/<case_uuid>/summary")
 @login_required
 def graph_summary(case_uuid):
@@ -76,6 +119,58 @@ def graph_summary(case_uuid):
         return error
     try:
         return jsonify({"success": True, **_service().graph_summary(case.id)})
+    except Exception as exc:
+        return _error_response(exc)
+
+
+@graph_bp.route("/graph/<case_uuid>/status")
+@login_required
+def graph_projection_status(case_uuid):
+    case, error = _load_case(case_uuid)
+    if error:
+        return error
+    try:
+        return jsonify({"success": True, **_graph_status_payload(case)})
+    except Exception as exc:
+        return _error_response(exc)
+
+
+@graph_bp.route("/graph/<case_uuid>/build", methods=["POST"])
+@login_required
+def graph_build(case_uuid):
+    case, error = _load_case(case_uuid)
+    if error:
+        return error
+    denied = _require_case_write_access(current_user, "Viewers cannot build Investigation Graph projections")
+    if denied:
+        return denied
+    try:
+        counts = graph_counts(case.id)
+        if counts["graph_entities"] > 0 or counts["graph_relationships"] > 0:
+            return jsonify({"success": False, "error": "Graph already exists; rebuild is not part of this action"}), 409
+        if has_active_ingest(case.uuid):
+            return jsonify({"success": False, "error": "Case ingest is active; graph build deferred"}), 409
+        state = get_projection_state(case.id)
+        if state and state.status in ACTIVE_PROJECTION_STATUSES:
+            return jsonify({"success": False, "error": "Graph build is already queued or running", **_graph_status_payload(case)}), 409
+        client = get_fresh_client()
+        if not graph_eligible_probe(client, case.id):
+            state = ensure_projection_state(case, mode="manual_build", status="no_eligible_evidence")
+            return jsonify({"success": True, **_graph_status_payload(case), "projection": serialize_projection_state(state)})
+        state = ensure_projection_state(case, mode="manual_build", status="pending")
+        from tasks.celery_tasks import materialize_case_graph_task
+
+        task = materialize_case_graph_task.apply_async(
+            kwargs={
+                "case_id": case.id,
+                "case_uuid": case.uuid,
+                "mode": "manual_build",
+                "projection_state_id": state.id,
+                "requested_by": getattr(current_user, "username", "system"),
+            }
+        )
+        mark_projection_state(state, status="pending", mode="manual_build", task_id=task.id)
+        return jsonify({"success": True, "task_id": task.id, **_graph_status_payload(case)}), 202
     except Exception as exc:
         return _error_response(exc)
 

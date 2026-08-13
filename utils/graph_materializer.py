@@ -16,6 +16,7 @@ from models.graph import (
     GraphRelationshipEvidence,
 )
 from utils.graph_extractors import (
+    GRAPH_ELIGIBLE_EVENT_PREDICATE,
     GRAPH_EXTRACTOR_EVENT_COLUMNS,
     GraphRelationshipCandidate,
     event_from_clickhouse_row,
@@ -45,6 +46,7 @@ from utils.graph_support_locator import validate_support_provenance
 
 logger = logging.getLogger(__name__)
 EVIDENCE_RECORD_KEY_RE = re.compile(r'^erk:v2:[0-9a-f]{64}$')
+GRAPH_PROJECTION_VERSION = 'graph_events_v1'
 
 
 def _clean(value: Any) -> str:
@@ -523,53 +525,133 @@ def clear_case_graph(case_id: int, *, session=None) -> Dict[str, int]:
     return summary
 
 
-def materialize_events_for_case(case_id: int, *, client=None, batch_size: int = 5000) -> Dict[str, int]:
+def _projection_state_id(projection_state: Any) -> Optional[int]:
+    if projection_state is None:
+        return None
+    if isinstance(projection_state, int):
+        return int(projection_state)
+    return getattr(projection_state, 'id', None)
+
+
+def _load_projection_state(projection_state: Any):
+    state_id = _projection_state_id(projection_state)
+    if state_id is None:
+        return None
+    from models.graph import GraphProjectionState
+
+    return GraphProjectionState.query.get(int(state_id))
+
+
+def _set_projection_running(state, *, mode: Optional[str], task_id: Optional[str]) -> None:
+    if state is None:
+        return
+    now = datetime.utcnow()
+    if mode:
+        state.mode = mode
+    if task_id:
+        state.task_id = task_id
+    state.status = 'running'
+    state.projection_version = GRAPH_PROJECTION_VERSION
+    state.started_at = state.started_at or now
+    state.completed_at = None
+    state.updated_at = now
+    db.session.commit()
+
+
+def _checkpoint_projection_state(
+    state,
+    *,
+    last_timestamp: Any,
+    last_evidence_record_key: str,
+    events_seen: int,
+    relationships_materialized: int,
+    errors: int,
+    last_error: Optional[str] = None,
+) -> None:
+    if state is None:
+        return
+    state.last_timestamp_utc = _coerce_datetime(last_timestamp)
+    state.last_evidence_record_key = _clean(last_evidence_record_key) or None
+    state.events_seen = int(events_seen)
+    state.relationships_materialized = int(relationships_materialized)
+    state.errors = int(errors)
+    if last_error:
+        state.last_error = last_error[:4000]
+    state.updated_at = datetime.utcnow()
+    db.session.commit()
+
+
+def _finish_projection_state(state, *, status: str, summary: Dict[str, Any]) -> None:
+    if state is None:
+        return
+    now = datetime.utcnow()
+    state.status = status
+    state.events_seen = int(summary.get('events_seen', 0) or 0)
+    state.relationships_materialized = int(summary.get('relationships_materialized', 0) or 0)
+    state.errors = int(summary.get('errors', 0) or 0)
+    state.last_error = summary.get('last_error') or state.last_error
+    state.completed_at = now if status in {'completed', 'no_eligible_evidence'} else None
+    state.updated_at = now
+    db.session.commit()
+
+
+def _graph_events_query(*, resume: bool, state: Any = None) -> tuple[str, Dict[str, Any]]:
+    parameters: Dict[str, Any] = {}
+    checkpoint_sql = ''
+    if resume and state is not None and state.last_timestamp_utc and state.last_evidence_record_key:
+        checkpoint_sql = """
+          AND (
+            timestamp_utc > {last_timestamp:DateTime64(3)}
+            OR (
+              timestamp_utc = {last_timestamp:DateTime64(3)}
+              AND evidence_record_key > {last_evidence_record_key:String}
+            )
+          )
+        """
+        parameters['last_timestamp'] = state.last_timestamp_utc
+        parameters['last_evidence_record_key'] = state.last_evidence_record_key
+    sql = f"""
+    SELECT {', '.join(GRAPH_EXTRACTOR_EVENT_COLUMNS)}
+    FROM events
+    WHERE case_id = {{case_id:UInt32}}
+      AND ({GRAPH_ELIGIBLE_EVENT_PREDICATE})
+      {checkpoint_sql}
+    ORDER BY timestamp_utc, evidence_record_key
+    """
+    return sql, parameters
+
+
+def materialize_events_for_case(
+    case_id: int,
+    *,
+    client=None,
+    batch_size: int = 5000,
+    projection_state=None,
+    resume: bool = False,
+    mode: Optional[str] = None,
+    task_id: Optional[str] = None,
+    progress_interval: int = 50000,
+) -> Dict[str, Any]:
     """Materialize deterministic graph facts from retained ClickHouse events."""
     if client is None:
         from utils.clickhouse import get_fresh_client
 
         client = get_fresh_client()
 
-    sql = f"""
-    SELECT {', '.join(GRAPH_EXTRACTOR_EVENT_COLUMNS)}
-    FROM events
-    WHERE case_id = {{case_id:UInt32}}
-      AND evidence_record_key != ''
-      AND (
-        (
-          source_host != ''
-          AND process_id IS NOT NULL
-          AND process_path != ''
-          AND (
-            event_id = '4688'
-            OR (event_id = '1' AND positionCaseInsensitive(channel, 'Sysmon') > 0)
-            OR (artifact_type = 'crowdstrike' AND event_id = 'ProcessRollup2')
-          )
-        )
-        OR (
-          (target_path != '' OR process_path != '')
-          AND (file_hash_sha256 != '' OR file_hash_sha1 != '' OR file_hash_md5 != '')
-        )
-        OR (
-          source_host != ''
-          AND positionCaseInsensitive(extra_fields, 'host_ip') > 0
-        )
-        OR (
-          event_id = '4624'
-          AND lower(channel) = 'security'
-          AND source_host != ''
-          AND logon_id != ''
-          AND (sid != '' OR (domain != '' AND username != ''))
-        )
-      )
-    ORDER BY timestamp_utc, evidence_record_key
-    """
+    state = _load_projection_state(projection_state)
+    _set_projection_running(state, mode=mode, task_id=task_id)
+    sql, checkpoint_parameters = _graph_events_query(resume=bool(resume), state=state)
     materializer = GraphMaterializer()
     events_seen = 0
     candidates_seen = 0
     errors = 0
+    last_timestamp = None
+    last_evidence_record_key = ''
+    last_error = None
+    batch_since_commit = 0
 
     def iter_rows():
+        parameters = {'case_id': int(case_id), **checkpoint_parameters}
         if hasattr(client, 'query_rows_stream'):
             try:
                 from utils.clickhouse import migration_source_query_settings
@@ -578,28 +660,52 @@ def materialize_events_for_case(case_id: int, *, client=None, batch_size: int = 
                 settings = {'max_block_size': int(batch_size)}
             with client.query_rows_stream(
                 sql,
-                parameters={'case_id': int(case_id)},
+                parameters=parameters,
                 settings=settings,
             ) as rows:
                 for streamed_row in rows:
                     yield streamed_row
         else:
-            result = client.query(sql, parameters={'case_id': int(case_id)})
+            result = client.query(sql, parameters=parameters)
             for result_row in result.result_rows:
                 yield result_row
 
     for row in iter_rows():
         event = event_from_clickhouse_row(row)
         events_seen += 1
+        batch_since_commit += 1
+        last_timestamp = event.get('timestamp_utc')
+        last_evidence_record_key = _clean(event.get('evidence_record_key'))
         try:
             with db.session.begin_nested():
                 candidates = extract_event_relationships(event)
                 materialized = materializer.materialize_candidates(case_id, candidates)
             candidates_seen += materialized
-            if events_seen % batch_size == 0:
+            if batch_since_commit >= batch_size:
                 db.session.commit()
+                _checkpoint_projection_state(
+                    state,
+                    last_timestamp=last_timestamp,
+                    last_evidence_record_key=last_evidence_record_key,
+                    events_seen=events_seen,
+                    relationships_materialized=candidates_seen,
+                    errors=errors,
+                    last_error=last_error,
+                )
+                batch_since_commit = 0
+            if progress_interval and events_seen % int(progress_interval) == 0:
+                logger.info(
+                    'Graph materialization progress case=%s checkpoint=(%s, %s) events=%s relationships=%s errors=%s',
+                    case_id,
+                    last_timestamp,
+                    last_evidence_record_key,
+                    events_seen,
+                    candidates_seen,
+                    errors,
+                )
         except Exception as exc:
             errors += 1
+            last_error = str(exc)
             logger.warning(
                 'Graph extraction skipped event %s for case %s: %s',
                 event.get('evidence_record_key'),
@@ -607,7 +713,30 @@ def materialize_events_for_case(case_id: int, *, client=None, batch_size: int = 
                 exc,
             )
     db.session.commit()
-    return {'events_seen': events_seen, 'relationships_materialized': candidates_seen, 'errors': errors}
+    _checkpoint_projection_state(
+        state,
+        last_timestamp=last_timestamp,
+        last_evidence_record_key=last_evidence_record_key,
+        events_seen=events_seen,
+        relationships_materialized=candidates_seen,
+        errors=errors,
+        last_error=last_error,
+    )
+    summary = {
+        'events_seen': events_seen,
+        'relationships_materialized': candidates_seen,
+        'errors': errors,
+    }
+    if last_error:
+        summary['last_error'] = last_error
+    if state is not None:
+        if errors:
+            _finish_projection_state(state, status='failed', summary=summary)
+        elif events_seen == 0:
+            _finish_projection_state(state, status='no_eligible_evidence', summary=summary)
+        else:
+            _finish_projection_state(state, status='completed', summary=summary)
+    return summary
 
 
 def rebuild_case_graph(case_id: int, *, client=None) -> Dict[str, Any]:

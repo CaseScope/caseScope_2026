@@ -51,6 +51,37 @@ GRAPH_EXTRACTOR_EVENT_COLUMNS = (
     'evidence_identity_quality',
 )
 
+GRAPH_ELIGIBLE_EVENT_PREDICATE = """
+evidence_record_key != ''
+AND (
+  (
+    source_host != ''
+    AND process_id IS NOT NULL
+    AND process_path != ''
+    AND (
+      event_id = '4688'
+      OR (event_id = '1' AND positionCaseInsensitive(channel, 'Sysmon') > 0)
+      OR (artifact_type = 'crowdstrike' AND event_id = 'ProcessRollup2')
+    )
+  )
+  OR (
+    (target_path != '' OR process_path != '')
+    AND (file_hash_sha256 != '' OR file_hash_sha1 != '' OR file_hash_md5 != '')
+  )
+  OR (
+    source_host != ''
+    AND positionCaseInsensitive(extra_fields, 'host_ip') > 0
+  )
+  OR (
+    event_id = '4624'
+    AND lower(channel) = 'security'
+    AND source_host != ''
+    AND logon_id != ''
+    AND (sid != '' OR (domain != '' AND username != ''))
+  )
+)
+""".strip()
+
 
 AI_OR_ANALYTIC_CONTEXT_KEYS = {
     'ai_summary',

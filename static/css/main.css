@@ -199,6 +199,16 @@
   font-size: 13px;
 }
 
+.graph-projection-panel {
+  border-left: 3px solid var(--accent-info);
+}
+
+.graph-projection-message {
+  color: var(--text-primary);
+  margin-bottom: 12px;
+  line-height: 1.5;
+}
+
 #graph-arrow path {
   fill: var(--text-muted);
 }

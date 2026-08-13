@@ -62,7 +62,7 @@ from models.hunt import (
 )
 from models.graph import (
     GraphEntity, GraphEntityObservation, GraphRelationship,
-    GraphRelationshipEvidence
+    GraphRelationshipEvidence, GraphProjectionState
 )
 from models.investigation_thread import InvestigationThreadReportSnapshot
 from models.ioc_evidence_match import IOCEvidenceMatch
@@ -108,7 +108,7 @@ __all__ = [
     'HuntNegativeFinding', 'HuntNegativeFindingState', 'HuntNegativeFindingType',
     'HuntRun', 'HuntSourceAvailabilityStatus', 'HuntStep', 'HuntStepStatus',
     'GraphEntity', 'GraphEntityObservation', 'GraphRelationship',
-    'GraphRelationshipEvidence',
+    'GraphRelationshipEvidence', 'GraphProjectionState',
     'IOCEvidenceMatch',
     'InvestigationThreadReportSnapshot',
 ]

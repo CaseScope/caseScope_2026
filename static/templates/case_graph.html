@@ -16,6 +16,19 @@
 
 <div class="graph-workspace" data-case-uuid="{{ case.uuid }}">
     <div id="graph-pivot-banner" class="graph-pivot-banner" style="display: none;"></div>
+    <section id="graph-projection-panel" class="tile graph-projection-panel" hidden>
+        <div class="tile-header">
+            <div class="tile-title" id="graph-projection-title">Investigation Graph Status</div>
+            <div class="graph-status" id="graph-projection-meta"></div>
+        </div>
+        <div class="tile-body">
+            <div id="graph-projection-message" class="graph-projection-message"></div>
+            <div class="graph-toolbar-actions">
+                <button class="btn btn-primary" id="graph-build-button" type="button" hidden>Build Graph</button>
+                <button class="btn btn-primary" id="graph-retry-build-button" type="button" hidden>Retry Build</button>
+            </div>
+        </div>
+    </section>
     <section class="tile graph-search-panel">
         <div class="tile-header">
             <div class="tile-title">Entity Search</div>
@@ -185,6 +198,8 @@ const graphState = {
         evidence: new Map()
     },
     currentThread: null,
+    emptyState: "loading",
+    canBuild: false,
     drag: null,
     suppressCanvasClick: false
 };
@@ -249,7 +264,89 @@ async function loadGraphSummary() {
     }
 }
 
+async function loadGraphProjectionStatus() {
+    const summaryEl = document.getElementById("graph-summary");
+    try {
+        const data = await graphFetch(`${graphApiBase}/status`);
+        graphState.emptyState = data.empty_state || "not_built";
+        graphState.canBuild = Boolean(data.can_build);
+        summaryEl.textContent = `${data.graph_entities || 0} entities, ${data.graph_relationships || 0} relationships`;
+        renderGraphProjectionStatus(data);
+    } catch (err) {
+        summaryEl.textContent = err.message || "Unable to load graph status";
+    }
+}
+
+function renderGraphProjectionStatus(data) {
+    const panel = document.getElementById("graph-projection-panel");
+    const title = document.getElementById("graph-projection-title");
+    const meta = document.getElementById("graph-projection-meta");
+    const message = document.getElementById("graph-projection-message");
+    const buildButton = document.getElementById("graph-build-button");
+    const retryButton = document.getElementById("graph-retry-build-button");
+    const searchPanel = document.querySelector(".graph-search-panel");
+    buildButton.hidden = true;
+    retryButton.hidden = true;
+    panel.hidden = true;
+    searchPanel.hidden = false;
+    const projection = data.projection || {};
+    meta.textContent = `Events streamed: ${projection.events_seen || 0} | Relationships materialized: ${projection.relationships_materialized || 0} | Errors: ${projection.errors || 0}`;
+    if (data.empty_state === "completed_graph") {
+        return;
+    }
+    panel.hidden = false;
+    searchPanel.hidden = true;
+    if (data.empty_state === "building") {
+        title.textContent = "Building Investigation Graph...";
+        message.textContent = "Graph projection is queued or running. This page will refresh status automatically.";
+    } else if (data.empty_state === "failed") {
+        title.textContent = "Graph build failed.";
+        message.textContent = projection.last_error || "The graph build failed. Review logs or retry when the case is stable.";
+        if (data.can_build) retryButton.hidden = false;
+    } else if (data.empty_state === "no_eligible_evidence") {
+        title.textContent = "No graph-eligible evidence was found for this case.";
+        message.textContent = "The retained evidence did not match the accepted deterministic graph extractors.";
+    } else {
+        title.textContent = "Investigation Graph has not been built for this case.";
+        message.textContent = "Retained evidence may be available for deterministic projection.";
+        if (data.can_build) buildButton.hidden = false;
+    }
+}
+
+async function buildGraphProjection() {
+    const buildButton = document.getElementById("graph-build-button");
+    const retryButton = document.getElementById("graph-retry-build-button");
+    buildButton.disabled = true;
+    retryButton.disabled = true;
+    try {
+        const data = await graphFetch(`${graphApiBase}/build`, { method: "POST" });
+        renderGraphProjectionStatus(data);
+        scheduleGraphStatusRefresh();
+    } catch (err) {
+        graphSetStatus(err.message || "Unable to queue graph build");
+    } finally {
+        buildButton.disabled = false;
+        retryButton.disabled = false;
+    }
+}
+
+function scheduleGraphStatusRefresh() {
+    window.setTimeout(async () => {
+        await loadGraphProjectionStatus();
+        if (graphState.emptyState === "building") {
+            scheduleGraphStatusRefresh();
+        } else if (graphState.emptyState === "completed_graph") {
+            await loadSavedViews();
+            await loadThreadOptions();
+        }
+    }, 5000);
+}
+
 async function searchGraphEntities() {
+    if (graphState.emptyState && graphState.emptyState !== "completed_graph") {
+        await loadGraphProjectionStatus();
+        return;
+    }
     const q = document.getElementById("graph-search-input").value.trim();
     const type = document.getElementById("graph-type-filter").value;
     graphState.filters.entityType = type;
@@ -1144,11 +1241,15 @@ async function findPathToSelected() {
 }
 
 document.addEventListener("DOMContentLoaded", () => {
-    loadGraphSummary();
+    loadGraphProjectionStatus().then(() => {
+        if (graphState.emptyState === "building") scheduleGraphStatusRefresh();
+    });
     loadSavedViews();
     loadThreadOptions();
     renderThreadDrawer();
     document.getElementById("graph-search-button").addEventListener("click", searchGraphEntities);
+    document.getElementById("graph-build-button").addEventListener("click", buildGraphProjection);
+    document.getElementById("graph-retry-build-button").addEventListener("click", buildGraphProjection);
     document.getElementById("graph-type-filter").addEventListener("change", event => {
         graphState.filters.entityType = event.target.value;
     });

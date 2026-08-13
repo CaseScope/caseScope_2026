@@ -25,11 +25,15 @@ class GraphUIContractTestCase(unittest.TestCase):
             source = handle.read()
 
         self.assertIn("Entity Search", source)
+        self.assertIn("graph-projection-panel", source)
+        self.assertIn("Build Graph", source)
+        self.assertIn("/status", source)
+        self.assertIn("/build", source)
         self.assertIn("graph-search-input", source)
         self.assertIn("/summary", source)
         self.assertIn("/neighbors", source)
-        self.assertNotIn("graph_entities", source)
-        self.assertNotIn("graph_relationships", source)
+        self.assertNotIn("GraphEntity.query", source)
+        self.assertNotIn("GraphRelationship.query", source)
 
     def test_graph_page_contains_expand_evidence_and_path_workflows(self):
         with open("/opt/casescope/static/templates/case_graph.html", encoding="utf-8") as handle:

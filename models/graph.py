@@ -187,3 +187,37 @@ class GraphRelationshipEvidence(db.Model):
 
     def __repr__(self):
         return f'<GraphRelationshipEvidence {self.relationship_id}:{self.evidence_record_key}>'
+
+
+class GraphProjectionState(db.Model):
+    """Durable per-case graph projection/backfill progress."""
+
+    __tablename__ = 'graph_projection_state'
+
+    id = db.Column(db.Integer, primary_key=True)
+    case_id = db.Column(db.Integer, db.ForeignKey('cases.id', ondelete='CASCADE'), nullable=False, unique=True, index=True)
+    case_uuid = db.Column(db.String(36), nullable=False, index=True)
+    status = db.Column(db.String(40), nullable=False, default='pending', index=True)
+    mode = db.Column(db.String(40), nullable=False, default='historical_backfill', index=True)
+    projection_version = db.Column(db.String(40), nullable=False, default='graph_events_v1')
+    started_at = db.Column(db.DateTime, nullable=True)
+    updated_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow)
+    completed_at = db.Column(db.DateTime, nullable=True)
+    last_timestamp_utc = db.Column(db.DateTime, nullable=True)
+    last_evidence_record_key = db.Column(db.String(96), nullable=True)
+    events_seen = db.Column(db.BigInteger, nullable=False, default=0)
+    relationships_materialized = db.Column(db.BigInteger, nullable=False, default=0)
+    errors = db.Column(db.BigInteger, nullable=False, default=0)
+    error_details_json = db.Column(db.JSON, nullable=False, default=list)
+    task_id = db.Column(db.String(128), nullable=True, index=True)
+    last_error = db.Column(db.Text, nullable=True)
+
+    case = db.relationship('Case', backref=db.backref('graph_projection_state', uselist=False, cascade='all, delete-orphan'))
+
+    __table_args__ = (
+        db.Index('idx_graph_projection_state_case_status', 'case_id', 'status'),
+        db.Index('idx_graph_projection_state_status_mode', 'status', 'mode'),
+    )
+
+    def __repr__(self):
+        return f'<GraphProjectionState {self.case_id}:{self.status}:{self.mode}>'

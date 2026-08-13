@@ -2066,15 +2066,72 @@ def case_indexing_complete_task(self, case_id: int, case_uuid: str, _retry_count
 
 
 @celery_app.task(bind=True, name='tasks.materialize_case_graph')
-def materialize_case_graph_task(self, case_id: int, case_uuid: str = '') -> Dict[str, Any]:
+def materialize_case_graph_task(
+    self,
+    case_id: int,
+    case_uuid: str = '',
+    mode: str = 'ingest',
+    projection_state_id: int = None,
+    requested_by: str = 'system',
+    batch_size: int = 5000,
+    resume: bool = False,
+) -> Dict[str, Any]:
     """Materialize deterministic graph facts from retained normalized evidence."""
     logger.info(f"Starting graph materialization for case {case_id} ({case_uuid})")
     app = get_flask_app()
     with app.app_context():
+        from models.case import Case
+        from models.audit_log import AuditEntityType, AuditLog
+        from utils.graph_projection import (
+            ensure_projection_state,
+            graph_counts,
+            has_active_ingest,
+            mark_projection_state,
+        )
+
+        case = Case.get_by_id_unchecked(case_id)
+        state = None
         try:
+            if case is None:
+                raise RuntimeError(f"Case {case_id} not found")
+            case_uuid = case_uuid or case.uuid
+            if mode in {'historical_backfill', 'manual_build', 'manual_rebuild'} and has_active_ingest(case.uuid):
+                raise RuntimeError('Case has active ingest; graph projection deferred')
+
+            if projection_state_id:
+                from models.graph import GraphProjectionState
+
+                state = GraphProjectionState.query.get(int(projection_state_id))
+                if state is None or int(state.case_id) != int(case_id):
+                    raise RuntimeError('Graph projection state not found for case')
+            if state is None:
+                state = ensure_projection_state(case, mode=mode, status='pending')
+            mark_projection_state(state, status='running', mode=mode, task_id=getattr(self.request, 'id', None))
+
+            before_counts = graph_counts(case_id)
+            AuditLog.log(
+                AuditEntityType.CASE,
+                case.uuid,
+                'graph_projection_started',
+                username=requested_by or 'system',
+                case_uuid=case.uuid,
+                details={
+                    'mode': mode,
+                    'graph_entities_before': before_counts['graph_entities'],
+                    'graph_relationships_before': before_counts['graph_relationships'],
+                },
+            )
+
             from utils.graph_materializer import materialize_events_for_case
 
-            result = materialize_events_for_case(case_id)
+            result = materialize_events_for_case(
+                case_id,
+                projection_state=state,
+                batch_size=int(batch_size),
+                mode=mode,
+                task_id=getattr(self.request, 'id', None),
+                resume=bool(resume),
+            )
 
             # Phase 0E: materialize native (non-event) sources AFTER events.
             # Failures in native materialization must not fail event graph facts.
@@ -2099,9 +2156,44 @@ def materialize_case_graph_task(self, case_id: int, case_uuid: str = '') -> Dict
                 + int(result.get('network', {}).get('errors', 0) or 0)
             )
             result['success'] = (result.get('errors', 0) == 0) and (native_errors == 0)
+            after_counts = graph_counts(case_id)
+            AuditLog.log(
+                AuditEntityType.CASE,
+                case.uuid,
+                'graph_projection_completed' if result['success'] else 'graph_projection_failed',
+                username=requested_by or 'system',
+                case_uuid=case.uuid,
+                details={
+                    'mode': mode,
+                    'graph_entities_before': before_counts['graph_entities'],
+                    'graph_relationships_before': before_counts['graph_relationships'],
+                    'graph_entities_after': after_counts['graph_entities'],
+                    'graph_relationships_after': after_counts['graph_relationships'],
+                    'events_seen': result.get('events_seen', 0),
+                    'relationships_materialized': result.get('relationships_materialized', 0),
+                    'errors': int(result.get('errors', 0) or 0) + native_errors,
+                },
+            )
             logger.info(f"Graph materialization complete for case {case_id}: {result}")
             return result
         except Exception as exc:
+            if state is not None:
+                try:
+                    mark_projection_state(state, status='failed', last_error=str(exc))
+                except Exception:
+                    logger.warning(f"Failed to mark graph projection failed for case {case_id}", exc_info=True)
+            if case is not None:
+                try:
+                    AuditLog.log(
+                        AuditEntityType.CASE,
+                        case.uuid,
+                        'graph_projection_failed',
+                        username=requested_by or 'system',
+                        case_uuid=case.uuid,
+                        details={'mode': mode, 'error': str(exc)},
+                    )
+                except Exception:
+                    logger.warning(f"Failed to audit graph projection failure for case {case_id}", exc_info=True)
             logger.warning(f"Graph materialization failed for case {case_id}: {exc}")
             return {'success': False, 'case_id': case_id, 'case_uuid': case_uuid, 'error': str(exc)}
 

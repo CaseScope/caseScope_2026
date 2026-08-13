@@ -79,6 +79,55 @@ cd /opt/casescope
 sudo -u casescope git diff --name-only HEAD@{1}..HEAD -- migrations 2>/dev/null || true
 ```
 
+### Historical Investigation Graph Backfill
+
+Version 4.18.2 adds a corrective backfill for cases ingested before automatic Investigation Graph materialization was available. Run the projection-state schema migration first:
+
+```bash
+sudo -u casescope bash -lc 'cd /opt/casescope && set -a && source /etc/casescope/casescope.env && set +a && /opt/casescope/venv/bin/python migrations/add_graph_projection_state.py'
+```
+
+Do not launch a full historical graph backfill as an unexplained one-liner. Large installations may hold hundreds of millions of retained events. The backfill reads only graph-eligible evidence case-by-case using the ClickHouse `case_id` partition; it does not rewrite, delete, update, alter, or shadow-copy the events corpus.
+
+Use a staged rollout:
+
+1. Back up PostgreSQL.
+2. Verify ClickHouse is healthy.
+3. Stop or avoid active case ingestion.
+4. Run a dry run:
+
+```bash
+sudo -u casescope bash -lc 'cd /opt/casescope && set -a && source /etc/casescope/casescope.env && set +a && /opt/casescope/venv/bin/python migrations/backfill_investigation_graph.py --dry-run'
+```
+
+5. Inspect the candidate case counts.
+6. Run one known empty historical case:
+
+```bash
+sudo -u casescope bash -lc 'cd /opt/casescope && set -a && source /etc/casescope/casescope.env && set +a && /opt/casescope/venv/bin/python migrations/backfill_investigation_graph.py --case-uuid <case-uuid> --batch-size 5000'
+```
+
+7. Validate the graph UI/API and exact ERK support.
+8. Run bounded batches:
+
+```bash
+sudo -u casescope bash -lc 'cd /opt/casescope && set -a && source /etc/casescope/casescope.env && set +a && /opt/casescope/venv/bin/python migrations/backfill_investigation_graph.py --all-missing --max-cases 5 --resume --batch-size 5000'
+```
+
+9. Continue with `--resume` until the dry-run shows no remaining eligible missing graphs.
+10. Verify remaining projection status.
+
+Useful monitoring commands:
+
+```bash
+sudo journalctl -u casescope-workers -f
+clickhouse-client -q "SELECT count() FROM events"
+sudo -u postgres psql -d casescope -c "SELECT status, mode, count(*) FROM graph_projection_state GROUP BY status, mode ORDER BY status, mode;"
+sudo -u postgres psql -d casescope -c "SELECT case_uuid, status, events_seen, relationships_materialized, errors, updated_at FROM graph_projection_state ORDER BY updated_at DESC LIMIT 20;"
+```
+
+The graph intentionally stores canonical entities, canonical relationships, and exact provenance. It is not one graph node per raw event, and graph completeness does not mean all retained events become graph data.
+
 Fix ownership and restart services:
 
 ```bash
