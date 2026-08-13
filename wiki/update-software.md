@@ -18,7 +18,7 @@ Before starting, confirm:
 
 ## Updating To Version 4
 
-Read this section before starting if the installed version is earlier than 4.3.2. Which parts apply depends on where you are coming from:
+Read this section before starting so you know whether any version-specific work applies. Which parts apply depends on where you are coming from:
 
 A `git pull` moves to the newest commit on the branch, so you land on the current release rather than on an intermediate version. That matters for which sections apply: coming from 3.x you run every migration using current code, which already does what the later sections describe.
 
@@ -27,6 +27,83 @@ A `git pull` moves to the newest commit on the branch, so you land on the curren
 | Earlier than 4.0.0 | [Updating To Version 4.0.0](#updating-to-version-400) only. **Do not** run the alias vault rebuild; the backfill you run at step 6 already uses current code |
 | Exactly 4.0.0 | [Updating To Versions 4.0.1 Through 4.3.2](#updating-to-versions-401-through-432), including the alias vault rebuild |
 | 4.0.1 to 4.2.x | [Updating To Versions 4.0.1 Through 4.3.2](#updating-to-versions-401-through-432), skipping the alias vault rebuild |
+| 4.3.0 or later | [Updating From 4.3.0 Or Later To Current](#updating-from-430-or-later-to-current) |
+
+## Updating From 4.3.0 Or Later To Current
+
+Use this path for installs already on 4.3.0 or newer, including 4.14.1. The older 4.0 audit immutability, alias vault rebuild, and chat transcript conversion sections do not need to be rerun as part of this path. The normal update still needs backups, dependency refreshes, current ClickHouse table migrations, ownership checks, and service restarts.
+
+Start with backups and a clean tree:
+
+```bash
+cd /opt/casescope
+sudo -u casescope git status -sb
+sudo mkdir -p /opt/casescope/backups
+sudo chown casescope:casescope /opt/casescope/backups
+sudo -u postgres pg_dump -Fc casescope > /opt/casescope/backups/casescope-postgres-$(date +%Y%m%d-%H%M%S).dump
+sudo chown casescope:casescope /opt/casescope/backups/casescope-postgres-*.dump
+clickhouse-client -q "SELECT 1"
+```
+
+Stop the CaseScope app services before changing code or schema. Leave PostgreSQL, Redis, and ClickHouse running:
+
+```bash
+sudo systemctl stop casescope-web
+sudo systemctl stop casescope-workers
+sudo systemctl stop casescope-beat
+```
+
+Pull the target release and refresh Python dependencies:
+
+```bash
+cd /opt/casescope
+sudo -u casescope git fetch --all --prune
+sudo -u casescope git pull --ff-only
+sudo apt install -y libcairo2
+sudo -u casescope /opt/casescope/venv/bin/pip install --upgrade pip
+sudo -u casescope /opt/casescope/venv/bin/pip install -r /opt/casescope/requirements.txt
+sudo -u casescope /opt/casescope/venv/bin/pip install volatility3
+```
+
+Run the current safe migrations. `add_events_table.py` is safe to rerun and verifies the ClickHouse events schema. Run the network log migration too on hosts that use PCAP workflows:
+
+```bash
+sudo -u casescope bash -lc 'cd /opt/casescope && set -a && source /etc/casescope/casescope.env && set +a && /opt/casescope/venv/bin/python migrations/add_events_table.py'
+sudo -u casescope bash -lc 'cd /opt/casescope && set -a && source /etc/casescope/casescope.env && set +a && /opt/casescope/venv/bin/python migrations/add_network_logs_table.py'
+```
+
+Review new migration files before restart. Run any additional migration only when the release notes or a maintainer call it out:
+
+```bash
+cd /opt/casescope
+sudo -u casescope git diff --name-only HEAD@{1}..HEAD -- migrations 2>/dev/null || true
+```
+
+Fix ownership and restart services:
+
+```bash
+sudo chown -R casescope:casescope /opt/casescope /originals /archive
+sudo chown root:casescope /etc/casescope/casescope.env
+sudo chmod 640 /etc/casescope/casescope.env
+sudo systemctl daemon-reload
+sudo systemctl start casescope-beat
+sudo systemctl start casescope-workers
+sudo systemctl start casescope-web
+```
+
+Verify the update before returning the system to analysts:
+
+```bash
+curl -k https://localhost/login
+sudo -u postgres psql -d casescope -c "SELECT 1;"
+clickhouse-client -q "SELECT 1"
+redis-cli ping
+sudo journalctl -u casescope-web -n 100 --no-pager
+sudo journalctl -u casescope-workers -n 100 --no-pager
+sudo journalctl -u casescope-beat -n 100 --no-pager
+```
+
+Confirm login works, the expected version is shown where applicable, existing cases load, hunting views load, and upload/background workflows relevant to the update still run. Do not enable `ALLOW_DESTRUCTIVE_STARTUP_MIGRATIONS` unless the release notes or a maintainer specifically instructs you to do so.
 
 ## Updating To Version 4.0.0
 
