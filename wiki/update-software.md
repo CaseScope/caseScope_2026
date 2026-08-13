@@ -81,13 +81,13 @@ sudo -u casescope git diff --name-only HEAD@{1}..HEAD -- migrations 2>/dev/null 
 
 ### Historical Investigation Graph Backfill
 
-Version 4.18.2 adds a corrective backfill for cases ingested before automatic Investigation Graph materialization was available. Run the projection-state schema migration first:
+Version 4.18.3 corrects the historical Investigation Graph backfill for large retained corpora. Historical cases can contain 100M+ ClickHouse rows, so the projector uses case-scoped partition pruning, bounded timestamp windows, and replay-safe idempotent graph writes instead of a whole-case evidence-record-key sort. Run the projection-state schema migration first:
 
 ```bash
 sudo -u casescope bash -lc 'cd /opt/casescope && set -a && source /etc/casescope/casescope.env && set +a && /opt/casescope/venv/bin/python migrations/add_graph_projection_state.py'
 ```
 
-Do not launch a full historical graph backfill as an unexplained one-liner. Large installations may hold hundreds of millions of retained events. The backfill reads only graph-eligible evidence case-by-case using the ClickHouse `case_id` partition; it does not rewrite, delete, update, alter, or shadow-copy the events corpus.
+Do not launch a full historical graph backfill as an unexplained one-liner. Large installations may hold hundreds of millions of retained events. The backfill reads graph-eligible evidence case-by-case using the ClickHouse `case_id` partition and timestamp-bounded windows; it does not rewrite, delete, update, alter, or shadow-copy the events corpus.
 
 Use a staged rollout:
 
@@ -101,21 +101,29 @@ sudo -u casescope bash -lc 'cd /opt/casescope && set -a && source /etc/casescope
 ```
 
 5. Inspect the candidate case counts.
-6. Run one known empty historical case:
+6. Run one known large historical case and validate first-window progress before broad rollout. The default window is 900 seconds; reduce `--window-seconds` if one window is still too dense:
 
 ```bash
-sudo -u casescope bash -lc 'cd /opt/casescope && set -a && source /etc/casescope/casescope.env && set +a && /opt/casescope/venv/bin/python migrations/backfill_investigation_graph.py --case-uuid <case-uuid> --batch-size 5000'
+sudo -u casescope bash -lc 'cd /opt/casescope && set -a && source /etc/casescope/casescope.env && set +a && /opt/casescope/venv/bin/python migrations/backfill_investigation_graph.py --case-uuid <case-uuid> --batch-size 5000 --window-seconds 900'
 ```
 
-7. Validate the graph UI/API and exact ERK support.
-8. Run bounded batches:
+7. Validate the graph UI/API, exact ERK support, memory usage, ClickHouse responsiveness, and PostgreSQL commit behavior.
+8. Only after the single large-case proof is healthy, run a very small bounded sample:
 
 ```bash
-sudo -u casescope bash -lc 'cd /opt/casescope && set -a && source /etc/casescope/casescope.env && set +a && /opt/casescope/venv/bin/python migrations/backfill_investigation_graph.py --all-missing --max-cases 5 --resume --batch-size 5000'
+sudo -u casescope bash -lc 'cd /opt/casescope && set -a && source /etc/casescope/casescope.env && set +a && /opt/casescope/venv/bin/python migrations/backfill_investigation_graph.py --all-missing --max-cases 1 --resume --batch-size 5000 --window-seconds 900'
 ```
 
-9. Continue with `--resume` until the dry-run shows no remaining eligible missing graphs.
+9. Continue staged batches only after external review approves broader historical rollout.
 10. Verify remaining projection status.
+
+Useful backfill options:
+
+- `--dry-run` classifies cases without materializing graph rows.
+- `--case-uuid` processes exactly one case UUID.
+- `--resume` resumes pending or failed projection state, including failed partial graphs with existing graph rows.
+- `--max-cases` caps a staged batch.
+- `--window-seconds` controls the bounded ClickHouse timestamp window size; it affects performance, not graph output.
 
 Useful monitoring commands:
 

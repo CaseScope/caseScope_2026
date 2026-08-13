@@ -51,6 +51,21 @@ GRAPH_EXTRACTOR_EVENT_COLUMNS = (
     'evidence_identity_quality',
 )
 
+GRAPH_HOST_IP_EVENT_PREDICATE = """
+source_host != ''
+AND isValidJSON(extra_fields)
+AND (
+  JSONExtractString(extra_fields, 'host_ip') != ''
+  OR arrayExists(
+    host_ip_value -> (
+      host_ip_value NOT IN ('', 'null', '""')
+      AND replaceRegexpAll(host_ip_value, '^"|"$', '') != ''
+    ),
+    JSONExtractArrayRaw(extra_fields, 'host_ip')
+  )
+)
+""".strip()
+
 GRAPH_ELIGIBLE_EVENT_PREDICATE = """
 evidence_record_key != ''
 AND (
@@ -69,8 +84,7 @@ AND (
     AND (file_hash_sha256 != '' OR file_hash_sha1 != '' OR file_hash_md5 != '')
   )
   OR (
-    source_host != ''
-    AND positionCaseInsensitive(extra_fields, 'host_ip') > 0
+    {host_ip_predicate}
   )
   OR (
     event_id = '4624'
@@ -80,7 +94,7 @@ AND (
     AND (sid != '' OR (domain != '' AND username != ''))
   )
 )
-""".strip()
+""".format(host_ip_predicate=GRAPH_HOST_IP_EVENT_PREDICATE).strip()
 
 
 AI_OR_ANALYTIC_CONTEXT_KEYS = {
@@ -354,22 +368,22 @@ class HostOwnsIpExtractor(GraphRelationshipExtractor):
     name = 'events_host_owns_ip'
     version = '1'
 
-    def supports(self, event: Dict[str, Any]) -> bool:
-        extra = _parse_jsonish(event.get('extra_fields'))
-        return (
-            _is_set(event.get('evidence_record_key'))
-            and _is_set(event.get('source_host'))
-            and _is_set(extra.get('host_ip'))
-        )
-
-    def extract(self, event: Dict[str, Any]) -> Iterable[GraphRelationshipCandidate]:
+    def _host_ip_values(self, event: Dict[str, Any]) -> List[Any]:
         extra = _parse_jsonish(event.get('extra_fields'))
         host_ip = extra.get('host_ip')
         if isinstance(host_ip, list):
-            values = host_ip
-        else:
-            values = [host_ip]
-        for value in values:
+            return host_ip
+        return [host_ip]
+
+    def supports(self, event: Dict[str, Any]) -> bool:
+        return (
+            _is_set(event.get('evidence_record_key'))
+            and _is_set(event.get('source_host'))
+            and any(_is_set(value) for value in self._host_ip_values(event))
+        )
+
+    def extract(self, event: Dict[str, Any]) -> Iterable[GraphRelationshipCandidate]:
+        for value in self._host_ip_values(event):
             if not _is_set(value):
                 continue
             yield self.candidate(

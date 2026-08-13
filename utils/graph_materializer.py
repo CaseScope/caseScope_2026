@@ -3,9 +3,11 @@ from __future__ import annotations
 
 import logging
 import re
-from datetime import datetime
+import time
+from datetime import datetime, timedelta
 from typing import Any, Dict, Iterable, Optional
 
+from sqlalchemy import text
 from sqlalchemy.exc import IntegrityError
 
 from models.database import db
@@ -46,7 +48,9 @@ from utils.graph_support_locator import validate_support_provenance
 
 logger = logging.getLogger(__name__)
 EVIDENCE_RECORD_KEY_RE = re.compile(r'^erk:v2:[0-9a-f]{64}$')
-GRAPH_PROJECTION_VERSION = 'graph_events_v1'
+GRAPH_PROJECTION_VERSION = 'graph_events_v2_windowed'
+GRAPH_PROJECTION_PREVIOUS_VERSION = 'graph_events_v1'
+DEFAULT_GRAPH_WINDOW_SECONDS = 900
 
 
 def _clean(value: Any) -> str:
@@ -542,6 +546,36 @@ def _load_projection_state(projection_state: Any):
     return GraphProjectionState.query.get(int(state_id))
 
 
+def _projection_lock_key(case_id: int) -> int:
+    return 4183000000 + int(case_id)
+
+
+def _try_acquire_projection_lock(case_id: int) -> bool:
+    if getattr(db.engine.dialect, 'name', '') != 'postgresql':
+        return False
+    acquired = db.session.execute(
+        text('SELECT pg_try_advisory_lock(:lock_key)'),
+        {'lock_key': _projection_lock_key(case_id)},
+    ).scalar()
+    if not acquired:
+        raise RuntimeError(f'Graph projection already running for case {case_id}')
+    return True
+
+
+def _release_projection_lock(case_id: int, acquired: bool) -> None:
+    if not acquired:
+        return
+    try:
+        db.session.execute(
+            text('SELECT pg_advisory_unlock(:lock_key)'),
+            {'lock_key': _projection_lock_key(case_id)},
+        )
+        db.session.commit()
+    except Exception:
+        db.session.rollback()
+        logger.warning('Failed to release graph projection advisory lock for case %s', case_id)
+
+
 def _set_projection_running(state, *, mode: Optional[str], task_id: Optional[str]) -> None:
     if state is None:
         return
@@ -554,6 +588,7 @@ def _set_projection_running(state, *, mode: Optional[str], task_id: Optional[str
     state.projection_version = GRAPH_PROJECTION_VERSION
     state.started_at = state.started_at or now
     state.completed_at = None
+    state.last_error = None
     state.updated_at = now
     db.session.commit()
 
@@ -581,6 +616,47 @@ def _checkpoint_projection_state(
     db.session.commit()
 
 
+def _checkpoint_window_started(
+    state,
+    *,
+    window_start: datetime,
+    window_end: datetime,
+    events_seen: int,
+    relationships_materialized: int,
+    errors: int,
+) -> None:
+    if state is None:
+        return
+    state.current_window_start_utc = _coerce_datetime(window_start)
+    state.current_window_end_utc = _coerce_datetime(window_end)
+    state.events_seen = int(events_seen)
+    state.relationships_materialized = int(relationships_materialized)
+    state.errors = int(errors)
+    state.updated_at = datetime.utcnow()
+    db.session.commit()
+
+
+def _checkpoint_window_completed(
+    state,
+    *,
+    window_end: datetime,
+    events_seen: int,
+    relationships_materialized: int,
+    errors: int,
+) -> None:
+    if state is None:
+        return
+    state.last_completed_window_end_utc = _coerce_datetime(window_end)
+    state.current_window_start_utc = None
+    state.current_window_end_utc = None
+    state.windows_completed = int(state.windows_completed or 0) + 1
+    state.events_seen = int(events_seen)
+    state.relationships_materialized = int(relationships_materialized)
+    state.errors = int(errors)
+    state.updated_at = datetime.utcnow()
+    db.session.commit()
+
+
 def _finish_projection_state(state, *, status: str, summary: Dict[str, Any]) -> None:
     if state is None:
         return
@@ -589,36 +665,33 @@ def _finish_projection_state(state, *, status: str, summary: Dict[str, Any]) -> 
     state.events_seen = int(summary.get('events_seen', 0) or 0)
     state.relationships_materialized = int(summary.get('relationships_materialized', 0) or 0)
     state.errors = int(summary.get('errors', 0) or 0)
-    state.last_error = summary.get('last_error') or state.last_error
+    state.last_error = summary.get('last_error') or None
     state.completed_at = now if status in {'completed', 'no_eligible_evidence'} else None
     state.updated_at = now
     db.session.commit()
 
 
-def _graph_events_query(*, resume: bool, state: Any = None) -> tuple[str, Dict[str, Any]]:
-    parameters: Dict[str, Any] = {}
-    checkpoint_sql = ''
-    if resume and state is not None and state.last_timestamp_utc and state.last_evidence_record_key:
-        checkpoint_sql = """
-          AND (
-            timestamp_utc > {last_timestamp:DateTime64(3)}
-            OR (
-              timestamp_utc = {last_timestamp:DateTime64(3)}
-              AND evidence_record_key > {last_evidence_record_key:String}
-            )
-          )
-        """
-        parameters['last_timestamp'] = state.last_timestamp_utc
-        parameters['last_evidence_record_key'] = state.last_evidence_record_key
+def _next_eligible_timestamp_query() -> str:
+    return f"""
+    SELECT minOrNull(timestamp_utc)
+    FROM events
+    PREWHERE case_id = {{case_id:UInt32}}
+      AND timestamp_utc >= {{after_timestamp:DateTime64(3)}}
+    WHERE ({GRAPH_ELIGIBLE_EVENT_PREDICATE})
+    LIMIT 1
+    """
+
+
+def _graph_events_query() -> tuple[str, Dict[str, Any]]:
     sql = f"""
     SELECT {', '.join(GRAPH_EXTRACTOR_EVENT_COLUMNS)}
     FROM events
-    WHERE case_id = {{case_id:UInt32}}
-      AND ({GRAPH_ELIGIBLE_EVENT_PREDICATE})
-      {checkpoint_sql}
-    ORDER BY timestamp_utc, evidence_record_key
+    PREWHERE case_id = {{case_id:UInt32}}
+      AND timestamp_utc >= {{window_start:DateTime64(3)}}
+      AND timestamp_utc < {{window_end:DateTime64(3)}}
+    WHERE ({GRAPH_ELIGIBLE_EVENT_PREDICATE})
     """
-    return sql, parameters
+    return sql, {}
 
 
 def materialize_events_for_case(
@@ -631,6 +704,36 @@ def materialize_events_for_case(
     mode: Optional[str] = None,
     task_id: Optional[str] = None,
     progress_interval: int = 50000,
+    window_seconds: int = DEFAULT_GRAPH_WINDOW_SECONDS,
+) -> Dict[str, Any]:
+    lock_acquired = _try_acquire_projection_lock(case_id)
+    try:
+        return _materialize_events_for_case_impl(
+            case_id,
+            client=client,
+            batch_size=batch_size,
+            projection_state=projection_state,
+            resume=resume,
+            mode=mode,
+            task_id=task_id,
+            progress_interval=progress_interval,
+            window_seconds=window_seconds,
+        )
+    finally:
+        _release_projection_lock(case_id, lock_acquired)
+
+
+def _materialize_events_for_case_impl(
+    case_id: int,
+    *,
+    client=None,
+    batch_size: int = 5000,
+    projection_state=None,
+    resume: bool = False,
+    mode: Optional[str] = None,
+    task_id: Optional[str] = None,
+    progress_interval: int = 50000,
+    window_seconds: int = DEFAULT_GRAPH_WINDOW_SECONDS,
 ) -> Dict[str, Any]:
     """Materialize deterministic graph facts from retained ClickHouse events."""
     if client is None:
@@ -639,19 +742,58 @@ def materialize_events_for_case(
         client = get_fresh_client()
 
     state = _load_projection_state(projection_state)
+    previous_projection_version = getattr(state, 'projection_version', None)
+    previous_completed_window_end = getattr(state, 'last_completed_window_end_utc', None)
     _set_projection_running(state, mode=mode, task_id=task_id)
-    sql, checkpoint_parameters = _graph_events_query(resume=bool(resume), state=state)
+    sql, checkpoint_parameters = _graph_events_query()
+    next_timestamp_sql = _next_eligible_timestamp_query()
     materializer = GraphMaterializer()
+    base_events_seen = int(getattr(state, 'events_seen', 0) or 0)
+    base_candidates_seen = int(getattr(state, 'relationships_materialized', 0) or 0)
+    base_errors = int(getattr(state, 'errors', 0) or 0)
     events_seen = 0
     candidates_seen = 0
     errors = 0
     last_timestamp = None
     last_evidence_record_key = ''
     last_error = None
-    batch_since_commit = 0
+    completed_windows_this_run = 0
+    effective_window_seconds = max(int(window_seconds or DEFAULT_GRAPH_WINDOW_SECONDS), 1)
+    if state is not None and resume and previous_projection_version == GRAPH_PROJECTION_VERSION and previous_completed_window_end:
+        after_timestamp = previous_completed_window_end
+    else:
+        # Failed v1/event-keyset projections intentionally replay from the beginning
+        # while retaining already materialized idempotent graph facts.
+        after_timestamp = datetime(1970, 1, 1)
 
-    def iter_rows():
-        parameters = {'case_id': int(case_id), **checkpoint_parameters}
+    def cumulative_events() -> int:
+        return base_events_seen + events_seen
+
+    def cumulative_candidates() -> int:
+        return base_candidates_seen + candidates_seen
+
+    def cumulative_errors() -> int:
+        return base_errors + errors
+
+    def query_next_timestamp(after: datetime) -> Optional[datetime]:
+        result = client.query(
+            next_timestamp_sql,
+            parameters={'case_id': int(case_id), 'after_timestamp': after},
+        )
+        rows = getattr(result, 'result_rows', None) or []
+        if not rows:
+            return None
+        first = rows[0]
+        value = first[0] if isinstance(first, (tuple, list)) else first
+        return _coerce_datetime(value)
+
+    def iter_rows(window_start: datetime, window_end: datetime):
+        parameters = {
+            'case_id': int(case_id),
+            'window_start': window_start,
+            'window_end': window_end,
+            **checkpoint_parameters,
+        }
         if hasattr(client, 'query_rows_stream'):
             try:
                 from utils.clickhouse import migration_source_query_settings
@@ -670,72 +812,153 @@ def materialize_events_for_case(
             for result_row in result.result_rows:
                 yield result_row
 
-    for row in iter_rows():
-        event = event_from_clickhouse_row(row)
-        events_seen += 1
-        batch_since_commit += 1
-        last_timestamp = event.get('timestamp_utc')
-        last_evidence_record_key = _clean(event.get('evidence_record_key'))
-        try:
-            with db.session.begin_nested():
-                candidates = extract_event_relationships(event)
-                materialized = materializer.materialize_candidates(case_id, candidates)
-            candidates_seen += materialized
-            if batch_since_commit >= batch_size:
-                db.session.commit()
-                _checkpoint_projection_state(
-                    state,
-                    last_timestamp=last_timestamp,
-                    last_evidence_record_key=last_evidence_record_key,
-                    events_seen=events_seen,
-                    relationships_materialized=candidates_seen,
-                    errors=errors,
-                    last_error=last_error,
-                )
-                batch_since_commit = 0
-            if progress_interval and events_seen % int(progress_interval) == 0:
-                logger.info(
-                    'Graph materialization progress case=%s checkpoint=(%s, %s) events=%s relationships=%s errors=%s',
+    next_window_start = None
+    while True:
+        window_start = next_window_start or query_next_timestamp(after_timestamp)
+        if window_start is None:
+            break
+        window_end = window_start + timedelta(seconds=effective_window_seconds)
+        window_events = 0
+        window_candidates = 0
+        window_errors_before = errors
+        batch_since_commit = 0
+        started = time.monotonic()
+        _checkpoint_window_started(
+            state,
+            window_start=window_start,
+            window_end=window_end,
+            events_seen=cumulative_events(),
+            relationships_materialized=cumulative_candidates(),
+            errors=cumulative_errors(),
+        )
+        for row in iter_rows(window_start, window_end):
+            event = event_from_clickhouse_row(row)
+            events_seen += 1
+            window_events += 1
+            batch_since_commit += 1
+            last_timestamp = event.get('timestamp_utc')
+            last_evidence_record_key = _clean(event.get('evidence_record_key'))
+            try:
+                with db.session.begin_nested():
+                    candidates = extract_event_relationships(event)
+                    materialized = materializer.materialize_candidates(case_id, candidates)
+                candidates_seen += materialized
+                window_candidates += materialized
+                if batch_since_commit >= batch_size:
+                    db.session.commit()
+                    _checkpoint_projection_state(
+                        state,
+                        last_timestamp=last_timestamp,
+                        last_evidence_record_key=last_evidence_record_key,
+                        events_seen=cumulative_events(),
+                        relationships_materialized=cumulative_candidates(),
+                        errors=cumulative_errors(),
+                        last_error=last_error,
+                    )
+                    batch_since_commit = 0
+                if progress_interval and events_seen % int(progress_interval) == 0:
+                    logger.info(
+                        'Graph materialization progress case=%s window=(%s, %s) events_run=%s events_total=%s relationships_run=%s relationships_total=%s errors_total=%s',
+                        case_id,
+                        window_start,
+                        window_end,
+                        events_seen,
+                        cumulative_events(),
+                        candidates_seen,
+                        cumulative_candidates(),
+                        cumulative_errors(),
+                    )
+            except Exception as exc:
+                errors += 1
+                last_error = str(exc)
+                logger.warning(
+                    'Graph extraction skipped event %s for case %s: %s',
+                    event.get('evidence_record_key'),
                     case_id,
-                    last_timestamp,
-                    last_evidence_record_key,
-                    events_seen,
-                    candidates_seen,
-                    errors,
+                    exc,
                 )
-        except Exception as exc:
-            errors += 1
-            last_error = str(exc)
+        db.session.commit()
+        _checkpoint_projection_state(
+            state,
+            last_timestamp=last_timestamp,
+            last_evidence_record_key=last_evidence_record_key,
+            events_seen=cumulative_events(),
+            relationships_materialized=cumulative_candidates(),
+            errors=cumulative_errors(),
+            last_error=last_error,
+        )
+        if errors > window_errors_before:
             logger.warning(
-                'Graph extraction skipped event %s for case %s: %s',
-                event.get('evidence_record_key'),
+                'Graph window failed case=%s window=(%s, %s) elapsed=%.3fs rows=%s relationships=%s errors=%s',
                 case_id,
-                exc,
+                window_start,
+                window_end,
+                time.monotonic() - started,
+                window_events,
+                window_candidates,
+                errors - window_errors_before,
             )
+            break
+        _checkpoint_window_completed(
+            state,
+            window_end=window_end,
+            events_seen=cumulative_events(),
+            relationships_materialized=cumulative_candidates(),
+            errors=cumulative_errors(),
+        )
+        completed_windows_this_run += 1
+        logger.info(
+            'Graph window completed case=%s window=(%s, %s) elapsed=%.3fs rows=%s relationships=%s errors=0 events_total=%s relationships_total=%s',
+            case_id,
+            window_start,
+            window_end,
+            time.monotonic() - started,
+            window_events,
+            window_candidates,
+            cumulative_events(),
+            cumulative_candidates(),
+        )
+        after_timestamp = window_end
+        next_window_start = window_end if window_events > 0 else None
+
     db.session.commit()
-    _checkpoint_projection_state(
-        state,
-        last_timestamp=last_timestamp,
-        last_evidence_record_key=last_evidence_record_key,
-        events_seen=events_seen,
-        relationships_materialized=candidates_seen,
-        errors=errors,
-        last_error=last_error,
-    )
     summary = {
         'events_seen': events_seen,
         'relationships_materialized': candidates_seen,
         'errors': errors,
+        'cumulative_events_seen': cumulative_events(),
+        'cumulative_relationships_materialized': cumulative_candidates(),
+        'cumulative_errors': cumulative_errors(),
+        'windows_completed': completed_windows_this_run,
+        'window_seconds': effective_window_seconds,
     }
     if last_error:
         summary['last_error'] = last_error
     if state is not None:
         if errors:
-            _finish_projection_state(state, status='failed', summary=summary)
-        elif events_seen == 0:
+            _finish_projection_state(
+                state,
+                status='failed',
+                summary={
+                    **summary,
+                    'events_seen': cumulative_events(),
+                    'relationships_materialized': cumulative_candidates(),
+                    'errors': cumulative_errors(),
+                },
+            )
+        elif events_seen == 0 and GraphEntity.query.filter_by(case_id=int(case_id)).count() == 0 and GraphRelationship.query.filter_by(case_id=int(case_id)).count() == 0:
             _finish_projection_state(state, status='no_eligible_evidence', summary=summary)
         else:
-            _finish_projection_state(state, status='completed', summary=summary)
+            _finish_projection_state(
+                state,
+                status='completed',
+                summary={
+                    **summary,
+                    'events_seen': cumulative_events(),
+                    'relationships_materialized': cumulative_candidates(),
+                    'errors': cumulative_errors(),
+                },
+            )
     return summary
 
 

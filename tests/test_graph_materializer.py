@@ -62,14 +62,31 @@ class StreamingClient:
         self.stream_called = False
         self.query_called = False
         self.last_query = ''
+        self.last_parameters = {}
+        self.stream_queries = []
 
     def query_rows_stream(self, query, parameters=None, settings=None):
         self.stream_called = True
         self.last_query = query
-        return _Stream(self.rows)
+        self.stream_queries.append(query)
+        self.last_parameters = parameters or {}
+        timestamp_idx = GRAPH_EXTRACTOR_EVENT_COLUMNS.index('timestamp_utc')
+        window_start = self.last_parameters.get('window_start')
+        window_end = self.last_parameters.get('window_end')
+        rows = self.rows
+        if window_start and window_end:
+            rows = [row for row in rows if window_start <= row[timestamp_idx] < window_end]
+        return _Stream(rows)
 
-    def query(self, *args, **kwargs):
+    def query(self, query, parameters=None):
         self.query_called = True
+        self.last_query = query
+        self.last_parameters = parameters or {}
+        if 'minOrNull(timestamp_utc)' in query:
+            timestamp_idx = GRAPH_EXTRACTOR_EVENT_COLUMNS.index('timestamp_utc')
+            after = self.last_parameters.get('after_timestamp') or datetime(1970, 1, 1)
+            timestamps = sorted(row[timestamp_idx] for row in self.rows if row[timestamp_idx] >= after)
+            return SimpleNamespace(result_rows=[(timestamps[0],)] if timestamps else [])
         return SimpleNamespace(result_rows=[])
 
 
@@ -211,9 +228,13 @@ class GraphMaterializerTestCase(unittest.TestCase):
         result = materialize_events_for_case(1, client=client)
 
         self.assertTrue(client.stream_called)
-        self.assertFalse(client.query_called)
-        self.assertIn("event_id = '4624'", client.last_query)
-        self.assertNotIn('raw_json', client.last_query)
+        self.assertTrue(client.query_called)
+        self.assertIn("event_id = '4624'", client.stream_queries[-1])
+        self.assertIn('PREWHERE case_id = {case_id:UInt32}', client.stream_queries[-1])
+        self.assertIn('timestamp_utc >= {window_start:DateTime64(3)}', client.stream_queries[-1])
+        self.assertIn('timestamp_utc < {window_end:DateTime64(3)}', client.stream_queries[-1])
+        self.assertNotIn('ORDER BY timestamp_utc, evidence_record_key', client.stream_queries[-1])
+        self.assertNotIn('raw_json', client.stream_queries[-1])
         self.assertEqual(result['relationships_materialized'], 1)
 
     def test_bad_streamed_event_rolls_back_only_that_event(self):

@@ -114,9 +114,8 @@ def graph_eligible_probe(client, case_id: int) -> bool:
     sql = f"""
     SELECT evidence_record_key
     FROM events
-    WHERE case_id = {{case_id:UInt32}}
-      AND ({GRAPH_ELIGIBLE_EVENT_PREDICATE})
-    ORDER BY timestamp_utc, evidence_record_key
+    PREWHERE case_id = {{case_id:UInt32}}
+    WHERE ({GRAPH_ELIGIBLE_EVENT_PREDICATE})
     LIMIT 1
     """
     result = client.query(sql, parameters={'case_id': int(case_id)})
@@ -129,9 +128,8 @@ def graph_stream_explain_sql(case_id: int) -> str:
 EXPLAIN indexes = 1
 SELECT {columns}
 FROM events
-WHERE case_id = {int(case_id)}
-  AND ({GRAPH_ELIGIBLE_EVENT_PREDICATE})
-ORDER BY timestamp_utc, evidence_record_key
+PREWHERE case_id = {int(case_id)}
+WHERE ({GRAPH_ELIGIBLE_EVENT_PREDICATE})
 """.strip()
 
 
@@ -147,6 +145,12 @@ def classify_case_for_graph_backfill(case, *, client=None, probe: bool = True, m
     if active_ingest:
         planned_action = 'defer_active_ingest'
         classification = 'active_ingest'
+    elif has_graph and state is not None and state.status == 'running':
+        planned_action = 'wait_running_projection'
+        classification = 'running'
+    elif has_graph and state is not None and state.status in RESUMABLE_PROJECTION_STATUSES:
+        planned_action = 'resume' if state.status == 'failed' else 'process_pending'
+        classification = 'resumable' if state.status == 'failed' else 'pending'
     elif has_graph:
         if state is None and mutate:
             state = ensure_projection_state(case, mode='historical_backfill', status='completed')
@@ -202,6 +206,10 @@ def serialize_projection_state(state: Optional[GraphProjectionState]) -> Dict[st
         'completed_at': state.completed_at.isoformat() if state.completed_at else None,
         'last_timestamp_utc': state.last_timestamp_utc.isoformat() if state.last_timestamp_utc else None,
         'last_evidence_record_key': state.last_evidence_record_key,
+        'current_window_start_utc': state.current_window_start_utc.isoformat() if state.current_window_start_utc else None,
+        'current_window_end_utc': state.current_window_end_utc.isoformat() if state.current_window_end_utc else None,
+        'last_completed_window_end_utc': state.last_completed_window_end_utc.isoformat() if state.last_completed_window_end_utc else None,
+        'windows_completed': int(state.windows_completed or 0),
         'events_seen': int(state.events_seen or 0),
         'relationships_materialized': int(state.relationships_materialized or 0),
         'errors': int(state.errors or 0),

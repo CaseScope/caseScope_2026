@@ -19,7 +19,7 @@ from models.known_system import KnownSystem, KnownSystemAlias
 from utils.graph_extractors import GRAPH_EXTRACTOR_EVENT_COLUMNS
 from utils.graph_identity import GraphEntityType, GraphRelationshipType
 from utils.graph_materializer import materialize_events_for_case
-from utils.graph_projection import classify_case_for_graph_backfill, ensure_projection_state
+from utils.graph_projection import classify_case_for_graph_backfill, ensure_projection_state, graph_eligible_probe
 
 
 def evidence_key(char):
@@ -84,25 +84,28 @@ class StreamingClient:
         self.probe_rows = list(probe_rows if probe_rows is not None else rows[:1])
         self.last_query = ""
         self.last_parameters = None
+        self.stream_queries = []
 
     def query_rows_stream(self, query, parameters=None, settings=None):
         self.last_query = query
         self.last_parameters = parameters or {}
+        self.stream_queries.append(query)
         rows = self.rows
-        last_timestamp = self.last_parameters.get("last_timestamp")
-        last_key = self.last_parameters.get("last_evidence_record_key")
-        if last_timestamp and last_key:
-            timestamp_idx = GRAPH_EXTRACTOR_EVENT_COLUMNS.index("timestamp_utc")
-            key_idx = GRAPH_EXTRACTOR_EVENT_COLUMNS.index("evidence_record_key")
-            rows = [
-                row for row in rows
-                if row[timestamp_idx] > last_timestamp or (row[timestamp_idx] == last_timestamp and row[key_idx] > last_key)
-            ]
+        timestamp_idx = GRAPH_EXTRACTOR_EVENT_COLUMNS.index("timestamp_utc")
+        window_start = self.last_parameters.get("window_start")
+        window_end = self.last_parameters.get("window_end")
+        if window_start and window_end:
+            rows = [row for row in rows if window_start <= row[timestamp_idx] < window_end]
         return _Stream(rows)
 
     def query(self, query, parameters=None):
         self.last_query = query
         self.last_parameters = parameters or {}
+        if "minOrNull(timestamp_utc)" in query:
+            timestamp_idx = GRAPH_EXTRACTOR_EVENT_COLUMNS.index("timestamp_utc")
+            after = (parameters or {}).get("after_timestamp") or datetime(1970, 1, 1)
+            timestamps = sorted(row[timestamp_idx] for row in self.rows if row[timestamp_idx] >= after)
+            return SimpleNamespace(result_rows=[(timestamps[0],)] if timestamps else [])
         return SimpleNamespace(result_rows=self.probe_rows)
 
 
@@ -160,7 +163,7 @@ class HistoricalGraphBackfillTestCase(unittest.TestCase):
         self.assertEqual(GraphRelationship.query.count(), 3)
         self.assertEqual(GraphRelationshipEvidence.query.count(), 3)
 
-    def test_resume_uses_keyset_checkpoint_without_duplicate_edges(self):
+    def test_v1_failed_partial_replays_with_windowed_projection_without_duplicates(self):
         case = Case.get_by_id_unchecked(1)
         state = ensure_projection_state(case, mode="historical_backfill", status="pending")
         first = event_row(evidence_record_key=evidence_key("a"), timestamp_utc=datetime(2026, 1, 1, 12, 0, 0))
@@ -168,16 +171,27 @@ class HistoricalGraphBackfillTestCase(unittest.TestCase):
         materialize_events_for_case(1, client=StreamingClient([first]), projection_state=state, batch_size=1)
 
         state = GraphProjectionState.query.get(state.id)
-        state.status = "pending"
+        state.status = "failed"
+        state.projection_version = "graph_events_v1"
+        state.last_error = "stopped after checkpoint"
         state.completed_at = None
         db.session.commit()
         resume_client = StreamingClient([first, second])
         materialize_events_for_case(1, client=resume_client, projection_state=state, resume=True, batch_size=1)
 
-        self.assertIn("evidence_record_key > {last_evidence_record_key:String}", resume_client.last_query)
+        stream_sql = resume_client.stream_queries[-1]
+        self.assertIn("PREWHERE case_id = {case_id:UInt32}", stream_sql)
+        self.assertIn("timestamp_utc >= {window_start:DateTime64(3)}", stream_sql)
+        self.assertIn("timestamp_utc < {window_end:DateTime64(3)}", stream_sql)
+        self.assertNotIn("ORDER BY timestamp_utc, evidence_record_key", stream_sql)
         self.assertEqual(GraphRelationship.query.count(), 5)
         self.assertEqual(GraphRelationshipEvidence.query.count(), 6)
-        self.assertEqual(GraphProjectionState.query.get(state.id).status, "completed")
+        state = GraphProjectionState.query.get(state.id)
+        self.assertEqual(state.projection_version, "graph_events_v2_windowed")
+        self.assertEqual(state.status, "completed")
+        self.assertIsNone(state.last_error)
+        self.assertEqual(state.events_seen, 3)
+        self.assertGreaterEqual(state.windows_completed, 2)
 
     def test_no_eligible_evidence_marks_state_without_graph_rows(self):
         state = ensure_projection_state(Case.get_by_id_unchecked(1), mode="historical_backfill", status="pending")
@@ -206,6 +220,40 @@ class HistoricalGraphBackfillTestCase(unittest.TestCase):
         self.assertEqual(row["classification"], "existing_graph")
         self.assertEqual(row["planned_action"], "skip_existing_graph")
         self.assertEqual(GraphEntity.query.count(), 1)
+
+    def test_failed_partial_graph_is_classified_as_resumable(self):
+        case = Case.get_by_id_unchecked(1)
+        db.session.add(GraphEntity(case_id=1, entity_type=GraphEntityType.HOST, entity_key="host:a", display_value="A", canonical_value="A"))
+        db.session.add(GraphProjectionState(
+            case_id=1,
+            case_uuid=case.uuid,
+            status="failed",
+            mode="historical_backfill",
+            projection_version="graph_events_v1",
+            last_error="stopped",
+        ))
+        db.session.commit()
+
+        row = classify_case_for_graph_backfill(case, client=StreamingClient([]), mutate=False)
+
+        self.assertEqual(row["classification"], "resumable")
+        self.assertEqual(row["planned_action"], "resume")
+
+    def test_windowed_stream_and_probe_do_not_use_global_erk_sort(self):
+        state = ensure_projection_state(Case.get_by_id_unchecked(1), mode="historical_backfill", status="pending")
+        client = StreamingClient([event_row()])
+
+        materialize_events_for_case(1, client=client, projection_state=state)
+        stream_sql = client.stream_queries[-1]
+        self.assertIn("PREWHERE case_id = {case_id:UInt32}", stream_sql)
+        self.assertIn("timestamp_utc >= {window_start:DateTime64(3)}", stream_sql)
+        self.assertIn("timestamp_utc < {window_end:DateTime64(3)}", stream_sql)
+        self.assertNotIn("ORDER BY timestamp_utc, evidence_record_key", stream_sql)
+        self.assertNotIn("ORDER BY", client.last_query)
+
+        graph_eligible_probe(client, 1)
+        self.assertIn("LIMIT 1", client.last_query)
+        self.assertNotIn("ORDER BY", client.last_query)
 
     def test_active_ingest_is_deferred_before_clickhouse_probe(self):
         db.session.add(CaseFile(

@@ -15,7 +15,7 @@ from models.audit_log import AuditEntityType, AuditLog
 from models.case import Case
 from models.database import db
 from utils.clickhouse import get_fresh_client
-from utils.graph_materializer import materialize_events_for_case
+from utils.graph_materializer import DEFAULT_GRAPH_WINDOW_SECONDS, materialize_events_for_case
 from utils.graph_projection import (
     classify_case_for_graph_backfill,
     ensure_projection_state,
@@ -36,6 +36,7 @@ def _parse_args(argv: Optional[List[str]] = None) -> argparse.Namespace:
     parser.add_argument("--max-cases", type=int, default=None, help="maximum cases to process")
     parser.add_argument("--batch-size", type=int, default=5000, help="materializer commit/checkpoint batch size")
     parser.add_argument("--progress-interval", type=int, default=50000, help="log progress every N eligible events")
+    parser.add_argument("--window-seconds", type=int, default=DEFAULT_GRAPH_WINDOW_SECONDS, help="bounded ClickHouse timestamp window size")
     parser.add_argument("--explain-case-id", type=int, help="print ClickHouse EXPLAIN for one case-scoped stream query")
     return parser.parse_args(argv)
 
@@ -92,6 +93,8 @@ def _print_summary(rows: List[dict]) -> None:
 def _should_process(row: dict, args: argparse.Namespace) -> bool:
     if row['active_ingest']:
         return False
+    if row['projection_state'] == 'running':
+        return False
     if args.resume and row['projection_state'] in {'pending', 'failed'}:
         return True
     if args.all_missing and row['classification'] in {'missing_eligible', 'pending', 'resumable'}:
@@ -116,8 +119,14 @@ def _process_case(case: Case, row: dict, *, client, args: argparse.Namespace) ->
     if has_active_ingest(case.uuid):
         return {'success': False, 'deferred': True, 'error': 'active ingest'}
     counts_before = graph_counts(case.id)
+    state = row.get('state')
     if counts_before['graph_entities'] > 0 or counts_before['graph_relationships'] > 0:
-        return {'success': True, 'skipped': True, 'reason': 'existing graph'}
+        if state is None:
+            return {'success': True, 'skipped': True, 'reason': 'existing graph'}
+        if state.status == 'running':
+            return {'success': False, 'deferred': True, 'error': 'projection already running'}
+        if state.status not in {'pending', 'failed'}:
+            return {'success': True, 'skipped': True, 'reason': 'existing graph'}
     if not row.get('state') and not row.get('qualifying_evidence'):
         row = classify_case_for_graph_backfill(case, client=client, probe=True)
     if row.get('qualifying_evidence') is False:
@@ -143,6 +152,7 @@ def _process_case(case: Case, row: dict, *, client, args: argparse.Namespace) ->
         resume=bool(args.resume or state.last_timestamp_utc),
         mode='historical_backfill',
         progress_interval=args.progress_interval,
+        window_seconds=args.window_seconds,
     )
     counts_after = graph_counts(case.id)
     action = 'graph_projection_failed' if result.get('errors') else 'graph_projection_completed'

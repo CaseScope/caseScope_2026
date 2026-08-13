@@ -1,6 +1,17 @@
 {
-  "version": "4.18.2",
+  "version": "4.18.3",
   "changelog": [
+    {
+      "version": "4.18.3",
+      "date": "2026-08-13",
+      "changes": [
+        "Historical graph backfill bounded-window streaming and partial-projection resume correction",
+        "Removed whole-case timestamp/evidence-record-key sort from historical graph projection",
+        "Added bounded timestamp-window projection checkpoints with replay-safe idempotence",
+        "Corrected CLI resume for failed partial projections with existing graph rows",
+        "Tightened host_ip graph eligibility and cumulative projection progress state"
+      ]
+    },
     {
       "version": "4.18.2",
       "date": "2026-08-13",

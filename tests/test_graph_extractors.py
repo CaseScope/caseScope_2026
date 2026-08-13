@@ -2,7 +2,7 @@ import json
 import unittest
 from datetime import datetime
 
-from utils.graph_extractors import extract_event_relationships
+from utils.graph_extractors import GRAPH_ELIGIBLE_EVENT_PREDICATE, HostOwnsIpExtractor, extract_event_relationships
 from utils.graph_identity import GraphRelationshipType
 
 
@@ -68,6 +68,25 @@ class GraphExtractorTestCase(unittest.TestCase):
         relationship_types = [candidate.relationship_type for candidate in candidates]
 
         self.assertIn(GraphRelationshipType.OWNS_IP, relationship_types)
+
+    def test_host_ip_requires_non_empty_parsed_value(self):
+        extractor = HostOwnsIpExtractor()
+        for extra_fields in (
+            {},
+            {'host_ip': ''},
+            {'host_ip': None},
+            {'host_ip': []},
+            {'host_ip': ['', None]},
+        ):
+            self.assertFalse(extractor.supports(event(extra_fields=json.dumps(extra_fields))))
+
+        self.assertTrue(extractor.supports(event(extra_fields=json.dumps({'host_ip': '10.1.2.3'}))))
+        self.assertTrue(extractor.supports(event(extra_fields=json.dumps({'host_ip': ['', '10.1.2.3']}))))
+
+    def test_host_ip_sql_prefilter_uses_json_non_empty_semantics(self):
+        self.assertIn("JSONExtractString(extra_fields, 'host_ip') != ''", GRAPH_ELIGIBLE_EVENT_PREDICATE)
+        self.assertIn("JSONExtractArrayRaw(extra_fields, 'host_ip')", GRAPH_ELIGIBLE_EVENT_PREDICATE)
+        self.assertNotIn("positionCaseInsensitive(extra_fields, 'host_ip')", GRAPH_ELIGIBLE_EVENT_PREDICATE)
 
     def test_same_file_path_without_hash_does_not_create_had_content(self):
         candidates = extract_event_relationships(event(target_path=r'C:\Temp\a.exe', process_path='', event_id='11', channel='Microsoft-Windows-Sysmon/Operational'))
