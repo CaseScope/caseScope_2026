@@ -15,6 +15,7 @@ from models.graph import (
     GraphRelationship,
     GraphRelationshipEvidence,
 )
+from models.graph_saved_view import GraphSavedView  # noqa: F401
 from models.known_system import KnownSystem, KnownSystemAlias
 from utils.graph_extractors import GRAPH_EXTRACTOR_EVENT_COLUMNS
 from utils.graph_identity import GraphEntityType, GraphRelationshipType
@@ -85,17 +86,33 @@ class StreamingClient:
         self.last_query = ""
         self.last_parameters = None
         self.stream_queries = []
+        self.streamed_rows = []
+
+    def _filtered_rows(self, parameters):
+        parameters = parameters or {}
+        rows = self.rows
+        case_id = parameters.get("case_id")
+        case_idx = GRAPH_EXTRACTOR_EVENT_COLUMNS.index("case_id")
+        if case_id is not None:
+            rows = [row for row in rows if row[case_idx] == case_id]
+        case_file_ids = parameters.get("case_file_ids")
+        if case_file_ids is not None:
+            case_file_idx = GRAPH_EXTRACTOR_EVENT_COLUMNS.index("case_file_id")
+            allowed = set(case_file_ids)
+            rows = [row for row in rows if row[case_file_idx] in allowed]
+        return rows
 
     def query_rows_stream(self, query, parameters=None, settings=None):
         self.last_query = query
         self.last_parameters = parameters or {}
         self.stream_queries.append(query)
-        rows = self.rows
+        rows = self._filtered_rows(self.last_parameters)
         timestamp_idx = GRAPH_EXTRACTOR_EVENT_COLUMNS.index("timestamp_utc")
         window_start = self.last_parameters.get("window_start")
         window_end = self.last_parameters.get("window_end")
         if window_start and window_end:
             rows = [row for row in rows if window_start <= row[timestamp_idx] < window_end]
+        self.streamed_rows.extend(rows)
         return _Stream(rows)
 
     def query(self, query, parameters=None):
@@ -104,7 +121,7 @@ class StreamingClient:
         if "minOrNull(timestamp_utc)" in query:
             timestamp_idx = GRAPH_EXTRACTOR_EVENT_COLUMNS.index("timestamp_utc")
             after = (parameters or {}).get("after_timestamp") or datetime(1970, 1, 1)
-            timestamps = sorted(row[timestamp_idx] for row in self.rows if row[timestamp_idx] >= after)
+            timestamps = sorted(row[timestamp_idx] for row in self._filtered_rows(parameters) if row[timestamp_idx] >= after)
             return SimpleNamespace(result_rows=[(timestamps[0],)] if timestamps else [])
         return SimpleNamespace(result_rows=self.probe_rows)
 
@@ -254,6 +271,160 @@ class HistoricalGraphBackfillTestCase(unittest.TestCase):
         graph_eligible_probe(client, 1)
         self.assertIn("LIMIT 1", client.last_query)
         self.assertNotIn("ORDER BY", client.last_query)
+
+    def test_incremental_case_file_scope_only_reads_new_source_and_preserves_existing_graph(self):
+        for file_id, case_uuid, filename in (
+            (10, "case-1", "old.evtx"),
+            (11, "case-1", "new.evtx"),
+            (20, "case-2", "other-case.evtx"),
+        ):
+            db.session.add(CaseFile(
+                id=file_id,
+                case_uuid=case_uuid,
+                filename=filename,
+                original_filename=filename,
+                file_size=1,
+                sha256_hash=str(file_id).zfill(64),
+                status=FileStatus.DONE,
+                uploaded_by="tester",
+            ))
+        db.session.commit()
+
+        old = event_row(case_file_id=10, evidence_record_key=evidence_key("a"))
+        other_case = event_row(
+            case_id=2,
+            case_file_id=20,
+            evidence_record_key=evidence_key("b"),
+            source_host="OTHER-DC01",
+            username="Other",
+            sid="S-1-5-21-2",
+            logon_id="0x200",
+        )
+        materialize_events_for_case(1, client=StreamingClient([old, other_case]))
+
+        old_entities = {
+            entity.id: (
+                entity.case_id,
+                entity.entity_type,
+                entity.entity_key,
+                entity.display_value,
+                entity.canonical_value,
+                entity.first_seen_at,
+                entity.last_seen_at,
+                entity.metadata_json,
+            )
+            for entity in GraphEntity.query.filter_by(case_id=1).all()
+        }
+        old_relationships = {
+            relationship.id: (
+                relationship.case_id,
+                relationship.source_entity_id,
+                relationship.relationship_type,
+                relationship.target_entity_id,
+                relationship.first_seen_at,
+                relationship.last_seen_at,
+                relationship.derivation_type,
+                relationship.extractor_name,
+                relationship.extractor_version,
+                relationship.validation_state,
+                relationship.metadata_json,
+            )
+            for relationship in GraphRelationship.query.filter_by(case_id=1).all()
+        }
+        old_support_keys = {
+            (
+                evidence.relationship_id,
+                evidence.evidence_record_key,
+                evidence.evidence_role,
+                evidence.extractor_name,
+                evidence.extractor_version,
+            )
+            for evidence in GraphRelationshipEvidence.query.filter_by(case_id=1).all()
+        }
+
+        new = event_row(
+            case_file_id=11,
+            evidence_record_key=evidence_key("c"),
+            timestamp_utc=datetime(2026, 1, 1, 12, 5, 0),
+            source_host="NEW-DC01",
+            username="NewUser",
+            sid="S-1-5-21-3",
+            logon_id="0x300",
+        )
+        old_unread = event_row(
+            case_file_id=10,
+            evidence_record_key=evidence_key("d"),
+            timestamp_utc=datetime(2026, 1, 1, 12, 6, 0),
+            logon_id="0x400",
+        )
+        client = StreamingClient([old_unread, new, other_case])
+
+        result = materialize_events_for_case(1, case_file_ids=[11], client=client)
+
+        self.assertEqual(result["events_seen"], 1)
+        self.assertEqual(result["case_file_ids"], [11])
+        self.assertIn("PREWHERE case_id = {case_id:UInt32}", client.stream_queries[-1])
+        self.assertIn("case_file_id IN {case_file_ids:Array(UInt32)}", client.stream_queries[-1])
+        self.assertEqual(client.last_parameters["case_id"], 1)
+        self.assertEqual(client.last_parameters["case_file_ids"], [11])
+        case_file_idx = GRAPH_EXTRACTOR_EVENT_COLUMNS.index("case_file_id")
+        case_idx = GRAPH_EXTRACTOR_EVENT_COLUMNS.index("case_id")
+        self.assertEqual({row[case_file_idx] for row in client.streamed_rows}, {11})
+        self.assertEqual({row[case_idx] for row in client.streamed_rows}, {1})
+
+        for entity_id, snapshot in old_entities.items():
+            entity = GraphEntity.query.get(entity_id)
+            self.assertEqual(
+                (
+                    entity.case_id,
+                    entity.entity_type,
+                    entity.entity_key,
+                    entity.display_value,
+                    entity.canonical_value,
+                    entity.first_seen_at,
+                    entity.last_seen_at,
+                    entity.metadata_json,
+                ),
+                snapshot,
+            )
+        for relationship_id, snapshot in old_relationships.items():
+            relationship = GraphRelationship.query.get(relationship_id)
+            self.assertEqual(
+                (
+                    relationship.case_id,
+                    relationship.source_entity_id,
+                    relationship.relationship_type,
+                    relationship.target_entity_id,
+                    relationship.first_seen_at,
+                    relationship.last_seen_at,
+                    relationship.derivation_type,
+                    relationship.extractor_name,
+                    relationship.extractor_version,
+                    relationship.validation_state,
+                    relationship.metadata_json,
+                ),
+                snapshot,
+            )
+
+        self.assertGreater(GraphRelationship.query.filter_by(case_id=1).count(), len(old_relationships))
+        self.assertGreater(GraphRelationshipEvidence.query.filter_by(case_id=1).count(), len(old_support_keys))
+        self.assertEqual(GraphRelationship.query.filter_by(case_id=2).count(), 0)
+        self.assertEqual(GraphRelationshipEvidence.query.filter_by(case_id=2).count(), 0)
+        self.assertEqual(GraphRelationshipEvidence.query.filter_by(case_id=1, source_ref_id=11).count(), 3)
+        self.assertEqual(GraphRelationshipEvidence.query.filter_by(case_id=1, source_ref_id=10).count(), 3)
+        self.assertEqual(GraphRelationshipEvidence.query.filter_by(case_id=1, evidence_record_key=evidence_key("d")).count(), 0)
+
+        support_keys = [
+            (
+                evidence.relationship_id,
+                evidence.evidence_record_key,
+                evidence.evidence_role,
+                evidence.extractor_name,
+                evidence.extractor_version,
+            )
+            for evidence in GraphRelationshipEvidence.query.filter_by(case_id=1).all()
+        ]
+        self.assertEqual(len(support_keys), len(set(support_keys)))
 
     def test_active_ingest_is_deferred_before_clickhouse_probe(self):
         db.session.add(CaseFile(

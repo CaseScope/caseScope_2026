@@ -1,6 +1,16 @@
 {
-  "version": "4.18.3",
+  "version": "4.18.4",
   "changelog": [
+    {
+      "version": "4.18.4",
+      "date": "2026-08-13",
+      "changes": [
+        "Replaced row-by-row Investigation Graph event persistence with bounded PostgreSQL COPY/set-based bulk materialization while preserving canonical graph and exact ERK provenance semantics",
+        "Added high-volume event graph projection through TEMP staging and set-based entity, observation, relationship, and support merges",
+        "Preserved partial replay safety for windowed historical backfill and resumable failed projections",
+        "Separated ClickHouse stream batch sizing from PostgreSQL bulk event batch sizing"
+      ]
+    },
     {
       "version": "4.18.3",
       "date": "2026-08-13",

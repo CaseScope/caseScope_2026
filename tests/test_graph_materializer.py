@@ -12,6 +12,7 @@ from models.client import Client
 from models.agent import Agent
 from models.database import db
 from models.graph import GraphEntity, GraphEntityObservation, GraphRelationship, GraphRelationshipEvidence
+from models.graph_saved_view import GraphSavedView  # noqa: F401
 from models.known_system import KnownSystem, KnownSystemAlias
 from utils.graph_extractors import GRAPH_EXTRACTOR_EVENT_COLUMNS, extract_event_relationships
 from utils.graph_materializer import GraphMaterializer, clear_case_graph, materialize_events_for_case, rebuild_case_graph
@@ -236,6 +237,8 @@ class GraphMaterializerTestCase(unittest.TestCase):
         self.assertNotIn('ORDER BY timestamp_utc, evidence_record_key', client.stream_queries[-1])
         self.assertNotIn('raw_json', client.stream_queries[-1])
         self.assertEqual(result['relationships_materialized'], 1)
+        self.assertEqual(result['bulk_events'], 1)
+        self.assertGreaterEqual(result['bulk_batches'], 1)
 
     def test_bad_streamed_event_rolls_back_only_that_event(self):
         valid_a = process_event(key=evidence_key('a'), process_id=4242)

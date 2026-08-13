@@ -9,7 +9,7 @@ Thread-safe Redis client initialization.
 import logging
 import threading
 import redis
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, List
 from config import Config
 
 logger = logging.getLogger(__name__)
@@ -40,7 +40,7 @@ def _get_progress_key(case_uuid: str) -> str:
     return f"processing_progress:{case_uuid}"
 
 
-def init_progress(case_uuid: str, total_files: int) -> None:
+def init_progress(case_uuid: str, total_files: int, case_file_ids: Optional[List[int]] = None) -> None:
     """Initialize progress tracking for a new batch of files.
     
     Called when files are queued for processing.
@@ -53,6 +53,7 @@ def init_progress(case_uuid: str, total_files: int) -> None:
     Args:
         case_uuid: Case UUID
         total_files: Total number of files in this batch
+        case_file_ids: Optional CaseFile IDs included in this parsing batch
     """
     try:
         client = get_redis_client()
@@ -65,6 +66,7 @@ def init_progress(case_uuid: str, total_files: int) -> None:
         local key = KEYS[1]
         local trigger_key = KEYS[2]
         local total_files = tonumber(ARGV[1])
+        local case_file_ids = ARGV[2]
         
         local existing_status = redis.call('HGET', key, 'status')
         
@@ -73,6 +75,14 @@ def init_progress(case_uuid: str, total_files: int) -> None:
             local new_total = redis.call('HINCRBY', key, 'files_total', total_files)
             -- Reset status back to processing in case it was about to complete
             redis.call('HSET', key, 'status', 'processing')
+            if case_file_ids ~= '' then
+                local existing_ids = redis.call('HGET', key, 'case_file_ids')
+                if existing_ids and existing_ids ~= '' then
+                    redis.call('HSET', key, 'case_file_ids', existing_ids .. ',' .. case_file_ids)
+                else
+                    redis.call('HSET', key, 'case_file_ids', case_file_ids)
+                end
+            end
             -- Clear completion trigger so it can fire again
             redis.call('DEL', trigger_key)
             return {'added', new_total}
@@ -89,6 +99,7 @@ def init_progress(case_uuid: str, total_files: int) -> None:
                 'systems_completed', 0,
                 'users_total', 0,
                 'users_completed', 0,
+                'case_file_ids', case_file_ids,
                 'current_item', '',
                 'status', 'processing')
             redis.call('EXPIRE', key, 86400)
@@ -97,7 +108,8 @@ def init_progress(case_uuid: str, total_files: int) -> None:
         end
         """
         
-        result = client.eval(lua_script, 2, key, trigger_key, total_files)
+        case_file_id_csv = ','.join(str(int(file_id)) for file_id in (case_file_ids or []) if file_id is not None)
+        result = client.eval(lua_script, 2, key, trigger_key, total_files, case_file_id_csv)
         
         if result and len(result) >= 2:
             action = result[0].decode() if isinstance(result[0], bytes) else result[0]
@@ -133,6 +145,14 @@ def increment_progress(case_uuid: str) -> Optional[Dict[str, Any]]:
         # Atomic increment
         completed = client.hincrby(key, 'files_completed', 1)
         total = int(client.hget(key, 'files_total') or 0)
+        case_file_ids = []
+        for raw_id in (client.hget(key, 'case_file_ids') or '').split(','):
+            if not raw_id:
+                continue
+            try:
+                case_file_ids.append(int(raw_id))
+            except (TypeError, ValueError):
+                continue
         
         # Check if files phase complete
         status = 'processing'
@@ -147,7 +167,8 @@ def increment_progress(case_uuid: str) -> Optional[Dict[str, Any]]:
         return {
             'completed': completed,
             'total': total,
-            'status': status
+            'status': status,
+            'case_file_ids': case_file_ids,
         }
         
     except Exception as e:
@@ -173,10 +194,20 @@ def get_progress(case_uuid: str) -> Optional[Dict[str, Any]]:
             return None
         
         # Convert to proper types
+        case_file_ids = []
+        for raw_id in (data.get('case_file_ids') or '').split(','):
+            if not raw_id:
+                continue
+            try:
+                case_file_ids.append(int(raw_id))
+            except (TypeError, ValueError):
+                continue
+
         return {
             'phase': data.get('phase', 'files'),
             'status': data.get('status', 'processing'),
             'current_item': data.get('current_item', ''),
+            'case_file_ids': case_file_ids,
             'files': {
                 'total': int(data.get('files_total', 0)),
                 'completed': int(data.get('files_completed', 0))

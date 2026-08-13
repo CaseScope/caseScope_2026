@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import logging
+import json
 import re
 import time
 from datetime import datetime, timedelta
@@ -86,8 +87,20 @@ class GraphMaterializer:
 
     def __init__(self, session=None):
         self.session = session or db.session
+        self._known_system_cache: Dict[tuple[int, str], Optional[int]] = {}
+        self._entity_identity_cache: Dict[str, EntityIdentity] = {}
 
     def canonicalize_entity_spec(self, case_id: int, spec: EntitySpec) -> EntityIdentity:
+        cache_key = self._entity_cache_key(case_id, spec)
+        cached = self._entity_identity_cache.get(cache_key)
+        if cached is not None:
+            return cached
+        identity = self._canonicalize_entity_spec_uncached(case_id, spec)
+        if len(self._entity_identity_cache) < 100000:
+            self._entity_identity_cache[cache_key] = identity
+        return identity
+
+    def _canonicalize_entity_spec_uncached(self, case_id: int, spec: EntitySpec) -> EntityIdentity:
         entity_type = spec.entity_type
         hints = spec.hints or {}
 
@@ -166,6 +179,36 @@ class GraphMaterializer:
 
         raise ValueError(f'Unsupported graph entity type: {entity_type}')
 
+    def _entity_cache_key(self, case_id: int, spec: EntitySpec) -> str:
+        def normalize(value: Any):
+            if isinstance(value, EntitySpec):
+                return {
+                    'entity_type': value.entity_type,
+                    'raw_value': value.raw_value,
+                    'display_value': value.display_value,
+                    'hints': normalize(value.hints or {}),
+                }
+            if isinstance(value, dict):
+                return {str(key): normalize(val) for key, val in sorted(value.items(), key=lambda item: str(item[0]))}
+            if isinstance(value, (list, tuple)):
+                return [normalize(item) for item in value]
+            if isinstance(value, datetime):
+                return value.isoformat()
+            return value
+
+        return json.dumps(
+            {
+                'case_id': int(case_id),
+                'entity_type': spec.entity_type,
+                'raw_value': spec.raw_value,
+                'display_value': spec.display_value,
+                'hints': normalize(spec.hints or {}),
+            },
+            sort_keys=True,
+            default=str,
+            separators=(',', ':'),
+        )
+
     def _lookup_known_system_id(self, case_id: int, hostname: Any) -> Optional[int]:
         """Resolve KnownSystem identity. Fail closed on infrastructure errors.
 
@@ -176,10 +219,16 @@ class GraphMaterializer:
         """
         if not _clean(hostname):
             return None
+        cache_key = (int(case_id), _clean(hostname).upper())
+        if cache_key in self._known_system_cache:
+            return self._known_system_cache[cache_key]
         from models.known_system import KnownSystem
 
         system, _match_type = KnownSystem.find_by_hostname_or_alias(hostname, case_id=case_id)
-        return system.id if system else None
+        known_system_id = system.id if system else None
+        if len(self._known_system_cache) < 100000:
+            self._known_system_cache[cache_key] = known_system_id
+        return known_system_id
 
     def materialize_candidate(self, case_id: int, candidate: GraphRelationshipCandidate) -> GraphRelationship:
         if candidate.case_id != int(case_id):
@@ -671,34 +720,62 @@ def _finish_projection_state(state, *, status: str, summary: Dict[str, Any]) -> 
     db.session.commit()
 
 
-def _next_eligible_timestamp_query() -> str:
+def _normalize_case_file_ids(case_file_ids: Optional[Iterable[int]]) -> Optional[tuple[int, ...]]:
+    if case_file_ids is None:
+        return None
+    normalized = []
+    seen = set()
+    for raw_id in case_file_ids:
+        if raw_id in (None, ''):
+            continue
+        file_id = int(raw_id)
+        if file_id not in seen:
+            normalized.append(file_id)
+            seen.add(file_id)
+    return tuple(normalized)
+
+
+def _case_file_scope_clause(case_file_ids: Optional[tuple[int, ...]]) -> str:
+    if case_file_ids is None:
+        return ''
+    return "\n      AND case_file_id IN {case_file_ids:Array(UInt32)}"
+
+
+def _next_eligible_timestamp_query(case_file_ids: Optional[tuple[int, ...]] = None) -> str:
     return f"""
     SELECT minOrNull(timestamp_utc)
     FROM events
     PREWHERE case_id = {{case_id:UInt32}}
+      {_case_file_scope_clause(case_file_ids).lstrip()}
       AND timestamp_utc >= {{after_timestamp:DateTime64(3)}}
     WHERE ({GRAPH_ELIGIBLE_EVENT_PREDICATE})
     LIMIT 1
     """
 
 
-def _graph_events_query() -> tuple[str, Dict[str, Any]]:
+def _graph_events_query(case_file_ids: Optional[tuple[int, ...]] = None) -> tuple[str, Dict[str, Any]]:
     sql = f"""
     SELECT {', '.join(GRAPH_EXTRACTOR_EVENT_COLUMNS)}
     FROM events
     PREWHERE case_id = {{case_id:UInt32}}
+      {_case_file_scope_clause(case_file_ids).lstrip()}
       AND timestamp_utc >= {{window_start:DateTime64(3)}}
       AND timestamp_utc < {{window_end:DateTime64(3)}}
     WHERE ({GRAPH_ELIGIBLE_EVENT_PREDICATE})
     """
-    return sql, {}
+    parameters: Dict[str, Any] = {}
+    if case_file_ids is not None:
+        parameters['case_file_ids'] = list(case_file_ids)
+    return sql, parameters
 
 
 def materialize_events_for_case(
     case_id: int,
     *,
+    case_file_ids: Optional[Iterable[int]] = None,
     client=None,
     batch_size: int = 5000,
+    bulk_events: int = 10000,
     projection_state=None,
     resume: bool = False,
     mode: Optional[str] = None,
@@ -710,8 +787,10 @@ def materialize_events_for_case(
     try:
         return _materialize_events_for_case_impl(
             case_id,
+            case_file_ids=case_file_ids,
             client=client,
             batch_size=batch_size,
+            bulk_events=bulk_events,
             projection_state=projection_state,
             resume=resume,
             mode=mode,
@@ -726,8 +805,10 @@ def materialize_events_for_case(
 def _materialize_events_for_case_impl(
     case_id: int,
     *,
+    case_file_ids: Optional[Iterable[int]] = None,
     client=None,
     batch_size: int = 5000,
+    bulk_events: int = 10000,
     projection_state=None,
     resume: bool = False,
     mode: Optional[str] = None,
@@ -745,9 +826,12 @@ def _materialize_events_for_case_impl(
     previous_projection_version = getattr(state, 'projection_version', None)
     previous_completed_window_end = getattr(state, 'last_completed_window_end_utc', None)
     _set_projection_running(state, mode=mode, task_id=task_id)
-    sql, checkpoint_parameters = _graph_events_query()
-    next_timestamp_sql = _next_eligible_timestamp_query()
-    materializer = GraphMaterializer()
+    normalized_case_file_ids = _normalize_case_file_ids(case_file_ids)
+    sql, checkpoint_parameters = _graph_events_query(normalized_case_file_ids)
+    next_timestamp_sql = _next_eligible_timestamp_query(normalized_case_file_ids)
+    from utils.graph_bulk_writer import GraphBulkWriter
+
+    materializer = GraphBulkWriter()
     base_events_seen = int(getattr(state, 'events_seen', 0) or 0)
     base_candidates_seen = int(getattr(state, 'relationships_materialized', 0) or 0)
     base_errors = int(getattr(state, 'errors', 0) or 0)
@@ -759,6 +843,9 @@ def _materialize_events_for_case_impl(
     last_error = None
     completed_windows_this_run = 0
     effective_window_seconds = max(int(window_seconds or DEFAULT_GRAPH_WINDOW_SECONDS), 1)
+    postgres_bulk_enabled = getattr(db.engine.dialect, 'name', '') == 'postgresql'
+    effective_bulk_events = max(int(bulk_events or batch_size or 10000), 1) if postgres_bulk_enabled else 1
+    batch_timings = []
     if state is not None and resume and previous_projection_version == GRAPH_PROJECTION_VERSION and previous_completed_window_end:
         after_timestamp = previous_completed_window_end
     else:
@@ -778,7 +865,7 @@ def _materialize_events_for_case_impl(
     def query_next_timestamp(after: datetime) -> Optional[datetime]:
         result = client.query(
             next_timestamp_sql,
-            parameters={'case_id': int(case_id), 'after_timestamp': after},
+            parameters={'case_id': int(case_id), 'after_timestamp': after, **checkpoint_parameters},
         )
         rows = getattr(result, 'result_rows', None) or []
         if not rows:
@@ -812,6 +899,61 @@ def _materialize_events_for_case_impl(
             for result_row in result.result_rows:
                 yield result_row
 
+    def validate_candidate_for_batch(candidate) -> None:
+        if candidate.case_id != int(case_id):
+            raise ValueError('Graph relationship candidate case_id does not match materialization case')
+        if candidate.derivation_type not in GraphDerivationType.AUTHORITATIVE_EXTRACTOR_TYPES:
+            raise ValueError(f'Authoritative extractor cannot materialize {candidate.derivation_type}')
+        support_locator = dict(candidate.support_locator or {})
+        validate_support_provenance(
+            evidence_record_key=candidate.evidence_record_key,
+            source_table=candidate.source_table,
+            support_locator=support_locator or None,
+        )
+        # Canonicalize before staging so malformed evidence and KnownSystem
+        # infrastructure failures remain isolated to the current event.
+        materializer.materializer.canonicalize_entity_spec(case_id, candidate.source)
+        materializer.materializer.canonicalize_entity_spec(case_id, candidate.target)
+
+    def flush_candidate_batch(
+        pending_candidates,
+        pending_events: int,
+        pending_extraction_seconds: float,
+    ):
+        nonlocal candidates_seen, window_candidates, batch_since_commit
+        if not pending_candidates and pending_events <= 0:
+            return None
+        stats = materializer.materialize_candidates(
+            case_id,
+            pending_candidates,
+            events_read=pending_events,
+            extraction_seconds=pending_extraction_seconds,
+        )
+        candidates_seen += int(stats.candidate_relationships)
+        window_candidates += int(stats.candidate_relationships)
+        batch_since_commit = 0
+        batch_timings.append(stats.as_dict())
+        _checkpoint_projection_state(
+            state,
+            last_timestamp=last_timestamp,
+            last_evidence_record_key=last_evidence_record_key,
+            events_seen=cumulative_events(),
+            relationships_materialized=cumulative_candidates(),
+            errors=cumulative_errors(),
+            last_error=last_error,
+        )
+        logger.info(
+            'Graph bulk materialization progress case=%s window=(%s, %s) stats=%s events_total=%s relationships_total=%s errors_total=%s',
+            case_id,
+            window_start,
+            window_end,
+            stats.as_dict(),
+            cumulative_events(),
+            cumulative_candidates(),
+            cumulative_errors(),
+        )
+        return stats
+
     next_window_start = None
     while True:
         window_start = next_window_start or query_next_timestamp(after_timestamp)
@@ -822,6 +964,9 @@ def _materialize_events_for_case_impl(
         window_candidates = 0
         window_errors_before = errors
         batch_since_commit = 0
+        pending_candidates = []
+        pending_events = 0
+        pending_extraction_seconds = 0.0
         started = time.monotonic()
         _checkpoint_window_started(
             state,
@@ -836,26 +981,16 @@ def _materialize_events_for_case_impl(
             events_seen += 1
             window_events += 1
             batch_since_commit += 1
+            pending_events += 1
             last_timestamp = event.get('timestamp_utc')
             last_evidence_record_key = _clean(event.get('evidence_record_key'))
             try:
-                with db.session.begin_nested():
-                    candidates = extract_event_relationships(event)
-                    materialized = materializer.materialize_candidates(case_id, candidates)
-                candidates_seen += materialized
-                window_candidates += materialized
-                if batch_since_commit >= batch_size:
-                    db.session.commit()
-                    _checkpoint_projection_state(
-                        state,
-                        last_timestamp=last_timestamp,
-                        last_evidence_record_key=last_evidence_record_key,
-                        events_seen=cumulative_events(),
-                        relationships_materialized=cumulative_candidates(),
-                        errors=cumulative_errors(),
-                        last_error=last_error,
-                    )
-                    batch_since_commit = 0
+                extraction_started = time.monotonic()
+                candidates = extract_event_relationships(event)
+                pending_extraction_seconds += time.monotonic() - extraction_started
+                for candidate in candidates:
+                    validate_candidate_for_batch(candidate)
+                pending_candidates.extend(candidates)
                 if progress_interval and events_seen % int(progress_interval) == 0:
                     logger.info(
                         'Graph materialization progress case=%s window=(%s, %s) events_run=%s events_total=%s relationships_run=%s relationships_total=%s errors_total=%s',
@@ -877,7 +1012,12 @@ def _materialize_events_for_case_impl(
                     case_id,
                     exc,
                 )
-        db.session.commit()
+            if pending_events >= effective_bulk_events:
+                flush_candidate_batch(pending_candidates, pending_events, pending_extraction_seconds)
+                pending_candidates = []
+                pending_events = 0
+                pending_extraction_seconds = 0.0
+        flush_candidate_batch(pending_candidates, pending_events, pending_extraction_seconds)
         _checkpoint_projection_state(
             state,
             last_timestamp=last_timestamp,
@@ -931,7 +1071,12 @@ def _materialize_events_for_case_impl(
         'cumulative_errors': cumulative_errors(),
         'windows_completed': completed_windows_this_run,
         'window_seconds': effective_window_seconds,
+        'bulk_events': effective_bulk_events,
+        'bulk_batches': len(batch_timings),
+        'bulk_batch_timings': batch_timings[-20:],
     }
+    if normalized_case_file_ids is not None:
+        summary['case_file_ids'] = list(normalized_case_file_ids)
     if last_error:
         summary['last_error'] = last_error
     if state is not None:

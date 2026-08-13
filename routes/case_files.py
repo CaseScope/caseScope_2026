@@ -1090,7 +1090,7 @@ def import_staging_orphans(case_uuid):
         db.session.commit()
 
         if files_to_queue:
-            init_progress(case_uuid, len(files_to_queue))
+            init_progress(case_uuid, len(files_to_queue), case_file_ids=[cf.id for cf in files_to_queue])
 
             for cf in files_to_queue:
                 cf.status = "queued"
@@ -1235,7 +1235,7 @@ def recover_stuck_files(case_uuid):
             ]
 
             if files_to_queue:
-                init_progress(case_uuid, len(files_to_queue))
+                init_progress(case_uuid, len(files_to_queue), case_file_ids=[cf.id for cf in files_to_queue])
 
                 for cf in files_to_queue:
                     cf.status = "queued"

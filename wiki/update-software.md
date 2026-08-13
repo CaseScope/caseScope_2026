@@ -81,13 +81,17 @@ sudo -u casescope git diff --name-only HEAD@{1}..HEAD -- migrations 2>/dev/null 
 
 ### Historical Investigation Graph Backfill
 
-Version 4.18.3 corrects the historical Investigation Graph backfill for large retained corpora. Historical cases can contain 100M+ ClickHouse rows, so the projector uses case-scoped partition pruning, bounded timestamp windows, and replay-safe idempotent graph writes instead of a whole-case evidence-record-key sort. Run the projection-state schema migration first:
+Version 4.18.4 corrects the historical Investigation Graph backfill for large retained corpora. Historical cases can contain 100M+ ClickHouse rows, so the projector uses case-scoped partition pruning, bounded timestamp windows, and replay-safe idempotent graph writes instead of a whole-case evidence-record-key sort. The high-volume event path now reads bounded ClickHouse case/time windows, runs the deterministic Python extractors, stages bounded candidate batches into PostgreSQL TEMP tables with COPY, and performs set-based authoritative graph merges.
+
+PostgreSQL remains the authoritative durable graph store for entities, observations, relationships, support lifecycle, Threads, Saved Views, snapshots, and analyst state. ClickHouse remains the authoritative retained event evidence store. The backfill does not move graph authority into ClickHouse and does not rewrite event evidence.
+
+Run the projection-state schema migration first:
 
 ```bash
 sudo -u casescope bash -lc 'cd /opt/casescope && set -a && source /etc/casescope/casescope.env && set +a && /opt/casescope/venv/bin/python migrations/add_graph_projection_state.py'
 ```
 
-Do not launch a full historical graph backfill as an unexplained one-liner. Large installations may hold hundreds of millions of retained events. The backfill reads graph-eligible evidence case-by-case using the ClickHouse `case_id` partition and timestamp-bounded windows; it does not rewrite, delete, update, alter, or shadow-copy the events corpus.
+Do not launch a full historical graph backfill as an unexplained one-liner. Large installations may hold hundreds of millions of retained events. The backfill reads graph-eligible evidence case-by-case using the ClickHouse `case_id` partition and timestamp-bounded windows, then bulk merges canonical graph rows in PostgreSQL; it does not rewrite, delete, update, alter, or shadow-copy the events corpus.
 
 Use a staged rollout:
 
@@ -101,17 +105,17 @@ sudo -u casescope bash -lc 'cd /opt/casescope && set -a && source /etc/casescope
 ```
 
 5. Inspect the candidate case counts.
-6. Run one known large historical case and validate first-window progress before broad rollout. The default window is 900 seconds; reduce `--window-seconds` if one window is still too dense:
+6. Run one known large historical case and validate first-window progress before broad rollout. The default window is 900 seconds; reduce `--window-seconds` if one ClickHouse window is still too dense. Use `--bulk-events` to control how many eligible events are staged into one PostgreSQL COPY/merge transaction:
 
 ```bash
-sudo -u casescope bash -lc 'cd /opt/casescope && set -a && source /etc/casescope/casescope.env && set +a && /opt/casescope/venv/bin/python migrations/backfill_investigation_graph.py --case-uuid <case-uuid> --batch-size 5000 --window-seconds 900'
+sudo -u casescope bash -lc 'cd /opt/casescope && set -a && source /etc/casescope/casescope.env && set +a && /opt/casescope/venv/bin/python migrations/backfill_investigation_graph.py --case-uuid <case-uuid> --batch-size 5000 --bulk-events 10000 --window-seconds 900'
 ```
 
 7. Validate the graph UI/API, exact ERK support, memory usage, ClickHouse responsiveness, and PostgreSQL commit behavior.
 8. Only after the single large-case proof is healthy, run a very small bounded sample:
 
 ```bash
-sudo -u casescope bash -lc 'cd /opt/casescope && set -a && source /etc/casescope/casescope.env && set +a && /opt/casescope/venv/bin/python migrations/backfill_investigation_graph.py --all-missing --max-cases 1 --resume --batch-size 5000 --window-seconds 900'
+sudo -u casescope bash -lc 'cd /opt/casescope && set -a && source /etc/casescope/casescope.env && set +a && /opt/casescope/venv/bin/python migrations/backfill_investigation_graph.py --all-missing --max-cases 1 --resume --batch-size 5000 --bulk-events 10000 --window-seconds 900'
 ```
 
 9. Continue staged batches only after external review approves broader historical rollout.
@@ -124,6 +128,8 @@ Useful backfill options:
 - `--resume` resumes pending or failed projection state, including failed partial graphs with existing graph rows.
 - `--max-cases` caps a staged batch.
 - `--window-seconds` controls the bounded ClickHouse timestamp window size; it affects performance, not graph output.
+- `--batch-size` controls ClickHouse stream block sizing.
+- `--bulk-events` controls the PostgreSQL TEMP COPY/set-based merge batch size; it is separate from `--window-seconds`.
 
 Useful monitoring commands:
 

@@ -9,7 +9,7 @@ from models.case import Case
 from models.case_file import CaseFile
 from models.client import Client
 from models.database import db
-from models.graph import GraphEntity, GraphRelationship, GraphProjectionState
+from models.graph import GraphEntity, GraphEntityObservation, GraphRelationship, GraphRelationshipEvidence, GraphProjectionState
 from utils.graph_identity import GraphEntityType
 from utils.graph_materializer import DEFAULT_GRAPH_WINDOW_SECONDS
 
@@ -31,7 +31,9 @@ class BackfillInvestigationGraphCliTestCase(unittest.TestCase):
             Case.__table__,
             CaseFile.__table__,
             GraphEntity.__table__,
+            GraphEntityObservation.__table__,
             GraphRelationship.__table__,
+            GraphRelationshipEvidence.__table__,
             GraphProjectionState.__table__,
         ):
             table.create(db.engine)
@@ -48,6 +50,7 @@ class BackfillInvestigationGraphCliTestCase(unittest.TestCase):
         return SimpleNamespace(
             resume=resume,
             batch_size=5000,
+            bulk_events=10000,
             progress_interval=50000,
             window_seconds=DEFAULT_GRAPH_WINDOW_SECONDS,
         )
@@ -87,6 +90,7 @@ class BackfillInvestigationGraphCliTestCase(unittest.TestCase):
         self.assertEqual(materialize.call_count, 1)
         self.assertTrue(materialize.call_args.kwargs["resume"])
         self.assertEqual(materialize.call_args.kwargs["window_seconds"], DEFAULT_GRAPH_WINDOW_SECONDS)
+        self.assertEqual(materialize.call_args.kwargs["bulk_events"], 10000)
 
     def test_running_partial_graph_is_deferred(self):
         state = GraphProjectionState(

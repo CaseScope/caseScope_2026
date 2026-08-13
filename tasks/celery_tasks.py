@@ -840,7 +840,7 @@ def queue_case_files_for_parsing(case_id: int, case_uuid: str, case_files: List[
         # Drop any stale ingest-cancel token from a previous run
         from utils.async_cancellation import clear_cancellation
         clear_cancellation('case_ingest', case_id)
-        init_progress(case_uuid, len(files_to_queue))
+        init_progress(case_uuid, len(files_to_queue), case_file_ids=[case_file.id for case_file in files_to_queue])
 
     queued_tasks = []
     for case_file in files_to_queue:
@@ -1727,7 +1727,8 @@ def _update_case_file_status(case_file_id: int, status: str = None,
                                 logger.info(f"All files complete for case {case_uuid}, triggering completion tasks")
                                 case_indexing_complete_task.delay(
                                     case_id=case.id,
-                                    case_uuid=case_uuid
+                                    case_uuid=case_uuid,
+                                    case_file_ids=progress.get('case_file_ids'),
                                 )
                     
     except Exception as e:
@@ -1735,7 +1736,13 @@ def _update_case_file_status(case_file_id: int, status: str = None,
 
 
 @celery_app.task(bind=True, name='tasks.case_indexing_complete')
-def case_indexing_complete_task(self, case_id: int, case_uuid: str, _retry_count: int = 0) -> Dict[str, Any]:
+def case_indexing_complete_task(
+    self,
+    case_id: int,
+    case_uuid: str,
+    _retry_count: int = 0,
+    case_file_ids: Optional[List[int]] = None,
+) -> Dict[str, Any]:
     """Run post-indexing completion tasks for a case
     
     Triggered automatically when all files finish processing.
@@ -1781,7 +1788,7 @@ def case_indexing_complete_task(self, case_id: int, case_uuid: str, _retry_count
                 # Re-queue self with 30 second delay
                 case_indexing_complete_task.apply_async(
                     args=[case_id, case_uuid],
-                    kwargs={'_retry_count': _retry_count + 1},
+                    kwargs={'_retry_count': _retry_count + 1, 'case_file_ids': case_file_ids},
                     countdown=30
                 )
                 return {
@@ -2047,7 +2054,7 @@ def case_indexing_complete_task(self, case_id: int, case_uuid: str, _retry_count
     # Step 5.7: Queue deterministic investigation graph materialization.
     try:
         graph_task = materialize_case_graph_task.apply_async(
-            kwargs={'case_id': case_id, 'case_uuid': case_uuid}
+            kwargs={'case_id': case_id, 'case_uuid': case_uuid, 'case_file_ids': case_file_ids}
         )
         results['graph_materialization_queued'] = True
         results['graph_materialization_task_id'] = graph_task.id
@@ -2074,7 +2081,9 @@ def materialize_case_graph_task(
     projection_state_id: int = None,
     requested_by: str = 'system',
     batch_size: int = 5000,
+    bulk_events: int = 10000,
     resume: bool = False,
+    case_file_ids: Optional[List[int]] = None,
 ) -> Dict[str, Any]:
     """Materialize deterministic graph facts from retained normalized evidence."""
     logger.info(f"Starting graph materialization for case {case_id} ({case_uuid})")
@@ -2118,16 +2127,29 @@ def materialize_case_graph_task(
                 details={
                     'mode': mode,
                     'graph_entities_before': before_counts['graph_entities'],
+                    'graph_entity_observations_before': before_counts['graph_entity_observations'],
                     'graph_relationships_before': before_counts['graph_relationships'],
+                    'graph_relationship_evidence_before': before_counts['graph_relationship_evidence'],
                 },
             )
 
             from utils.graph_materializer import materialize_events_for_case
 
+            event_case_file_ids = case_file_ids
+            if (
+                mode == 'ingest'
+                and case_file_ids
+                and before_counts['graph_entities'] == 0
+                and before_counts['graph_relationships'] == 0
+            ):
+                event_case_file_ids = None
+
             result = materialize_events_for_case(
                 case_id,
+                case_file_ids=event_case_file_ids,
                 projection_state=state,
                 batch_size=int(batch_size),
+                bulk_events=int(bulk_events),
                 mode=mode,
                 task_id=getattr(self.request, 'id', None),
                 resume=bool(resume),
@@ -2166,10 +2188,16 @@ def materialize_case_graph_task(
                 details={
                     'mode': mode,
                     'graph_entities_before': before_counts['graph_entities'],
+                    'graph_entity_observations_before': before_counts['graph_entity_observations'],
                     'graph_relationships_before': before_counts['graph_relationships'],
+                    'graph_relationship_evidence_before': before_counts['graph_relationship_evidence'],
                     'graph_entities_after': after_counts['graph_entities'],
+                    'graph_entity_observations_after': after_counts['graph_entity_observations'],
                     'graph_relationships_after': after_counts['graph_relationships'],
+                    'graph_relationship_evidence_after': after_counts['graph_relationship_evidence'],
                     'events_seen': result.get('events_seen', 0),
+                    'bulk_events': result.get('bulk_events', 0),
+                    'bulk_batches': result.get('bulk_batches', 0),
                     'relationships_materialized': result.get('relationships_materialized', 0),
                     'errors': int(result.get('errors', 0) or 0) + native_errors,
                 },

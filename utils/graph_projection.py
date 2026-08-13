@@ -6,7 +6,7 @@ from typing import Any, Dict, Optional
 
 from models.case_file import CaseFile, FileStatus
 from models.database import db
-from models.graph import GraphEntity, GraphProjectionState, GraphRelationship
+from models.graph import GraphEntity, GraphEntityObservation, GraphProjectionState, GraphRelationship, GraphRelationshipEvidence
 from utils.graph_extractors import GRAPH_ELIGIBLE_EVENT_PREDICATE, GRAPH_EXTRACTOR_EVENT_COLUMNS
 from utils.graph_materializer import GRAPH_PROJECTION_VERSION
 
@@ -36,7 +36,9 @@ def utcnow() -> datetime:
 def graph_counts(case_id: int) -> Dict[str, int]:
     return {
         'graph_entities': GraphEntity.query.filter_by(case_id=int(case_id)).count(),
+        'graph_entity_observations': GraphEntityObservation.query.filter_by(case_id=int(case_id)).count(),
         'graph_relationships': GraphRelationship.query.filter_by(case_id=int(case_id)).count(),
+        'graph_relationship_evidence': GraphRelationshipEvidence.query.filter_by(case_id=int(case_id)).count(),
     }
 
 

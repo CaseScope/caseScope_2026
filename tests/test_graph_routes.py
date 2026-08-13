@@ -11,7 +11,7 @@ from models.case import Case
 from models.case_file import CaseFile
 from models.client import Client
 from models.database import db
-from models.graph import GraphEntity, GraphProjectionState, GraphRelationship, GraphRelationshipEvidence
+from models.graph import GraphEntity, GraphEntityObservation, GraphProjectionState, GraphRelationship, GraphRelationshipEvidence
 from models.user import User
 import routes.graph as graph_routes
 from utils.graph_identity import GraphEntityType
@@ -141,6 +141,7 @@ class GraphRouteAuthorizationIntegrationTestCase(unittest.TestCase):
             CaseFile.__table__,
             User.__table__,
             GraphEntity.__table__,
+            GraphEntityObservation.__table__,
             GraphRelationship.__table__,
             GraphRelationshipEvidence.__table__,
             GraphProjectionState.__table__,

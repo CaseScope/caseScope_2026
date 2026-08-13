@@ -34,7 +34,8 @@ def _parse_args(argv: Optional[List[str]] = None) -> argparse.Namespace:
     parser.add_argument("--all-missing", action="store_true", help="process only missing graph projections")
     parser.add_argument("--resume", action="store_true", help="resume pending/failed historical graph projections")
     parser.add_argument("--max-cases", type=int, default=None, help="maximum cases to process")
-    parser.add_argument("--batch-size", type=int, default=5000, help="materializer commit/checkpoint batch size")
+    parser.add_argument("--batch-size", type=int, default=5000, help="ClickHouse stream block size")
+    parser.add_argument("--bulk-events", type=int, default=10000, help="eligible events per PostgreSQL bulk materialization batch")
     parser.add_argument("--progress-interval", type=int, default=50000, help="log progress every N eligible events")
     parser.add_argument("--window-seconds", type=int, default=DEFAULT_GRAPH_WINDOW_SECONDS, help="bounded ClickHouse timestamp window size")
     parser.add_argument("--explain-case-id", type=int, help="print ClickHouse EXPLAIN for one case-scoped stream query")
@@ -140,7 +141,9 @@ def _process_case(case: Case, row: dict, *, client, args: argparse.Namespace) ->
         {
             'mode': 'historical_backfill',
             'graph_entities_before': counts_before['graph_entities'],
+            'graph_entity_observations_before': counts_before['graph_entity_observations'],
             'graph_relationships_before': counts_before['graph_relationships'],
+            'graph_relationship_evidence_before': counts_before['graph_relationship_evidence'],
         },
     )
     started = time.monotonic()
@@ -148,6 +151,7 @@ def _process_case(case: Case, row: dict, *, client, args: argparse.Namespace) ->
         case.id,
         client=client,
         batch_size=args.batch_size,
+        bulk_events=args.bulk_events,
         projection_state=state,
         resume=bool(args.resume or state.last_timestamp_utc),
         mode='historical_backfill',
@@ -163,10 +167,16 @@ def _process_case(case: Case, row: dict, *, client, args: argparse.Namespace) ->
             'mode': 'historical_backfill',
             'duration_seconds': round(time.monotonic() - started, 3),
             'graph_entities_before': counts_before['graph_entities'],
+            'graph_entity_observations_before': counts_before['graph_entity_observations'],
             'graph_relationships_before': counts_before['graph_relationships'],
+            'graph_relationship_evidence_before': counts_before['graph_relationship_evidence'],
             'graph_entities_after': counts_after['graph_entities'],
+            'graph_entity_observations_after': counts_after['graph_entity_observations'],
             'graph_relationships_after': counts_after['graph_relationships'],
+            'graph_relationship_evidence_after': counts_after['graph_relationship_evidence'],
             'events_seen': result.get('events_seen', 0),
+            'bulk_events': result.get('bulk_events', 0),
+            'bulk_batches': result.get('bulk_batches', 0),
             'relationships_materialized': result.get('relationships_materialized', 0),
             'errors': result.get('errors', 0),
         },
