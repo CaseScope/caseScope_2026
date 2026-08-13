@@ -1,6 +1,14 @@
 {
-  "version": "4.18.4",
+  "version": "4.18.5",
   "changelog": [
+    {
+      "version": "4.18.5",
+      "date": "2026-08-13",
+      "changes": [
+        "Recorded post-validation release version after Case 7 bulk Investigation Graph projection completion",
+        "Confirmed no additional uncommitted repository changes remained outside the bulk graph materialization correction"
+      ]
+    },
     {
       "version": "4.18.4",
       "date": "2026-08-13",
