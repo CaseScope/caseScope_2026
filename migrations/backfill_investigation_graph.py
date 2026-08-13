@@ -170,7 +170,11 @@ def migrate(argv: Optional[List[str]] = None) -> None:
     with app.app_context():
         client = get_fresh_client()
         if args.explain_case_id:
-            print(graph_stream_explain_sql(args.explain_case_id))
+            explain_sql = graph_stream_explain_sql(args.explain_case_id)
+            print(explain_sql)
+            result = client.query(explain_sql)
+            for row in result.result_rows:
+                print(" ".join(str(value) for value in row))
             return
         cases = _candidate_cases(args)
         if not cases:
