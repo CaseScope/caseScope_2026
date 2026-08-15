@@ -1,0 +1,496 @@
+{
+  "generated_at": "2026-08-13T21:13:43.591446+00:00",
+  "clickhouse_version": "26.7.3.19",
+  "database": "casescope",
+  "events_table_exists": true,
+  "events_show_create": "CREATE TABLE casescope.events\n(\n    `case_id` UInt32,\n    `artifact_type` LowCardinality(String),\n    `timestamp` DateTime64(3),\n    `timestamp_utc` DateTime64(3),\n    `timestamp_source_tz` LowCardinality(String) DEFAULT 'UTC',\n    `source_file` String DEFAULT '',\n    `source_path` String DEFAULT '',\n    `source_host` LowCardinality(String) DEFAULT '',\n    `case_file_id` Nullable(UInt32),\n    `event_id` String DEFAULT '',\n    `channel` LowCardinality(String) DEFAULT '',\n    `provider` String DEFAULT '',\n    `record_id` Nullable(UInt64),\n    `level` LowCardinality(String) DEFAULT '',\n    `username` String DEFAULT '',\n    `domain` String DEFAULT '',\n    `sid` String DEFAULT '',\n    `logon_type` Nullable(UInt16),\n    `logon_id` String DEFAULT '',\n    `remote_host` String DEFAULT '',\n    `workstation_name` String DEFAULT '',\n    `auth_package` LowCardinality(String) DEFAULT '',\n    `logon_process` String DEFAULT '',\n    `elevated_token` LowCardinality(String) DEFAULT '',\n    `process_name` String DEFAULT '',\n    `process_path` String DEFAULT '',\n    `process_id` Nullable(UInt64),\n    `parent_process` String DEFAULT '',\n    `parent_pid` Nullable(UInt64),\n    `command_line` String DEFAULT '',\n    `thread_id` Nullable(UInt64),\n    `executable_info` String DEFAULT '',\n    `payload_data1` String DEFAULT '',\n    `payload_data2` String DEFAULT '',\n    `payload_data3` String DEFAULT '',\n    `payload_data4` String DEFAULT '',\n    `payload_data5` String DEFAULT '',\n    `payload_data6` String DEFAULT '',\n    `target_path` String DEFAULT '',\n    `file_hash_md5` String DEFAULT '',\n    `file_hash_sha1` String DEFAULT '',\n    `file_hash_sha256` String DEFAULT '',\n    `file_size` Nullable(UInt64),\n    `src_ip` Nullable(IPv4),\n    `dst_ip` Nullable(IPv4),\n    `src_port` Nullable(UInt16),\n    `dst_port` Nullable(UInt16),\n    `reg_key` String DEFAULT '',\n    `reg_value` String DEFAULT '',\n    `reg_data` String DEFAULT '',\n    `rule_title` String DEFAULT '',\n    `rule_level` LowCardinality(String) DEFAULT '',\n    `rule_file` String DEFAULT '',\n    `mitre_tactics` Array(String) DEFAULT [],\n    `mitre_tags` Array(String) DEFAULT [],\n    `raw_json` String DEFAULT '{}' CODEC(ZSTD(3)),\n    `search_blob` String DEFAULT '' CODEC(ZSTD(1)),\n    `extra_fields` String DEFAULT '{}' CODEC(ZSTD(3)),\n    `parser_version` LowCardinality(String) DEFAULT '',\n    `indexed_at` DateTime64(3) DEFAULT now64(3),\n    `selector_key` String MATERIALIZED multiIf((ifNull(record_id, 0) > 0) AND (source_file != '') AND (source_file != '-') AND (source_host != '') AND (source_host != '-'), concat('record:', toString(record_id), '|file:', source_file, '|host:', source_host), concat('ts:', formatDateTime(timestamp_utc, '%Y-%m-%d %H:%i:%S'), '|host:', if(source_host = '-', '', source_host), '|artifact:', if(artifact_type = '-', '', artifact_type), '|event:', if(event_id = '-', '', event_id), '|file:', if(source_file = '-', '', source_file))),\n    `analyst_tagged` Bool DEFAULT false,\n    `analyst_tags` Array(String) DEFAULT [],\n    `analyst_notes` Nullable(String) DEFAULT NULL,\n    `noise_matched` Bool DEFAULT false,\n    `noise_rules` Array(String) DEFAULT [],\n    `ioc_types` Array(String) DEFAULT [],\n    `mitre_attack_ids` Array(String) DEFAULT [],\n    `mitre_attack_tactics` Array(String) DEFAULT [],\n    `mitre_attack_sources` Array(String) DEFAULT [],\n    `mitre_mapping_max_confidence` UInt8 DEFAULT 0,\n    `evidence_record_key` String DEFAULT '',\n    `evidence_identity_version` LowCardinality(String) DEFAULT '',\n    `evidence_identity_quality` LowCardinality(String) DEFAULT '',\n    INDEX idx_search_ngram search_blob TYPE ngrambf_v1(3, 512, 2, 0) GRANULARITY 4,\n    INDEX idx_search_token search_blob TYPE tokenbf_v1(32768, 3, 0) GRANULARITY 4,\n    INDEX idx_event_id event_id TYPE bloom_filter(0.01) GRANULARITY 4,\n    INDEX idx_selector_key selector_key TYPE bloom_filter(0.01) GRANULARITY 4,\n    INDEX idx_evidence_record_key evidence_record_key TYPE bloom_filter(0.01) GRANULARITY 4\n)\nENGINE = MergeTree\nPARTITION BY case_id\nORDER BY (case_id, timestamp_utc, artifact_type, source_host, source_file, event_id)\nSETTINGS index_granularity = 8192, min_bytes_for_wide_part = 0, min_rows_for_wide_part = 0",
+  "active_part_count": 201,
+  "partitions": [
+    {
+      "partition": "7",
+      "parts": 17,
+      "rows": 139579161,
+      "bytes": 21403254263,
+      "sample_part_type": "Wide"
+    },
+    {
+      "partition": "32",
+      "parts": 16,
+      "rows": 174899397,
+      "bytes": 28642383944,
+      "sample_part_type": "Wide"
+    },
+    {
+      "partition": "1",
+      "parts": 16,
+      "rows": 5841552,
+      "bytes": 1549347074,
+      "sample_part_type": "Wide"
+    },
+    {
+      "partition": "35",
+      "parts": 14,
+      "rows": 27336757,
+      "bytes": 4951641409,
+      "sample_part_type": "Wide"
+    },
+    {
+      "partition": "12",
+      "parts": 11,
+      "rows": 45969319,
+      "bytes": 7296004533,
+      "sample_part_type": "Wide"
+    },
+    {
+      "partition": "21",
+      "parts": 9,
+      "rows": 68900003,
+      "bytes": 6522479272,
+      "sample_part_type": "Wide"
+    },
+    {
+      "partition": "2",
+      "parts": 9,
+      "rows": 13935546,
+      "bytes": 1575125565,
+      "sample_part_type": "Wide"
+    },
+    {
+      "partition": "37",
+      "parts": 9,
+      "rows": 3504740,
+      "bytes": 648134121,
+      "sample_part_type": "Wide"
+    },
+    {
+      "partition": "23",
+      "parts": 9,
+      "rows": 6051837,
+      "bytes": 632635977,
+      "sample_part_type": "Wide"
+    },
+    {
+      "partition": "16",
+      "parts": 9,
+      "rows": 3401354,
+      "bytes": 554064846,
+      "sample_part_type": "Wide"
+    },
+    {
+      "partition": "4",
+      "parts": 8,
+      "rows": 96347782,
+      "bytes": 11498969670,
+      "sample_part_type": "Wide"
+    },
+    {
+      "partition": "34",
+      "parts": 8,
+      "rows": 5124844,
+      "bytes": 1215872854,
+      "sample_part_type": "Wide"
+    },
+    {
+      "partition": "8",
+      "parts": 8,
+      "rows": 4989232,
+      "bytes": 797707749,
+      "sample_part_type": "Wide"
+    },
+    {
+      "partition": "10",
+      "parts": 8,
+      "rows": 2447494,
+      "bytes": 397288925,
+      "sample_part_type": "Wide"
+    },
+    {
+      "partition": "6",
+      "parts": 7,
+      "rows": 121910204,
+      "bytes": 16085408208,
+      "sample_part_type": "Wide"
+    },
+    {
+      "partition": "11",
+      "parts": 6,
+      "rows": 5426810,
+      "bytes": 718377153,
+      "sample_part_type": "Wide"
+    },
+    {
+      "partition": "38",
+      "parts": 6,
+      "rows": 3669825,
+      "bytes": 651045434,
+      "sample_part_type": "Wide"
+    },
+    {
+      "partition": "36",
+      "parts": 6,
+      "rows": 3239412,
+      "bytes": 551662502,
+      "sample_part_type": "Wide"
+    },
+    {
+      "partition": "9",
+      "parts": 6,
+      "rows": 3278326,
+      "bytes": 521977364,
+      "sample_part_type": "Wide"
+    },
+    {
+      "partition": "5",
+      "parts": 6,
+      "rows": 3141969,
+      "bytes": 507841494,
+      "sample_part_type": "Wide"
+    },
+    {
+      "partition": "3",
+      "parts": 5,
+      "rows": 6326528,
+      "bytes": 840982975,
+      "sample_part_type": "Wide"
+    },
+    {
+      "partition": "33",
+      "parts": 4,
+      "rows": 131512,
+      "bytes": 24213803,
+      "sample_part_type": "Wide"
+    },
+    {
+      "partition": "15",
+      "parts": 2,
+      "rows": 4385,
+      "bytes": 2573207,
+      "sample_part_type": "Wide"
+    },
+    {
+      "partition": "13",
+      "parts": 1,
+      "rows": 4661,
+      "bytes": 778110,
+      "sample_part_type": "Wide"
+    },
+    {
+      "partition": "14",
+      "parts": 1,
+      "rows": 1341,
+      "bytes": 290976,
+      "sample_part_type": "Wide"
+    }
+  ],
+  "part_statistics": {
+    "median_rows_per_part": 371928,
+    "median_bytes_per_part": 54340847,
+    "p95_rows_per_part": 16275388,
+    "p95_bytes_per_part": 2439666141,
+    "median_rows_per_partition": 5124844,
+    "median_bytes_per_partition": 718377153,
+    "median_parts_per_partition": 8,
+    "p95_parts_per_partition": 16,
+    "max_parts_per_partition": 17
+  },
+  "compact_vs_wide_counts": {
+    "Wide": 201
+  },
+  "mutations_recent": [
+    {
+      "mutation_id": "mutation_32733.txt",
+      "command": "(UPDATE mitre_attack_ids = arrayDistinct(arrayConcat(mitre_attack_ids, ['T1078'])), mitre_attack_tactics = arrayDistinct(arrayConcat(mitre_attack_tactics, ['Stealth', 'Persistence', 'Privilege Escalation', 'Initial Access'])), mitre_attack_sources = arrayDistinct(arrayConcat(mitre_attack_sources, ['mitre_procedure_rule'])), mitre_mapping_max_confidence = greatest(mitre_mapping_max_confidence, toUInt8(70)) WHERE (case_id = 3) AND (artifact_type = 'evtx') AND (event_id = '4648'))",
+      "create_time": "2026-08-13 21:13:35",
+      "is_done": false,
+      "latest_fail_reason": ""
+    },
+    {
+      "mutation_id": "mutation_32732.txt",
+      "command": "(UPDATE mitre_attack_ids = arrayDistinct(arrayConcat(mitre_attack_ids, ['T1021.002'])), mitre_attack_tactics = arrayDistinct(arrayConcat(mitre_attack_tactics, ['Lateral Movement'])), mitre_attack_sources = arrayDistinct(arrayConcat(mitre_attack_sources, ['mitre_procedure_rule'])), mitre_mapping_max_confidence = greatest(mitre_mapping_max_confidence, toUInt8(78)) WHERE (case_id = 3) AND (artifact_type = 'evtx') AND (provider IN ('Microsoft-Windows-SMBClient', 'Microsoft-Windows-SMBServer')) AND (event_id IN ('30830', '30833')) AND ((positionCaseInsensitive(search_blob, 'IPC$') > 0) OR (positionCaseInsensitive(search_blob, 'ADMIN$') > 0) OR (positionCaseInsensitive(search_blob, 'C$') > 0)))",
+      "create_time": "2026-08-13 21:13:25",
+      "is_done": true,
+      "latest_fail_reason": ""
+    },
+    {
+      "mutation_id": "mutation_32731.txt",
+      "command": "(UPDATE mitre_attack_ids = arrayDistinct(arrayConcat(mitre_attack_ids, ['T1059.001'])), mitre_attack_tactics = arrayDistinct(arrayConcat(mitre_attack_tactics, ['Execution'])), mitre_attack_sources = arrayDistinct(arrayConcat(mitre_attack_sources, ['mitre_procedure_rule'])), mitre_mapping_max_confidence = greatest(mitre_mapping_max_confidence, toUInt8(92)) WHERE (case_id = 3) AND (selector_key IN (SELECT selector_key FROM casescope.event_mitre_matches WHERE (case_id = 3) AND (attack_id = 'T1059.001') AND (source = 'mitre_procedure_rule'))))",
+      "create_time": "2026-08-13 21:01:07",
+      "is_done": true,
+      "latest_fail_reason": ""
+    },
+    {
+      "mutation_id": "mutation_32730.txt",
+      "command": "(UPDATE mitre_attack_ids = arrayDistinct(arrayConcat(mitre_attack_ids, ['T1543.003'])), mitre_attack_tactics = arrayDistinct(arrayConcat(mitre_attack_tactics, ['Persistence', 'Privilege Escalation'])), mitre_attack_sources = arrayDistinct(arrayConcat(mitre_attack_sources, ['mitre_procedure_rule'])), mitre_mapping_max_confidence = greatest(mitre_mapping_max_confidence, toUInt8(88)) WHERE (case_id = 3) AND (selector_key IN (SELECT selector_key FROM casescope.event_mitre_matches WHERE (case_id = 3) AND (attack_id = 'T1543.003') AND (source = 'mitre_procedure_rule'))))",
+      "create_time": "2026-08-13 21:00:58",
+      "is_done": true,
+      "latest_fail_reason": ""
+    },
+    {
+      "mutation_id": "mutation_32729.txt",
+      "command": "(UPDATE mitre_attack_ids = arrayDistinct(arrayConcat(mitre_attack_ids, ['T1057'])), mitre_attack_tactics = arrayDistinct(arrayConcat(mitre_attack_tactics, ['Discovery'])), mitre_attack_sources = arrayDistinct(arrayConcat(mitre_attack_sources, ['mitre_procedure_rule'])), mitre_mapping_max_confidence = greatest(mitre_mapping_max_confidence, toUInt8(80)) WHERE (case_id = 3) AND (selector_key IN (SELECT selector_key FROM casescope.event_mitre_matches WHERE (case_id = 3) AND (attack_id = 'T1057') AND (source = 'mitre_procedure_rule'))))",
+      "create_time": "2026-08-13 21:00:49",
+      "is_done": true,
+      "latest_fail_reason": ""
+    },
+    {
+      "mutation_id": "mutation_32728.txt",
+      "command": "(UPDATE mitre_attack_ids = arrayDistinct(arrayConcat(mitre_attack_ids, ['T1007'])), mitre_attack_tactics = arrayDistinct(arrayConcat(mitre_attack_tactics, ['Discovery'])), mitre_attack_sources = arrayDistinct(arrayConcat(mitre_attack_sources, ['mitre_procedure_rule'])), mitre_mapping_max_confidence = greatest(mitre_mapping_max_confidence, toUInt8(84)) WHERE (case_id = 3) AND (selector_key IN (SELECT selector_key FROM casescope.event_mitre_matches WHERE (case_id = 3) AND (attack_id = 'T1007') AND (source = 'mitre_procedure_rule'))))",
+      "create_time": "2026-08-13 21:00:40",
+      "is_done": true,
+      "latest_fail_reason": ""
+    },
+    {
+      "mutation_id": "mutation_32727.txt",
+      "command": "(UPDATE mitre_attack_ids = arrayDistinct(arrayConcat(mitre_attack_ids, ['T1016'])), mitre_attack_tactics = arrayDistinct(arrayConcat(mitre_attack_tactics, ['Discovery'])), mitre_attack_sources = arrayDistinct(arrayConcat(mitre_attack_sources, ['mitre_procedure_rule'])), mitre_mapping_max_confidence = greatest(mitre_mapping_max_confidence, toUInt8(82)) WHERE (case_id = 3) AND (selector_key IN (SELECT selector_key FROM casescope.event_mitre_matches WHERE (case_id = 3) AND (attack_id = 'T1016') AND (source = 'mitre_procedure_rule'))))",
+      "create_time": "2026-08-13 21:00:31",
+      "is_done": true,
+      "latest_fail_reason": ""
+    },
+    {
+      "mutation_id": "mutation_32726.txt",
+      "command": "(UPDATE mitre_attack_ids = arrayDistinct(arrayConcat(mitre_attack_ids, ['T1053.005'])), mitre_attack_tactics = arrayDistinct(arrayConcat(mitre_attack_tactics, ['Execution', 'Persistence', 'Privilege Escalation'])), mitre_attack_sources = arrayDistinct(arrayConcat(mitre_attack_sources, ['mitre_procedure_rule'])), mitre_mapping_max_confidence = greatest(mitre_mapping_max_confidence, toUInt8(86)) WHERE (case_id = 3) AND (selector_key IN (SELECT selector_key FROM casescope.event_mitre_matches WHERE (case_id = 3) AND (attack_id = 'T1053.005') AND (source = 'mitre_procedure_rule'))))",
+      "create_time": "2026-08-13 21:00:22",
+      "is_done": true,
+      "latest_fail_reason": ""
+    },
+    {
+      "mutation_id": "mutation_32725.txt",
+      "command": "(UPDATE mitre_attack_ids = arrayDistinct(arrayConcat(mitre_attack_ids, ['T1218.011'])), mitre_attack_tactics = arrayDistinct(arrayConcat(mitre_attack_tactics, ['Stealth'])), mitre_attack_sources = arrayDistinct(arrayConcat(mitre_attack_sources, ['mitre_procedure_rule'])), mitre_mapping_max_confidence = greatest(mitre_mapping_max_confidence, toUInt8(65)) WHERE (case_id = 3) AND (selector_key IN (SELECT selector_key FROM casescope.event_mitre_matches WHERE (case_id = 3) AND (attack_id = 'T1218.011') AND (source = 'mitre_procedure_rule'))))",
+      "create_time": "2026-08-13 21:00:15",
+      "is_done": true,
+      "latest_fail_reason": ""
+    },
+    {
+      "mutation_id": "mutation_32724.txt",
+      "command": "(UPDATE mitre_attack_ids = arrayDistinct(arrayConcat(mitre_attack_ids, ['T1135'])), mitre_attack_tactics = arrayDistinct(arrayConcat(mitre_attack_tactics, ['Discovery'])), mitre_attack_sources = arrayDistinct(arrayConcat(mitre_attack_sources, ['mitre_procedure_rule'])), mitre_mapping_max_confidence = greatest(mitre_mapping_max_confidence, toUInt8(86)) WHERE (case_id = 3) AND (selector_key IN (SELECT selector_key FROM casescope.event_mitre_matches WHERE (case_id = 3) AND (attack_id = 'T1135') AND (source = 'mitre_procedure_rule'))))",
+      "create_time": "2026-08-13 21:00:05",
+      "is_done": true,
+      "latest_fail_reason": ""
+    },
+    {
+      "mutation_id": "mutation_32723.txt",
+      "command": "(UPDATE mitre_attack_ids = arrayDistinct(arrayConcat(mitre_attack_ids, ['T1547.001'])), mitre_attack_tactics = arrayDistinct(arrayConcat(mitre_attack_tactics, ['Persistence', 'Privilege Escalation'])), mitre_attack_sources = arrayDistinct(arrayConcat(mitre_attack_sources, ['mitre_procedure_rule'])), mitre_mapping_max_confidence = greatest(mitre_mapping_max_confidence, toUInt8(94)) WHERE (case_id = 3) AND (selector_key IN (SELECT selector_key FROM casescope.event_mitre_matches WHERE (case_id = 3) AND (attack_id = 'T1547.001') AND (source = 'mitre_procedure_rule'))))",
+      "create_time": "2026-08-13 20:59:55",
+      "is_done": true,
+      "latest_fail_reason": ""
+    },
+    {
+      "mutation_id": "mutation_32722.txt",
+      "command": "(UPDATE mitre_attack_ids = arrayDistinct(arrayConcat(mitre_attack_ids, ['T1105'])), mitre_attack_tactics = arrayDistinct(arrayConcat(mitre_attack_tactics, ['Command and Control'])), mitre_attack_sources = arrayDistinct(arrayConcat(mitre_attack_sources, ['mitre_procedure_rule'])), mitre_mapping_max_confidence = greatest(mitre_mapping_max_confidence, toUInt8(92)) WHERE (case_id = 3) AND (selector_key IN (SELECT selector_key FROM casescope.event_mitre_matches WHERE (case_id = 3) AND (attack_id = 'T1105') AND (source = 'mitre_procedure_rule'))))",
+      "create_time": "2026-08-13 20:59:45",
+      "is_done": true,
+      "latest_fail_reason": ""
+    },
+    {
+      "mutation_id": "mutation_32721.txt",
+      "command": "(UPDATE mitre_attack_ids = arrayDistinct(arrayConcat(mitre_attack_ids, ['T1078'])), mitre_attack_tactics = arrayDistinct(arrayConcat(mitre_attack_tactics, ['Stealth', 'Persistence', 'Privilege Escalation', 'Initial Access'])), mitre_attack_sources = arrayDistinct(arrayConcat(mitre_attack_sources, ['mitre_procedure_rule'])), mitre_mapping_max_confidence = greatest(mitre_mapping_max_confidence, toUInt8(70)) WHERE (case_id = 3) AND (selector_key IN (SELECT selector_key FROM casescope.event_mitre_matches WHERE (case_id = 3) AND (attack_id = 'T1078') AND (source = 'mitre_procedure_rule'))))",
+      "create_time": "2026-08-13 20:59:37",
+      "is_done": true,
+      "latest_fail_reason": ""
+    },
+    {
+      "mutation_id": "mutation_32720.txt",
+      "command": "(UPDATE mitre_attack_ids = arrayDistinct(arrayConcat(mitre_attack_ids, ['T1059.003'])), mitre_attack_tactics = arrayDistinct(arrayConcat(mitre_attack_tactics, ['Execution'])), mitre_attack_sources = arrayDistinct(arrayConcat(mitre_attack_sources, ['mitre_procedure_rule'])), mitre_mapping_max_confidence = greatest(mitre_mapping_max_confidence, toUInt8(70)) WHERE (case_id = 3) AND (selector_key IN (SELECT selector_key FROM casescope.event_mitre_matches WHERE (case_id = 3) AND (attack_id = 'T1059.003') AND (source = 'mitre_procedure_rule'))))",
+      "create_time": "2026-08-13 20:59:28",
+      "is_done": true,
+      "latest_fail_reason": ""
+    },
+    {
+      "mutation_id": "mutation_32719.txt",
+      "command": "(UPDATE mitre_attack_ids = arrayDistinct(arrayConcat(mitre_attack_ids, ['T1685'])), mitre_attack_tactics = arrayDistinct(arrayConcat(mitre_attack_tactics, ['Defense Impairment'])), mitre_attack_sources = arrayDistinct(arrayConcat(mitre_attack_sources, ['mitre_procedure_rule'])), mitre_mapping_max_confidence = greatest(mitre_mapping_max_confidence, toUInt8(90)) WHERE (case_id = 3) AND (selector_key IN (SELECT selector_key FROM casescope.event_mitre_matches WHERE (case_id = 3) AND (attack_id = 'T1685') AND (source = 'mitre_procedure_rule'))))",
+      "create_time": "2026-08-13 20:59:19",
+      "is_done": true,
+      "latest_fail_reason": ""
+    },
+    {
+      "mutation_id": "mutation_32718.txt",
+      "command": "(UPDATE mitre_attack_ids = arrayDistinct(arrayConcat(mitre_attack_ids, ['T1018'])), mitre_attack_tactics = arrayDistinct(arrayConcat(mitre_attack_tactics, ['Discovery'])), mitre_attack_sources = arrayDistinct(arrayConcat(mitre_attack_sources, ['mitre_procedure_rule'])), mitre_mapping_max_confidence = greatest(mitre_mapping_max_confidence, toUInt8(90)) WHERE (case_id = 3) AND (selector_key IN (SELECT selector_key FROM casescope.event_mitre_matches WHERE (case_id = 3) AND (attack_id = 'T1018') AND (source = 'mitre_procedure_rule'))))",
+      "create_time": "2026-08-13 20:59:11",
+      "is_done": true,
+      "latest_fail_reason": ""
+    },
+    {
+      "mutation_id": "mutation_32717.txt",
+      "command": "(UPDATE mitre_attack_ids = arrayDistinct(arrayConcat(mitre_attack_ids, ['T1047'])), mitre_attack_tactics = arrayDistinct(arrayConcat(mitre_attack_tactics, ['Execution'])), mitre_attack_sources = arrayDistinct(arrayConcat(mitre_attack_sources, ['mitre_procedure_rule'])), mitre_mapping_max_confidence = greatest(mitre_mapping_max_confidence, toUInt8(82)) WHERE (case_id = 3) AND (selector_key IN (SELECT selector_key FROM casescope.event_mitre_matches WHERE (case_id = 3) AND (attack_id = 'T1047') AND (source = 'mitre_procedure_rule'))))",
+      "create_time": "2026-08-13 20:58:59",
+      "is_done": true,
+      "latest_fail_reason": ""
+    },
+    {
+      "mutation_id": "mutation_32716.txt",
+      "command": "(UPDATE mitre_attack_ids = arrayDistinct(arrayConcat(mitre_attack_ids, ['T1021.002'])), mitre_attack_tactics = arrayDistinct(arrayConcat(mitre_attack_tactics, ['Lateral Movement'])), mitre_attack_sources = arrayDistinct(arrayConcat(mitre_attack_sources, ['mitre_procedure_rule'])), mitre_mapping_max_confidence = greatest(mitre_mapping_max_confidence, toUInt8(78)) WHERE (case_id = 3) AND (selector_key IN (SELECT selector_key FROM casescope.event_mitre_matches WHERE (case_id = 3) AND (attack_id = 'T1021.002') AND (source = 'mitre_procedure_rule'))))",
+      "create_time": "2026-08-13 20:58:49",
+      "is_done": true,
+      "latest_fail_reason": ""
+    },
+    {
+      "mutation_id": "mutation_32715.txt",
+      "command": "(UPDATE mitre_attack_ids = arrayDistinct(arrayConcat(mitre_attack_ids, ['T1033'])), mitre_attack_tactics = arrayDistinct(arrayConcat(mitre_attack_tactics, ['Discovery'])), mitre_attack_sources = arrayDistinct(arrayConcat(mitre_attack_sources, ['mitre_procedure_rule'])), mitre_mapping_max_confidence = greatest(mitre_mapping_max_confidence, toUInt8(92)) WHERE (case_id = 3) AND (selector_key IN (SELECT selector_key FROM casescope.event_mitre_matches WHERE (case_id = 3) AND (attack_id = 'T1033') AND (source = 'mitre_procedure_rule'))))",
+      "create_time": "2026-08-13 20:58:41",
+      "is_done": true,
+      "latest_fail_reason": ""
+    },
+    {
+      "mutation_id": "mutation_32714.txt",
+      "command": "(UPDATE mitre_attack_ids = arrayDistinct(arrayConcat(mitre_attack_ids, ['T1560.001'])), mitre_attack_tactics = arrayDistinct(arrayConcat(mitre_attack_tactics, ['Collection'])), mitre_attack_sources = arrayDistinct(arrayConcat(mitre_attack_sources, ['mitre_procedure_rule'])), mitre_mapping_max_confidence = greatest(mitre_mapping_max_confidence, toUInt8(80)) WHERE (case_id = 3) AND (selector_key IN (SELECT selector_key FROM casescope.event_mitre_matches WHERE (case_id = 3) AND (attack_id = 'T1560.001') AND (source = 'mitre_procedure_rule'))))",
+      "create_time": "2026-08-13 20:58:31",
+      "is_done": true,
+      "latest_fail_reason": ""
+    }
+  ],
+  "merge_activity": [
+    {
+      "table": "events",
+      "partition_id": "5",
+      "elapsed": 0.058712319,
+      "progress": 0.0,
+      "num_parts": 1,
+      "total_size_bytes_compressed": 424701223
+    },
+    {
+      "table": "events",
+      "partition_id": "5",
+      "elapsed": 0.052705541,
+      "progress": 0.0,
+      "num_parts": 1,
+      "total_size_bytes_compressed": 3990025
+    },
+    {
+      "table": "events",
+      "partition_id": "6",
+      "elapsed": 0.047682526,
+      "progress": 0.0,
+      "num_parts": 1,
+      "total_size_bytes_compressed": 13843009170
+    },
+    {
+      "table": "events",
+      "partition_id": "6",
+      "elapsed": 0.047582366,
+      "progress": 0.0,
+      "num_parts": 1,
+      "total_size_bytes_compressed": 1711677138
+    },
+    {
+      "table": "events",
+      "partition_id": "6",
+      "elapsed": 0.041717276,
+      "progress": 0.0,
+      "num_parts": 1,
+      "total_size_bytes_compressed": 376922656
+    },
+    {
+      "table": "events",
+      "partition_id": "6",
+      "elapsed": 0.037313881,
+      "progress": 0.0,
+      "num_parts": 1,
+      "total_size_bytes_compressed": 62912570
+    },
+    {
+      "table": "events",
+      "partition_id": "6",
+      "elapsed": 0.037246463,
+      "progress": 0.0,
+      "num_parts": 1,
+      "total_size_bytes_compressed": 11499632
+    },
+    {
+      "table": "events",
+      "partition_id": "6",
+      "elapsed": 0.029886924,
+      "progress": 0.0,
+      "num_parts": 1,
+      "total_size_bytes_compressed": 28123033
+    }
+  ],
+  "events_buffer": {
+    "exists": true,
+    "engine": "Buffer",
+    "visible_row_count": 745463991
+  },
+  "skip_indexes": [
+    {
+      "name": "idx_event_id",
+      "expr": "event_id",
+      "type": "bloom_filter",
+      "granularity": 4
+    },
+    {
+      "name": "idx_evidence_record_key",
+      "expr": "evidence_record_key",
+      "type": "bloom_filter",
+      "granularity": 4
+    },
+    {
+      "name": "idx_search_ngram",
+      "expr": "search_blob",
+      "type": "ngrambf_v1",
+      "granularity": 4
+    },
+    {
+      "name": "idx_search_token",
+      "expr": "search_blob",
+      "type": "tokenbf_v1",
+      "granularity": 4
+    },
+    {
+      "name": "idx_selector_key",
+      "expr": "selector_key",
+      "type": "bloom_filter",
+      "granularity": 4
+    }
+  ],
+  "representative_cases": [
+    {
+      "case_partition": "32",
+      "rows": 174899397,
+      "bytes": 28642383944
+    },
+    {
+      "case_partition": "7",
+      "rows": 139579161,
+      "bytes": 21403254263
+    },
+    {
+      "case_partition": "6",
+      "rows": 121910204,
+      "bytes": 16085408208
+    },
+    {
+      "case_partition": "4",
+      "rows": 96347782,
+      "bytes": 11498969670
+    },
+    {
+      "case_partition": "12",
+      "rows": 45969319,
+      "bytes": 7296004533
+    },
+    {
+      "case_partition": "21",
+      "rows": 68900003,
+      "bytes": 6522479272
+    },
+    {
+      "case_partition": "35",
+      "rows": 27336757,
+      "bytes": 4951641409
+    },
+    {
+      "case_partition": "2",
+      "rows": 13935546,
+      "bytes": 1575125565
+    },
+    {
+      "case_partition": "1",
+      "rows": 5841552,
+      "bytes": 1549347074
+    },
+    {
+      "case_partition": "34",
+      "rows": 5124844,
+      "bytes": 1215872854
+    }
+  ]
+}

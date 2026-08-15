@@ -1,0 +1,87 @@
+{
+  "status": "SAFE_EVTX_FIXTURE_NOT_AVAILABLE",
+  "summary": "No safe disposable EVTX fixtures exist locally. Real on-disk EVTX files are retained case evidence tied to CaseFile rows.",
+  "retained_evtx_files_excluded": [
+    {
+      "path": "/opt/casescope/staging/20036ce9-42ca-45f4-933b-2862d8994cda/sec.evtx",
+      "size_bytes": 4130410496,
+      "case_file_id": 538677,
+      "case": "2024-12-28 - Ransomware",
+      "status": "ingesting",
+      "reason": "retained staging copy referenced by CaseFile"
+    },
+    {
+      "path": "/originals/20036ce9-42ca-45f4-933b-2862d8994cda/originals/sec.evtx",
+      "size_bytes": 4130410496,
+      "case": "2024-12-28 - Ransomware",
+      "reason": "retained originals copy"
+    },
+    {
+      "path": "/originals/20036ce9-42ca-45f4-933b-2862d8994cda/originals/app.evtx",
+      "size_bytes": 20971520,
+      "case_file_id": 538676,
+      "case": "2024-12-28 - Ransomware",
+      "status": "done",
+      "events_indexed": 35807,
+      "reason": "retained evidence"
+    },
+    {
+      "path": "/originals/20036ce9-42ca-45f4-933b-2862d8994cda/originals/sys.evtx",
+      "size_bytes": 20971520,
+      "case_file_id": 538678,
+      "case": "2024-12-28 - Ransomware",
+      "status": "done",
+      "events_indexed": 58464,
+      "reason": "retained evidence"
+    },
+    {
+      "path": "/originals/ed32ffaa-037e-4fa7-b80a-3104da3ef01d/originals/SecurityLogs.evtx",
+      "size_bytes": 20971520,
+      "case_file_id": 538673,
+      "case": "2024-12-09 - Reverse shell",
+      "status": "done",
+      "events_indexed": 25392,
+      "reason": "retained evidence"
+    },
+    {
+      "path": "/originals/ed32ffaa-037e-4fa7-b80a-3104da3ef01d/originals/ApplicationLogs.evtx",
+      "size_bytes": 20971520,
+      "case_file_id": 538672,
+      "case": "2024-12-09 - Reverse shell",
+      "status": "done",
+      "events_indexed": 45034,
+      "reason": "retained evidence"
+    },
+    {
+      "path": "/originals/ed32ffaa-037e-4fa7-b80a-3104da3ef01d/originals/SystemLogs.evtx",
+      "size_bytes": 20971520,
+      "case_file_id": 538674,
+      "case": "2024-12-09 - Reverse shell",
+      "status": "done",
+      "events_indexed": 61086,
+      "reason": "retained evidence"
+    }
+  ],
+  "searched_locations_without_safe_fixture": [
+    "/opt/casescope repository tree excluding retained storage",
+    "/opt/casescope/tests",
+    "/opt/casescope/scripts",
+    "/opt/casescope/bin/EvtxECmd",
+    "/opt/casescope/bin/hayabusa",
+    "/opt/casescope/rules/hayabusa-rules",
+    "/opt/casescope/venv",
+    "/opt/casescope/storage",
+    "/opt/casescope/uploads",
+    "/opt/casescope/evidence_uploads",
+    "/tmp",
+    "/var/tmp"
+  ],
+  "excluded_locations": [
+    "/originals",
+    "/archive",
+    "/opt/casescope/staging",
+    "active CaseScope storage paths",
+    "CaseFile-referenced paths"
+  ],
+  "conclusion": "Phase 0A EVTX profile and BEFORE benchmark require an approved benign non-retained corpus copied/generated outside retained evidence storage."
+}

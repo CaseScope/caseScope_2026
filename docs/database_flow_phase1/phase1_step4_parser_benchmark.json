@@ -1,0 +1,96 @@
+{
+  "captured_at": "2026-08-15T16:07:08.659722+00:00",
+  "pairs": [
+    {
+      "index": 1,
+      "per_file": {
+        "mode": "per_file",
+        "wall_seconds": 158.633,
+        "events": 110742,
+        "first_event_seconds": 9.767,
+        "errors": [],
+        "hayabusa_launches": 8,
+        "hayabusa_wall_seconds": 69.633,
+        "evtxecmd_launches": 8,
+        "evtxecmd_wall_seconds": 61.797,
+        "jsonl_consume_seconds": 72.418
+      },
+      "directory": {
+        "mode": "directory",
+        "wall_seconds": 104.99,
+        "events": 110742,
+        "first_event_seconds": 39.371,
+        "errors": [],
+        "hayabusa_launches": 1,
+        "hayabusa_wall_seconds": 19.801,
+        "evtxecmd_launches": 1,
+        "evtxecmd_wall_seconds": 39.367,
+        "jsonl_consume_seconds": 65.582
+      }
+    },
+    {
+      "index": 2,
+      "per_file": {
+        "mode": "per_file",
+        "wall_seconds": 160.369,
+        "events": 110742,
+        "first_event_seconds": 8.298,
+        "errors": [],
+        "hayabusa_launches": 8,
+        "hayabusa_wall_seconds": 65.634,
+        "evtxecmd_launches": 8,
+        "evtxecmd_wall_seconds": 62.059,
+        "jsonl_consume_seconds": 77.136
+      },
+      "directory": {
+        "mode": "directory",
+        "wall_seconds": 94.265,
+        "events": 110742,
+        "first_event_seconds": 36.905,
+        "errors": [],
+        "hayabusa_launches": 1,
+        "hayabusa_wall_seconds": 18.207,
+        "evtxecmd_launches": 1,
+        "evtxecmd_wall_seconds": 36.901,
+        "jsonl_consume_seconds": 57.324
+      }
+    },
+    {
+      "index": 3,
+      "per_file": {
+        "mode": "per_file",
+        "wall_seconds": 125.992,
+        "events": 110742,
+        "first_event_seconds": 6.54,
+        "errors": [],
+        "hayabusa_launches": 8,
+        "hayabusa_wall_seconds": 48.205,
+        "evtxecmd_launches": 8,
+        "evtxecmd_wall_seconds": 46.12,
+        "jsonl_consume_seconds": 62.869
+      },
+      "directory": {
+        "mode": "directory",
+        "wall_seconds": 84.006,
+        "events": 110742,
+        "first_event_seconds": 28.533,
+        "errors": [],
+        "hayabusa_launches": 1,
+        "hayabusa_wall_seconds": 12.008,
+        "evtxecmd_launches": 1,
+        "evtxecmd_wall_seconds": 28.529,
+        "jsonl_consume_seconds": 55.438
+      }
+    }
+  ],
+  "per_file_walls": [158.633, 160.369, 125.992],
+  "directory_walls": [104.99, 94.265, 84.006],
+  "per_file_median_wall": 158.633,
+  "directory_median_wall": 94.265,
+  "per_file_median_first_event": 8.298,
+  "directory_median_first_event": 36.905,
+  "first_event_delta_seconds": 28.607,
+  "first_event_delta_percent": 344.75,
+  "throughput_multiplier": 1.683,
+  "host_variance_note": "Pair 3 ran on a quieter host (per-file 126s vs 159-160s). Median uses all three pairs. Directory speedup is consistent (~1.5-1.7x) across load levels. First-event regression is also consistent (~+300%)."
+}

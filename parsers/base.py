@@ -145,6 +145,7 @@ class ParsedEvent:
     workstation_name: str = ''  # Source workstation name
     auth_package: str = ''  # NTLM, Kerberos, Negotiate, etc.
     logon_process: str = ''  # Logon process name (Advapi, User32, etc.)
+    key_length: Optional[int] = None  # Windows logon KeyLength EventData
     elevated_token: str = ''  # Elevated token indicator
     
     # Process
@@ -218,6 +219,7 @@ class ParsedEvent:
         'evidence_record_key',
         'evidence_identity_version',
         'evidence_identity_quality',
+        'key_length',
     }
 
     @staticmethod
@@ -397,6 +399,7 @@ class ParsedEvent:
             self.workstation_name,
             self.auth_package,
             self.logon_process,
+            _clamp_uint(self.key_length, UINT16_MAX),
             self.elevated_token,
             self.process_name,
             self.process_path,
@@ -451,7 +454,7 @@ class ParsedEvent:
             'source_host', 'case_file_id', 'event_id', 'channel', 'provider',
             'record_id', 'level', 'username', 'domain', 'sid', 'logon_type',
             'logon_id', 'remote_host', 'workstation_name', 'auth_package',
-            'logon_process', 'elevated_token',
+            'logon_process', 'key_length', 'elevated_token',
             'process_name', 'process_path', 'process_id', 'parent_process',
             'parent_pid', 'command_line', 'thread_id', 'executable_info',
             'payload_data1', 'payload_data2', 'payload_data3', 'payload_data4',

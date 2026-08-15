@@ -153,7 +153,10 @@ def build_non_null_condition(fields: List[str]) -> str:
     typed_fields = {
         'case_id',
         'case_file_id',
+        'indexed_at',
         'record_id',
+        'timestamp',
+        'timestamp_utc',
         'logon_type',
         'process_id',
         'parent_pid',

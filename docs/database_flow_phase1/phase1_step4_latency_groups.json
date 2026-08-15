@@ -1,0 +1,363 @@
+{
+  "captured_at": "2026-08-15T16:36:45.634947+00:00",
+  "corpus_files": [
+    {
+      "name": "Application.evtx",
+      "bytes": 11603968
+    },
+    {
+      "name": "Microsoft-Windows-PowerShell-Operational.evtx",
+      "bytes": 15798272
+    },
+    {
+      "name": "Microsoft-Windows-TaskScheduler-Operational.evtx",
+      "bytes": 69632
+    },
+    {
+      "name": "Microsoft-Windows-TerminalServices-LocalSessionManager.evtx",
+      "bytes": 1118208
+    },
+    {
+      "name": "Microsoft-Windows-WMI-Activity-Operational.evtx",
+      "bytes": 1118208
+    },
+    {
+      "name": "Microsoft-Windows-Windows-Defender-Operational.evtx",
+      "bytes": 5312512
+    },
+    {
+      "name": "Security.evtx",
+      "bytes": 21041152
+    },
+    {
+      "name": "System.evtx",
+      "bytes": 21041152
+    }
+  ],
+  "policies": [
+    {
+      "policy": "g1_per_file",
+      "groups": [
+        {
+          "mode": "per_file",
+          "files": [
+            "Application.evtx"
+          ],
+          "bytes": 11603968
+        },
+        {
+          "mode": "per_file",
+          "files": [
+            "Microsoft-Windows-PowerShell-Operational.evtx"
+          ],
+          "bytes": 15798272
+        },
+        {
+          "mode": "per_file",
+          "files": [
+            "Microsoft-Windows-TaskScheduler-Operational.evtx"
+          ],
+          "bytes": 69632
+        },
+        {
+          "mode": "per_file",
+          "files": [
+            "Microsoft-Windows-TerminalServices-LocalSessionManager.evtx"
+          ],
+          "bytes": 1118208
+        },
+        {
+          "mode": "per_file",
+          "files": [
+            "Microsoft-Windows-WMI-Activity-Operational.evtx"
+          ],
+          "bytes": 1118208
+        },
+        {
+          "mode": "per_file",
+          "files": [
+            "Microsoft-Windows-Windows-Defender-Operational.evtx"
+          ],
+          "bytes": 5312512
+        },
+        {
+          "mode": "per_file",
+          "files": [
+            "Security.evtx"
+          ],
+          "bytes": 21041152
+        },
+        {
+          "mode": "per_file",
+          "files": [
+            "System.evtx"
+          ],
+          "bytes": 21041152
+        }
+      ],
+      "name": "g1_per_file",
+      "eager_first": false,
+      "target_files": 1,
+      "order": "queue"
+    },
+    {
+      "policy": "g2",
+      "groups": [
+        {
+          "mode": "directory",
+          "files": [
+            "Application.evtx",
+            "Microsoft-Windows-PowerShell-Operational.evtx"
+          ],
+          "bytes": 27402240
+        },
+        {
+          "mode": "directory",
+          "files": [
+            "Microsoft-Windows-TaskScheduler-Operational.evtx",
+            "Microsoft-Windows-TerminalServices-LocalSessionManager.evtx"
+          ],
+          "bytes": 1187840
+        },
+        {
+          "mode": "directory",
+          "files": [
+            "Microsoft-Windows-WMI-Activity-Operational.evtx",
+            "Microsoft-Windows-Windows-Defender-Operational.evtx"
+          ],
+          "bytes": 6430720
+        },
+        {
+          "mode": "directory",
+          "files": [
+            "Security.evtx",
+            "System.evtx"
+          ],
+          "bytes": 42082304
+        }
+      ],
+      "name": "g2",
+      "eager_first": false,
+      "target_files": 2,
+      "order": "queue"
+    },
+    {
+      "policy": "g4",
+      "groups": [
+        {
+          "mode": "directory",
+          "files": [
+            "Application.evtx",
+            "Microsoft-Windows-PowerShell-Operational.evtx",
+            "Microsoft-Windows-TaskScheduler-Operational.evtx",
+            "Microsoft-Windows-TerminalServices-LocalSessionManager.evtx"
+          ],
+          "bytes": 28590080
+        },
+        {
+          "mode": "directory",
+          "files": [
+            "Microsoft-Windows-WMI-Activity-Operational.evtx",
+            "Microsoft-Windows-Windows-Defender-Operational.evtx",
+            "Security.evtx",
+            "System.evtx"
+          ],
+          "bytes": 48513024
+        }
+      ],
+      "name": "g4",
+      "eager_first": false,
+      "target_files": 4,
+      "order": "queue"
+    },
+    {
+      "policy": "g8_current",
+      "groups": [
+        {
+          "mode": "directory",
+          "files": [
+            "Application.evtx",
+            "Microsoft-Windows-PowerShell-Operational.evtx",
+            "Microsoft-Windows-TaskScheduler-Operational.evtx",
+            "Microsoft-Windows-TerminalServices-LocalSessionManager.evtx",
+            "Microsoft-Windows-WMI-Activity-Operational.evtx",
+            "Microsoft-Windows-Windows-Defender-Operational.evtx",
+            "Security.evtx",
+            "System.evtx"
+          ],
+          "bytes": 77103104
+        }
+      ],
+      "name": "g8_current",
+      "eager_first": false,
+      "target_files": 8,
+      "order": "queue"
+    },
+    {
+      "policy": "eager1_rest7",
+      "groups": [
+        {
+          "mode": "per_file",
+          "files": [
+            "Application.evtx"
+          ],
+          "bytes": 11603968
+        },
+        {
+          "mode": "directory",
+          "files": [
+            "Microsoft-Windows-PowerShell-Operational.evtx",
+            "Microsoft-Windows-TaskScheduler-Operational.evtx",
+            "Microsoft-Windows-TerminalServices-LocalSessionManager.evtx",
+            "Microsoft-Windows-WMI-Activity-Operational.evtx",
+            "Microsoft-Windows-Windows-Defender-Operational.evtx",
+            "Security.evtx",
+            "System.evtx"
+          ],
+          "bytes": 65499136
+        }
+      ],
+      "name": "eager1_rest7",
+      "eager_first": true,
+      "target_files": 8,
+      "order": "queue"
+    },
+    {
+      "policy": "eager1_g2",
+      "groups": [
+        {
+          "mode": "per_file",
+          "files": [
+            "Application.evtx"
+          ],
+          "bytes": 11603968
+        },
+        {
+          "mode": "directory",
+          "files": [
+            "Microsoft-Windows-PowerShell-Operational.evtx",
+            "Microsoft-Windows-TaskScheduler-Operational.evtx"
+          ],
+          "bytes": 15867904
+        },
+        {
+          "mode": "directory",
+          "files": [
+            "Microsoft-Windows-TerminalServices-LocalSessionManager.evtx",
+            "Microsoft-Windows-WMI-Activity-Operational.evtx"
+          ],
+          "bytes": 2236416
+        },
+        {
+          "mode": "directory",
+          "files": [
+            "Microsoft-Windows-Windows-Defender-Operational.evtx",
+            "Security.evtx"
+          ],
+          "bytes": 26353664
+        },
+        {
+          "mode": "per_file",
+          "files": [
+            "System.evtx"
+          ],
+          "bytes": 21041152
+        }
+      ],
+      "name": "eager1_g2",
+      "eager_first": true,
+      "target_files": 2,
+      "order": "queue"
+    },
+    {
+      "policy": "eager1_g4",
+      "groups": [
+        {
+          "mode": "per_file",
+          "files": [
+            "Application.evtx"
+          ],
+          "bytes": 11603968
+        },
+        {
+          "mode": "directory",
+          "files": [
+            "Microsoft-Windows-PowerShell-Operational.evtx",
+            "Microsoft-Windows-TaskScheduler-Operational.evtx",
+            "Microsoft-Windows-TerminalServices-LocalSessionManager.evtx",
+            "Microsoft-Windows-WMI-Activity-Operational.evtx"
+          ],
+          "bytes": 18104320
+        },
+        {
+          "mode": "directory",
+          "files": [
+            "Microsoft-Windows-Windows-Defender-Operational.evtx",
+            "Security.evtx",
+            "System.evtx"
+          ],
+          "bytes": 47394816
+        }
+      ],
+      "name": "eager1_g4",
+      "eager_first": true,
+      "target_files": 4,
+      "order": "queue"
+    },
+    {
+      "policy": "small_first_g8",
+      "groups": [
+        {
+          "mode": "directory",
+          "files": [
+            "Microsoft-Windows-TaskScheduler-Operational.evtx",
+            "Microsoft-Windows-TerminalServices-LocalSessionManager.evtx",
+            "Microsoft-Windows-WMI-Activity-Operational.evtx",
+            "Microsoft-Windows-Windows-Defender-Operational.evtx",
+            "Application.evtx",
+            "Microsoft-Windows-PowerShell-Operational.evtx",
+            "Security.evtx",
+            "System.evtx"
+          ],
+          "bytes": 77103104
+        }
+      ],
+      "name": "small_first_g8",
+      "eager_first": false,
+      "target_files": 8,
+      "order": "smallest"
+    },
+    {
+      "policy": "small_first_eager1_rest",
+      "groups": [
+        {
+          "mode": "per_file",
+          "files": [
+            "Microsoft-Windows-TaskScheduler-Operational.evtx"
+          ],
+          "bytes": 69632
+        },
+        {
+          "mode": "directory",
+          "files": [
+            "Microsoft-Windows-TerminalServices-LocalSessionManager.evtx",
+            "Microsoft-Windows-WMI-Activity-Operational.evtx",
+            "Microsoft-Windows-Windows-Defender-Operational.evtx",
+            "Application.evtx",
+            "Microsoft-Windows-PowerShell-Operational.evtx",
+            "Security.evtx",
+            "System.evtx"
+          ],
+          "bytes": 77033472
+        }
+      ],
+      "name": "small_first_eager1_rest",
+      "eager_first": true,
+      "target_files": 8,
+      "order": "smallest"
+    }
+  ],
+  "group_fill_window_seconds": 0,
+  "group_fill_window_needed": false,
+  "reason": "queue_case_files_for_parsing already has the queued set; grouping is immediate."
+}

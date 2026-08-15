@@ -1,0 +1,106 @@
+{
+  "phase": "Phase 1 Step 5",
+  "scope": "Phase 1.8 typed hot-field promotion",
+  "verdict": "PROMOTE_KEY_LENGTH_ONLY",
+  "measured_cases": {
+    "33": {
+      "total_rows": 131512,
+      "field_counts": {
+        "KeyLength": {"non_empty": 7991, "distinct_values": 2, "non_empty_4624": 7950, "non_empty_4625": 41},
+        "SubStatus": {"non_empty": 41, "distinct_values": 2},
+        "ServiceName": {"non_empty": 1672, "distinct_values": 8},
+        "TicketEncryptionType": {"non_empty": 0, "distinct_values": 0},
+        "AccessMask": {"non_empty": 1037, "distinct_values": 1},
+        "Properties": {"non_empty": 1037, "distinct_values": 1}
+      }
+    },
+    "10": {
+      "total_rows": 2447494,
+      "field_counts": {
+        "KeyLength": {"non_empty": 2924, "distinct_values": 2, "non_empty_4624": 2921, "non_empty_4625": 3},
+        "SubStatus": {"non_empty": 3, "distinct_values": 1},
+        "ServiceName": {"non_empty": 255, "distinct_values": 70},
+        "TicketEncryptionType": {"non_empty": 0, "distinct_values": 0},
+        "ShareName": {"non_empty": 3489, "distinct_values": 6},
+        "RelativeTargetName": {"non_empty": 95, "distinct_values": 22},
+        "AccessMask": {"non_empty": 95, "distinct_values": 4}
+      }
+    }
+  },
+  "decisions": [
+    {
+      "source_field": "EventData.KeyLength",
+      "typed_column": "key_length",
+      "clickhouse_type": "Nullable(UInt16)",
+      "decision": "PROMOTE_NOW",
+      "reason": "Current pass-the-hash readers repeatedly filter on KeyLength=0; field is low-cardinality, safely typed, and measurable in representative cases.",
+      "readers_migrated": [
+        "utils/candidate_extractor.py",
+        "models/pattern_rules.py",
+        "utils/mitre_attack_sync.py"
+      ],
+      "historical_fallback": "if(key_length IS NULL, JSONExtractString(raw_json, 'EventData', 'KeyLength') = value, key_length = typed_value)",
+      "parser_population": "parsers/evtx_parser.py reads from the decoded event_data map with safe_uint16",
+      "raw_json_preserved": true,
+      "search_blob_preserved": true,
+      "extra_fields_preserved": true
+    },
+    {
+      "source_field": "EventData.SubStatus",
+      "decision": "DEFER",
+      "reason": "Sparse measured presence and no isolated Phase 1.8 reader benefit large enough to justify another column."
+    },
+    {
+      "source_field": "EventData.ServiceName",
+      "decision": "DEFER",
+      "reason": "Present but consumer benefit is mixed display/search context; revisit with a dedicated Kerberos/service reader benchmark."
+    },
+    {
+      "source_field": "EventData.TicketEncryptionType",
+      "decision": "DEFER",
+      "reason": "Referenced by candidate logic but zero non-empty measured values in representative cases."
+    },
+    {
+      "source_field": "EventData.AccessMask",
+      "decision": "DEFER",
+      "reason": "Pattern-specific and uneven measured presence; not broad enough for this final Phase 1 promotion."
+    },
+    {
+      "source_field": "EventData.Properties",
+      "decision": "DEFER",
+      "reason": "Pattern-specific object-access evidence; keep in raw_json/search_blob for now."
+    },
+    {
+      "source_field": "EventData.IpAddress",
+      "decision": "REJECT",
+      "reason": "Already represented by typed src_ip where IPv4-safe; raw/search retain non-IPv4 values."
+    },
+    {
+      "source_field": "EventData.WorkstationName",
+      "decision": "REJECT",
+      "reason": "Already represented by typed workstation_name."
+    },
+    {
+      "source_field": "EventData.AuthenticationPackageName",
+      "decision": "REJECT",
+      "reason": "Already represented by typed auth_package."
+    },
+    {
+      "source_field": "EventData.LogonProcessName",
+      "decision": "REJECT",
+      "reason": "Already represented by typed logon_process."
+    },
+    {
+      "source_field": "EventData.LogonType",
+      "decision": "REJECT",
+      "reason": "Already represented by typed logon_type."
+    }
+  ],
+  "out_of_scope_not_started": [
+    "Phase 1B progressive orchestration",
+    "Phase 2 text indexes or lightweight updates",
+    "LEK/generations/manifests/watermarks/event surfaces",
+    "Qdrant migration",
+    "Overlay migration"
+  ]
+}

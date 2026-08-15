@@ -1,0 +1,116 @@
+{
+  "phase": "Phase 1 Step 5",
+  "scope": "Phase 1.8 typed hot-field promotion",
+  "verdict": "STEP5_ACCEPTED",
+  "phase1_implementation_work": "complete",
+  "promotions": [
+    {
+      "source_field": "EventData.KeyLength",
+      "typed_column": "key_length",
+      "clickhouse_type": "Nullable(UInt16)",
+      "status": "PROMOTE_NOW",
+      "historical_fallback": true,
+      "parser_populated_from_decoded_event_data": true,
+      "raw_json_preserved": true,
+      "search_blob_preserved": true,
+      "extra_fields_preserved": true
+    }
+  ],
+  "reader_migrations": [
+    "utils/candidate_extractor.py",
+    "models/pattern_rules.py",
+    "utils/mitre_attack_sync.py"
+  ],
+  "candidate_measurements": {
+    "case_33": {
+      "total_rows": 131512,
+      "key_length_non_empty": 7991,
+      "key_length_distinct_values": 2,
+      "key_length_4624": 7950,
+      "key_length_4625": 41
+    },
+    "case_10": {
+      "total_rows": 2447494,
+      "key_length_non_empty": 2924,
+      "key_length_distinct_values": 2,
+      "key_length_4624": 2921,
+      "key_length_4625": 3
+    }
+  },
+  "query_benchmarks": {
+    "scratch_rows": 550414,
+    "storage_cost_raw_search_table": {
+      "without_key_length_compressed_bytes": 53647726,
+      "with_key_length_compressed_bytes": 53938864,
+      "delta_bytes": 291138,
+      "delta_percent": 0.543
+    },
+    "exact_pass_the_hash_shape": {
+      "case_10": {
+        "legacy_json_median_ms": 5.947,
+        "typed_only_new_rows_median_ms": 5.004,
+        "typed_with_historical_fallback_median_ms": 6.013,
+        "count": 0,
+        "counts_all_equal": true
+      },
+      "case_33": {
+        "legacy_json_median_ms": 5.144,
+        "typed_only_new_rows_median_ms": 4.879,
+        "typed_with_historical_fallback_median_ms": 6.265,
+        "count": 0,
+        "counts_all_equal": true
+      }
+    },
+    "nonzero_key_length_shape_case_33": {
+      "predicate": "event_id='4624' AND logon_type IN (3,9) AND KeyLength=0",
+      "legacy_json_median_ms": 14.006,
+      "typed_only_new_rows_median_ms": 5.015,
+      "conditional_historical_fallback_median_ms": 9.165,
+      "count": 529,
+      "counts_all_equal": true
+    }
+  },
+  "semantic_parity": {
+    "artifact": "docs/database_flow_phase1/phase1_step5_semantic_parity.json",
+    "events": 110742,
+    "detections": 7436,
+    "erk_legacy_minus_current": 0,
+    "erk_current_minus_legacy": 0,
+    "deterministic_event_diffs": 0,
+    "cross_file_attachments": 0,
+    "event_parity": true,
+    "detection_parity": true
+  },
+  "ingest_regression": {
+    "artifact": "docs/database_flow_phase1/phase1_step5_ingest.json",
+    "approved_policy": "evtx_group_mode with evtx_eager_first and target_files=8",
+    "events_inserted": 110742,
+    "detections": 7436,
+    "erk_sha256": "6ad87fe76520d18bde4cfb421bbd4fce0b410c00d60abaf642769aa303515b7c",
+    "wall_time_seconds": 136.215,
+    "events_per_second": 812.996,
+    "first_searchable_seconds": 18.282,
+    "peak_rss_mb": 228.42,
+    "cpu_self_seconds": 96.4,
+    "cpu_children_seconds": 92.385,
+    "clickhouse_active_bytes_after_optimize": 20762370,
+    "errors": []
+  },
+  "tests": {
+    "command": "/opt/casescope/venv/bin/python -m unittest tests.test_phase1_step5 tests.test_phase1_step1.OrjsonParityTests tests.test_phase1_step4.ParserDirectoryModeTestCase tests.test_parser_hardening.ParserHardeningTestCase",
+    "result": "148 tests OK",
+    "lints": "No linter errors found for edited files"
+  },
+  "ioc_common_path": {
+    "raw_json_coverage_changed": false,
+    "search_blob_coverage_changed": false,
+    "notes": "No IOC reader was migrated away from raw_json/search_blob common-path matching."
+  },
+  "out_of_scope_not_started": [
+    "Phase 1B progressive orchestration",
+    "Phase 2 text indexes or lightweight updates",
+    "LEK/generations/manifests/watermarks/event surfaces",
+    "Qdrant migration",
+    "Overlay migration"
+  ]
+}

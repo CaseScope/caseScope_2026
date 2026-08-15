@@ -1,0 +1,302 @@
+[
+  {
+    "samples": 995,
+    "percent": 3.85,
+    "frame": "compile (_strptime.py:263)"
+  },
+  {
+    "samples": 925,
+    "percent": 3.58,
+    "frame": "to_clickhouse_row (parsers/base.py:374)"
+  },
+  {
+    "samples": 760,
+    "percent": 2.94,
+    "frame": "build_evidence_record_identity (utils/evidence_identity.py:209)"
+  },
+  {
+    "samples": 688,
+    "percent": 2.66,
+    "frame": "_extract_text_entities (utils/privacy_aliases.py:1319)"
+  },
+  {
+    "samples": 662,
+    "percent": 2.56,
+    "frame": "add_event (parsers/registry.py:854)"
+  },
+  {
+    "samples": 619,
+    "percent": 2.39,
+    "frame": "_extract_text_entities (utils/privacy_aliases.py:1316)"
+  },
+  {
+    "samples": 567,
+    "percent": 2.19,
+    "frame": "_serialized_extra_fields (parsers/base.py:320)"
+  },
+  {
+    "samples": 533,
+    "percent": 2.06,
+    "frame": "_extract_text_entities (utils/privacy_aliases.py:1332)"
+  },
+  {
+    "samples": 503,
+    "percent": 1.95,
+    "frame": "extract_alias_candidates_from_event_rows (utils/privacy_aliases.py:1385)"
+  },
+  {
+    "samples": 495,
+    "percent": 1.91,
+    "frame": "_parse (dateutil/parser/_parser.py:719)"
+  },
+  {
+    "samples": 483,
+    "percent": 1.87,
+    "frame": "split (dateutil/parser/_parser.py:201)"
+  },
+  {
+    "samples": 461,
+    "percent": 1.78,
+    "frame": "_extract_text_entities (utils/privacy_aliases.py:1329)"
+  },
+  {
+    "samples": 446,
+    "percent": 1.73,
+    "frame": "_extract_text_entities (utils/privacy_aliases.py:1343)"
+  },
+  {
+    "samples": 446,
+    "percent": 1.73,
+    "frame": "_extract_text_entities (utils/privacy_aliases.py:1313)"
+  },
+  {
+    "samples": 430,
+    "percent": 1.66,
+    "frame": "_extract_text_entities (utils/privacy_aliases.py:1347)"
+  },
+  {
+    "samples": 430,
+    "percent": 1.66,
+    "frame": "_extract_text_entities (utils/privacy_aliases.py:1294)"
+  },
+  {
+    "samples": 418,
+    "percent": 1.62,
+    "frame": "flush (parsers/registry.py:886)"
+  },
+  {
+    "samples": 366,
+    "percent": 1.42,
+    "frame": "__next__ (dateutil/parser/_parser.py:190)"
+  },
+  {
+    "samples": 357,
+    "percent": 1.38,
+    "frame": "_extract_text_entities (utils/privacy_aliases.py:1300)"
+  },
+  {
+    "samples": 353,
+    "percent": 1.37,
+    "frame": "_extract_text_entities (utils/privacy_aliases.py:1344)"
+  },
+  {
+    "samples": 317,
+    "percent": 1.23,
+    "frame": "_event_to_mapping (utils/evidence_identity.py:319)"
+  },
+  {
+    "samples": 315,
+    "percent": 1.22,
+    "frame": "_build_parser_provenance (parsers/base.py:300)"
+  },
+  {
+    "samples": 291,
+    "percent": 1.13,
+    "frame": "_parse (dateutil/parser/_parser.py:740)"
+  },
+  {
+    "samples": 273,
+    "percent": 1.06,
+    "frame": "upsert_alias_candidates (utils/privacy_aliases.py:1469)"
+  },
+  {
+    "samples": 273,
+    "percent": 1.06,
+    "frame": "first (sqlalchemy/orm/query.py:2766)"
+  },
+  {
+    "samples": 265,
+    "percent": 1.03,
+    "frame": "process_file (parsers/registry.py:1039)"
+  },
+  {
+    "samples": 265,
+    "percent": 1.03,
+    "frame": "_iter (sqlalchemy/orm/query.py:2864)"
+  },
+  {
+    "samples": 265,
+    "percent": 1.03,
+    "frame": "__exit__ (parsers/registry.py:945)"
+  },
+  {
+    "samples": 264,
+    "percent": 1.02,
+    "frame": "execute (sqlalchemy/orm/session.py:2351)"
+  },
+  {
+    "samples": 254,
+    "percent": 0.98,
+    "frame": "_extract_text_entities (utils/privacy_aliases.py:1330)"
+  },
+  {
+    "samples": 249,
+    "percent": 0.96,
+    "frame": "_serialized_extra_fields (parsers/base.py:341)"
+  },
+  {
+    "samples": 235,
+    "percent": 0.91,
+    "frame": "_event_to_mapping (utils/evidence_identity.py:320)"
+  },
+  {
+    "samples": 225,
+    "percent": 0.87,
+    "frame": "_transform_evtxecmd_event (parsers/evtx_parser.py:980)"
+  },
+  {
+    "samples": 220,
+    "percent": 0.85,
+    "frame": "dumps (json/__init__.py:238)"
+  },
+  {
+    "samples": 220,
+    "percent": 0.85,
+    "frame": "_parser_field_names (parsers/base.py:238)"
+  },
+  {
+    "samples": 210,
+    "percent": 0.81,
+    "frame": "encode (json/encoder.py:200)"
+  },
+  {
+    "samples": 206,
+    "percent": 0.8,
+    "frame": "_add_host (utils/privacy_aliases.py:1245)"
+  },
+  {
+    "samples": 203,
+    "percent": 0.79,
+    "frame": "_ip_type (utils/privacy_aliases.py:1068)"
+  },
+  {
+    "samples": 202,
+    "percent": 0.78,
+    "frame": "extract_alias_candidates_from_event_rows (utils/privacy_aliases.py:1390)"
+  },
+  {
+    "samples": 200,
+    "percent": 0.77,
+    "frame": "_add_filepath_segments (utils/privacy_aliases.py:1155)"
+  },
+  {
+    "samples": 196,
+    "percent": 0.76,
+    "frame": "_valid_ip (utils/privacy_aliases.py:1055)"
+  },
+  {
+    "samples": 195,
+    "percent": 0.75,
+    "frame": "build_evidence_record_identity (utils/evidence_identity.py:249)"
+  },
+  {
+    "samples": 194,
+    "percent": 0.75,
+    "frame": "_process_evtxecmd_output (parsers/evtx_parser.py:358)"
+  },
+  {
+    "samples": 192,
+    "percent": 0.74,
+    "frame": "flush (parsers/registry.py:886)"
+  },
+  {
+    "samples": 192,
+    "percent": 0.74,
+    "frame": "_identity_json_dumps (utils/evidence_identity.py:198)"
+  },
+  {
+    "samples": 191,
+    "percent": 0.74,
+    "frame": "to_clickhouse_row (parsers/base.py:366)"
+  },
+  {
+    "samples": 191,
+    "percent": 0.74,
+    "frame": "dumps (json/__init__.py:238)"
+  },
+  {
+    "samples": 186,
+    "percent": 0.72,
+    "frame": "_ip_type (utils/privacy_aliases.py:1068)"
+  },
+  {
+    "samples": 183,
+    "percent": 0.71,
+    "frame": "main (phase0a_ingest_benchmark.py:234)"
+  },
+  {
+    "samples": 181,
+    "percent": 0.7,
+    "frame": "exec_module (<frozen importlib._bootstrap_external>:995)"
+  },
+  {
+    "samples": 181,
+    "percent": 0.7,
+    "frame": "_load_unlocked (<frozen importlib._bootstrap>:935)"
+  },
+  {
+    "samples": 181,
+    "percent": 0.7,
+    "frame": "_find_and_load_unlocked (<frozen importlib._bootstrap>:1331)"
+  },
+  {
+    "samples": 181,
+    "percent": 0.7,
+    "frame": "_find_and_load (<frozen importlib._bootstrap>:1360)"
+  },
+  {
+    "samples": 181,
+    "percent": 0.7,
+    "frame": "_create_app_context (phase0a_ingest_benchmark.py:114)"
+  },
+  {
+    "samples": 181,
+    "percent": 0.7,
+    "frame": "_call_with_frames_removed (<frozen importlib._bootstrap>:488)"
+  },
+  {
+    "samples": 179,
+    "percent": 0.69,
+    "frame": "_execute_internal (sqlalchemy/orm/session.py:2228)"
+  },
+  {
+    "samples": 178,
+    "percent": 0.69,
+    "frame": "orm_pre_session_exec (sqlalchemy/orm/context.py:577)"
+  },
+  {
+    "samples": 178,
+    "percent": 0.69,
+    "frame": "flush (sqlalchemy/orm/session.py:4331)"
+  },
+  {
+    "samples": 178,
+    "percent": 0.69,
+    "frame": "_valid_ip (utils/privacy_aliases.py:1055)"
+  },
+  {
+    "samples": 178,
+    "percent": 0.69,
+    "frame": "_autoflush (sqlalchemy/orm/session.py:3040)"
+  }
+]

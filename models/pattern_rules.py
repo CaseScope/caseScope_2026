@@ -64,7 +64,7 @@ CREDENTIAL_ATTACK_PATTERNS = [
         'anchor': {
             'description': 'NTLM logon with KeyLength=0 (hash-based auth)',
             'event_ids': ['4624'],
-            'conditions': "logon_type IN (3, 9) AND search_blob LIKE '%NTLM%' AND JSONExtractString(raw_json, 'EventData', 'KeyLength') = '0'"
+            'conditions': "logon_type IN (3, 9) AND search_blob LIKE '%NTLM%' AND if(key_length IS NULL, JSONExtractString(raw_json, 'EventData', 'KeyLength') = '0', key_length = 0)"
         },
         'supporting': [
             {
@@ -102,7 +102,7 @@ CREDENTIAL_ATTACK_PATTERNS = [
                     AND channel = 'Security'
                     AND logon_type IN (3, 9)
                     AND (search_blob LIKE '%NTLM%' OR search_blob LIKE '%NtLmSsp%')
-                    AND JSONExtractString(raw_json, 'EventData', 'KeyLength') = '0'
+                    AND if(key_length IS NULL, JSONExtractString(raw_json, 'EventData', 'KeyLength') = '0', key_length = 0)
             ),
             -- Group into attack windows (1 hour) - detect ALL KeyLength=0 events
             attack_windows AS (

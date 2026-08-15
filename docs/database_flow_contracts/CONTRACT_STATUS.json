@@ -1,0 +1,381 @@
+{
+  "phase": "0B",
+  "artifact": "CONTRACT_STATUS",
+  "statuses_allowed": [
+    "LOCKED",
+    "OPEN \u2014 ADDITIONAL MEASUREMENT REQUIRED",
+    "OPEN \u2014 DESIGN DECISION REQUIRED",
+    "NOT APPLICABLE"
+  ],
+  "summary": {
+    "required_contracts": 10,
+    "locked": 10,
+    "open": 0,
+    "blocked": 0,
+    "phase0a_accepted": true
+  },
+  "records": [
+    {
+      "contract": "LEK_CONTRACT",
+      "status": "LOCKED",
+      "evidence_sources": [
+        "casescope_database_flow_plan_v4_locked.md",
+        "docs/database_flow_phase0/duplicate_baseline.md",
+        "docs/database_flow_phase0/duplicate_baseline.json",
+        "docs/database_flow_phase0/events_reader_inventory.json",
+        "utils/event_deduplication.py",
+        "parsers/base.py",
+        "utils/evidence_identity.py"
+      ],
+      "code_dependencies": [
+        "utils/event_deduplication.py::ARTIFACT_DEDUP_CONFIGS",
+        "parsers/base.py::ParsedEvent",
+        "utils/evidence_identity.py::build_evidence_record_identity"
+      ],
+      "current_state_mismatch": "LEK is not implemented; current destructive dedup keys include source_file for most artifacts and delete physical observations. Huntress event_id is an event code/action grouping, not a unique UUID.",
+      "decisions_locked": [
+        "LEK is source-independent semantic logical-event identity and never changes ERK.",
+        "Uncertainty means no cross-source collapse; quality=medium is not permission to collapse.",
+        "A cross-source recipe requires a verified native transaction/event/record identifier proven for cross-export equivalence.",
+        "EVTX remains the only locked cross-source recipe. IIS, firewall, SonicWall, and Huntress are NO_SAFE_CROSS_SOURCE_RECIPE_YET with ERK-backed non-collapsing LEKs.",
+        "Unsupported or unsafe artifact recipes remain one logical observation per ERK until a safe versioned recipe is ratified.",
+        "Canonical representative selection is deterministic with ERK as final tie-break.",
+        "Conflicts are surfaced and observations are retained."
+      ],
+      "decisions_still_open": [
+        "OPEN \u2014 ADDITIONAL MEASUREMENT REQUIRED: verified native-ID recipes for IIS, firewall, SonicWall, Huntress, registry, SRUM, filesystem/browser families. Do not invent identifiers."
+      ],
+      "implementation_phase": "Phase 4",
+      "tests_required_before_implementation": [
+        "same physical observations remain retrievable by ERK",
+        "valid LEK duplicates collapse only for locked EVTX recipe",
+        "IIS/firewall/SonicWall/Huntress do not cross-source collapse",
+        "canonical representative deterministic under row order permutations",
+        "field conflicts surfaced"
+      ],
+      "migration_reversal_requirements": "Add LEK as versioned metadata/projection first; no deletion-based migration; retain ERK provenance and ability to revert logical collapse by switching recipe version."
+    },
+    {
+      "contract": "PRINCIPAL_IDENTITY_CONTRACT",
+      "status": "LOCKED",
+      "evidence_sources": [
+        "casescope_database_flow_plan_v4_locked.md",
+        "utils/known_users_discovery.py",
+        "models/known_user.py",
+        "utils/known_systems_discovery.py",
+        "models/known_system.py",
+        "utils/graph_identity.py"
+      ],
+      "code_dependencies": [
+        "KnownUser.normalize_username",
+        "KnownUser.find_by_username_sid_alias_or_email",
+        "KnownSystem.extract_netbios_name",
+        "KnownSystem.find_by_hostname_or_alias",
+        "utils.graph_identity"
+      ],
+      "current_state_mismatch": "No unified principal_key exists; KnownUser, KnownSystem, graph, and event columns use related but different normalization.",
+      "decisions_locked": [
+        "SID is preferred only when observed as actual identity evidence.",
+        "Usernames without SID require explicit authority scope.",
+        "Hostname/FQDN aliases do not imply IP identity.",
+        "KnownSystem.id / KnownUser.id are curation metadata and are not inputs to principal_key.",
+        "System identity priority is machine-id evidence, then hostname/FQDN, then weak IP-only.",
+        "Keys are versioned and case-scoped until a global trust boundary is explicitly designed."
+      ],
+      "decisions_still_open": [
+        "OPEN \u2014 ADDITIONAL MEASUREMENT REQUIRED: collision rates for bare usernames and host aliases across retained cases."
+      ],
+      "implementation_phase": "Phase 6",
+      "tests_required_before_implementation": [
+        "SID and DOMAIN\\user alias relationship behavior",
+        "bare username requires scope",
+        "machine-local account remains host-scoped",
+        "hostname/FQDN alias does not merge with IP-only observation",
+        "principal_key never includes KnownSystem.id"
+      ],
+      "migration_reversal_requirements": "Write principal_key alongside existing KnownUser/KnownSystem IDs and graph keys before replacing consumers."
+    },
+    {
+      "contract": "EVIDENCE_GENERATION_CONTRACT",
+      "status": "LOCKED",
+      "evidence_sources": [
+        "casescope_database_flow_plan_v4_locked.md",
+        "docs/database_flow_phase0/current_ingestion_flow.md",
+        "docs/database_flow_phase0/events_write_inventory.json"
+      ],
+      "code_dependencies": [
+        "tasks/celery_tasks.py::parse_file_task",
+        "utils/clickhouse.py::delete_file_events",
+        "utils/case_deletion.py"
+      ],
+      "current_state_mismatch": "source_generation is absent; retries/reprocess currently delete by case_file_id and product reads physical events directly.",
+      "decisions_locked": [
+        "Generic source identity is source_ref_type, source_ref_id, source_generation.",
+        "Generation state is per-generation; replacement_in_progress is a derived source-level operation.",
+        "ACTIVE never transitions to BUILDING_REPLACEMENT. A replacement is a newly allocated generation.",
+        "Generation N remains ACTIVE while N+1 builds as BUILDING_REPLACEMENT.",
+        "Atomic PostgreSQL transaction sets N+1 BUILDING_REPLACEMENT->ACTIVE and N ACTIVE->SUPERSEDED together.",
+        "FIRST INGEST publishes durable BUILDING_INITIAL batches progressively.",
+        "source_generation is not ingest_attempt_id."
+      ],
+      "decisions_still_open": [],
+      "implementation_phase": "Phase 1B for manifest/control state, Phase 4 for full CASE_FILE replacement semantics; MEMORY_JOB/PCAP_FILE later adoption.",
+      "tests_required_before_implementation": [
+        "same source retry keeps generation",
+        "explicit reprocess allocates new generation while old stays ACTIVE",
+        "old generation never becomes BUILDING_REPLACEMENT",
+        "atomic activation is one PostgreSQL transaction",
+        "replacement failure leaves old ACTIVE visible",
+        "no half-generation mixture"
+      ],
+      "migration_reversal_requirements": "Introduce PG authority tables and CH projections without changing default readers until cutover; activation must be atomic and auditable."
+    },
+    {
+      "contract": "INGEST_BATCH_CONTRACT",
+      "status": "LOCKED",
+      "evidence_sources": [
+        "casescope_database_flow_plan_v4_locked.md",
+        "docs/database_flow_phase0/baseline_performance_run.json",
+        "docs/database_flow_phase0/current_ingestion_flow.md",
+        "parsers/registry.py"
+      ],
+      "code_dependencies": [
+        "parsers/registry.py::BatchProcessor.flush",
+        "parsers/base.py::ParsedEvent.to_clickhouse_row",
+        "utils/clickhouse.py"
+      ],
+      "current_state_mismatch": "Rows do not carry ingest_batch_id; current Buffer insert success is not a durable batch protocol.",
+      "decisions_locked": [
+        "Batch ID is stable over case, source ref, generation, and ordinal.",
+        "Generation freezes parser/normalization/batching contract/order.",
+        "Every CH batch row persists ingest_batch_id, zero-based ingest_row_ordinal, and ingest_row_hash.",
+        "ingest_row_hash is SHA-256 over an explicit canonical field allowlist plus parser_provenance object; extra_fields wholesale is excluded.",
+        "batch_content_hash is SHA-256 over framed ordered row hashes, not raw concatenation.",
+        "Reconciler proves count, ordinal set, uniqueness, per-row hashes, and aggregate hash from CH.",
+        "Duplicate ordinal identical hash is retry-equivalent only after collapse proof; all other ordinal anomalies fail closed.",
+        "Hash mismatch fails closed."
+      ],
+      "decisions_still_open": [],
+      "implementation_phase": "Phase 1B",
+      "tests_required_before_implementation": [
+        "STAGED absent/exact/partial/duplicate/hash mismatch reconciliation",
+        "duplicate ordinal identical vs different hash",
+        "missing and extra ordinal fail closed",
+        "CH reconstructs aggregate batch hash",
+        "crash before insert/after insert/after verification/after durable",
+        "retry under new attempt ID preserves batch ID and hash"
+      ],
+      "migration_reversal_requirements": "Batch manifest remains PG authority; CH rows can be purged by deterministic batch_id during rollback/reconciliation."
+    },
+    {
+      "contract": "CAPABILITY_WATERMARK_CONTRACT",
+      "status": "LOCKED",
+      "evidence_sources": [
+        "casescope_database_flow_plan_v4_locked.md",
+        "docs/database_flow_phase0/current_ingestion_flow.md",
+        "docs/database_flow_phase0/events_reader_inventory.json"
+      ],
+      "code_dependencies": [
+        "tasks/celery_tasks.py::case_indexing_complete_task",
+        "utils/privacy_aliases.py",
+        "utils/rag_embeddings.py",
+        "utils/chat_tools.py"
+      ],
+      "current_state_mismatch": "Current readiness is case/file-level and direct reads can race later alias/privacy coverage.",
+      "decisions_locked": [
+        "Authoritative watermark is contiguous per source/capability/generation.",
+        "case_capability_state is aggregate UI state only.",
+        "AI gating freezes exact ERKs and/or batch IDs before coverage verification.",
+        "Check-case-readiness-then-retrieve is prohibited."
+      ],
+      "decisions_still_open": [],
+      "implementation_phase": "Phase 1B",
+      "tests_required_before_implementation": [
+        "holes block contiguous advancement",
+        "late hole completion advances watermark",
+        "AI frozen set rejects uncovered batch",
+        "new ingest after freeze cannot alter request"
+      ],
+      "migration_reversal_requirements": "Keep legacy readiness display until source watermarks and projections are validated; authoritative gates must read PG source state."
+    },
+    {
+      "contract": "DERIVATION_CONTRACT",
+      "status": "LOCKED",
+      "evidence_sources": [
+        "casescope_database_flow_plan_v4_locked.md",
+        "docs/database_flow_phase0/current_ingestion_flow.md",
+        "docs/database_flow_phase0/events_reader_inventory.json",
+        "tasks/rag_tasks.py",
+        "utils/graph_materializer.py",
+        "utils/known_users_discovery.py",
+        "utils/known_systems_discovery.py"
+      ],
+      "code_dependencies": [
+        "privacy aliases",
+        "IOC taggers",
+        "MITRE state",
+        "graph materialization",
+        "KnownUser/KnownSystem discovery",
+        "behavioral profiler",
+        "stateful detectors",
+        "storyline and temporal baseline",
+        "Qdrant embeddings"
+      ],
+      "current_state_mismatch": "Current run IDs and task IDs are not semantic derivation versions; many derivations run case-wide after all files complete.",
+      "decisions_locked": [
+        "derivation_version, derivation_run_id, and state_version are distinct.",
+        "Derivations are classified as row-local, additive aggregate, windowed/stateful, whole-source, or whole-case.",
+        "Windowed/stateful derivations cannot be forced into batch-local idempotency."
+      ],
+      "decisions_still_open": [
+        "OPEN \u2014 ADDITIONAL MEASUREMENT REQUIRED: exact semantic version labels for some legacy detector rule packs."
+      ],
+      "implementation_phase": "Phase 1B and Phase 6",
+      "tests_required_before_implementation": [
+        "idempotent row-local rerun",
+        "late-batch window reopening",
+        "generation invalidation retracts or hides derived state by class",
+        "semantic version upgrade queues required recomputation"
+      ],
+      "migration_reversal_requirements": "Add version/run/state columns to derived facts before authority changes; keep legacy task IDs audit-only."
+    },
+    {
+      "contract": "COUNTING_BASIS_CONTRACT",
+      "status": "LOCKED",
+      "evidence_sources": [
+        "casescope_database_flow_plan_v4_locked.md",
+        "docs/database_flow_phase0/events_reader_inventory.json",
+        "docs/database_flow_phase0/duplicate_baseline.json"
+      ],
+      "code_dependencies": [
+        "routes/hunting.py",
+        "utils/ioc_*",
+        "utils/graph_*",
+        "utils/behavioral_profiler.py",
+        "utils/stateful_detectors",
+        "AI/RAG/report modules"
+      ],
+      "current_state_mismatch": "Current consumers read raw events and do not explicitly declare ERK/LEK/graph basis.",
+      "decisions_locked": [
+        "Custody/provenance/audit/IOC provenance/evidence support use ERK.",
+        "Analyst default timeline/search/hunt counts/behavioral/stateful/IOC UI counts use LEK.",
+        "Graph topology counts canonical edges once and is not an events-table reader; events graph readers are ERK support.",
+        "Every mapped consumer has an explicit basis or UNRESOLVED blocker.",
+        "Reader accounting is set equality of 167 phase0a_reader_id values, not summed group counts."
+      ],
+      "decisions_still_open": [],
+      "implementation_phase": "Phase 4 through Phase 6",
+      "tests_required_before_implementation": [
+        "analyst default count uses LEK",
+        "IOC provenance uses ERK",
+        "graph topology and support counts remain distinct",
+        "phase0a / event_surface / counting_basis ID sets are equal"
+      ],
+      "migration_reversal_requirements": "Consumer migration must be per-mapped surface with before/after count reconciliation."
+    },
+    {
+      "contract": "ERK_API_CONTRACT",
+      "status": "LOCKED",
+      "evidence_sources": [
+        "casescope_database_flow_plan_v4_locked.md",
+        "docs/database_flow_phase0/events_reader_inventory.json",
+        "utils/event_selector.py",
+        "routes/hunting.py",
+        "utils/clickhouse.py"
+      ],
+      "code_dependencies": [
+        "events.selector_key materialized column",
+        "utils.event_selector",
+        "event_analyst_state/noise/ioc/mitre state helpers",
+        "hunting mutation endpoints"
+      ],
+      "current_state_mismatch": "Selector remains mutation/display identifier; new event API authority is not ERK yet.",
+      "decisions_locked": [
+        "New responses expose ERK.",
+        "Mutations accept ERK.",
+        "selector_key is temporary compatibility input resolved server-side.",
+        "Ambiguous selector resolution fails and never silently selects one ERK."
+      ],
+      "decisions_still_open": [],
+      "implementation_phase": "Phase 3.0",
+      "tests_required_before_implementation": [
+        "zero selector matches returns 404/typed not_found",
+        "one selector match resolves to ERK",
+        "multiple selector matches returns 409/typed ambiguous",
+        "new state authority never keys on selector"
+      ],
+      "migration_reversal_requirements": "Dual-accept selector and ERK during compatibility window; remove selector mutation support only after telemetry shows no use."
+    },
+    {
+      "contract": "QDRANT_EVENT_IDENTITY_CONTRACT",
+      "status": "LOCKED",
+      "evidence_sources": [
+        "casescope_database_flow_plan_v4_locked.md",
+        "utils/rag_vectorstore.py",
+        "tasks/rag_tasks.py",
+        "docs/database_flow_phase0/events_reader_inventory.json"
+      ],
+      "code_dependencies": [
+        "utils.rag_vectorstore.build_event_point_id",
+        "tasks.rag_tasks._build_event_embedding_records",
+        "tasks.rag_tasks._delete_superseded_scope_vectors"
+      ],
+      "current_state_mismatch": "Current event vector IDs are selector-key based and payloads lack ERK, LEK, source_generation, derivation_version, and embedding_version.",
+      "decisions_locked": [
+        "Default event retrieval is one published vector per LEK.",
+        "Publication-safe design is revisioned points (option A): point ID includes publication_epoch.",
+        "Replacement writes use a new unpublished epoch and must not overwrite the published point ID.",
+        "Payloads carry ERK backreferences and multi-source support_generation_keys[], representative_generation_key, and active_support_count.",
+        "Singular source_generation is not support-set authority.",
+        "Default retrieval requires published epoch and active_support_count >= 1.",
+        "Selector-key point IDs are compatibility-only."
+      ],
+      "decisions_still_open": [
+        "OPEN \u2014 ADDITIONAL MEASUREMENT REQUIRED: embedding recall parity for one-vector-per-LEK once LEK exists."
+      ],
+      "implementation_phase": "Phase 3.0 and Phase 4",
+      "tests_required_before_implementation": [
+        "unpublished/superseded epoch cannot surface",
+        "replacement writes do not overwrite published point IDs",
+        "one support superseded or invalidated while another ACTIVE still surfaces the LEK",
+        "delete-file and delete-case remove or invalidate points correctly",
+        "embedding_version change builds separate non-stale points",
+        "selector-era migration does not lose provenance"
+      ],
+      "migration_reversal_requirements": "Build generation-aware payloads alongside existing points; switch retrieval filters before deleting selector-era points."
+    },
+    {
+      "contract": "INGEST_FENCE_CONTRACT",
+      "status": "LOCKED",
+      "evidence_sources": [
+        "casescope_database_flow_plan_v4_locked.md",
+        "docs/database_flow_phase0/events_write_inventory.json",
+        "utils/clickhouse.py"
+      ],
+      "code_dependencies": [
+        "utils.clickhouse.destructive_event_rewrite_guard",
+        "parsers.registry.BatchProcessor.flush",
+        "utils.clickhouse.delete_case_events",
+        "utils.clickhouse.delete_file_events",
+        "utils.clickhouse.run_events_update",
+        "utils.event_deduplication"
+      ],
+      "current_state_mismatch": "Current destructive guard can fail open; normal writers have no shared admission lease.",
+      "decisions_locked": [
+        "Fail-closed shared/exclusive fence model.",
+        "Redis unavailable plus correctness-sensitive operation equals refusal/retry, no bypass.",
+        "Exclusive admin operation blocks new shared admissions and waits active writers to drain.",
+        "Lease renewal and stale lease recovery are mandatory."
+      ],
+      "decisions_still_open": [],
+      "implementation_phase": "Phase 1.4a",
+      "tests_required_before_implementation": [
+        "Redis unavailable refuses fenced operation",
+        "exclusive waits for active shared writers",
+        "writer cannot enter after exclusive acquisition begins",
+        "stale lease handling and heartbeat loss fail closed"
+      ],
+      "migration_reversal_requirements": "Fence implementation must wrap existing write paths with feature-gated rollout and audit counters before Buffer removal."
+    }
+  ]
+}

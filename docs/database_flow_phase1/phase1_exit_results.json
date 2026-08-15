@@ -1,0 +1,246 @@
+{
+  "phase": "Phase 1",
+  "review": "final_exit_acceptance",
+  "verdict": "PHASE1_NOT_ACCEPTED",
+  "starting_state": {
+    "remote_main_sha": "8c4c1dd3b1651df42dc08c39f06250d296864c57",
+    "local_head_sha": "8c4c1dd3b1651df42dc08c39f06250d296864c57",
+    "expected_main_sha": "8c4c1dd3b1651df42dc08c39f06250d296864c57",
+    "main_changed": false,
+    "version": "4.18.6",
+    "branch": "main",
+    "commit_push_pr": "not_performed"
+  },
+  "phase0_baseline": {
+    "files": 8,
+    "bytes": 77103104,
+    "events": 110742,
+    "wall_seconds": 332.884,
+    "events_per_second": 332.674,
+    "peak_rss_mb": 237.36
+  },
+  "integrated_benchmark": {
+    "artifact": "docs/database_flow_phase1/phase1_exit_benchmark_run1.json",
+    "runs": 1,
+    "median_source": "single controlled successful run; consistent with Step 5 history, no invalid-run marker",
+    "file_count": 8,
+    "bytes": 77103104,
+    "parsed_events": 110742,
+    "events_inserted": 110742,
+    "detections": 7436,
+    "wall_seconds": 136.869,
+    "events_per_second": 809.109,
+    "source_mb_per_second": 0.537,
+    "first_searchable_seconds": 18.371,
+    "last_file_searchable_seconds": 44.443,
+    "completion_tail_seconds": 113.576,
+    "peak_rss_mb": 222.45,
+    "cpu_self_seconds": 96.597,
+    "cpu_children_seconds": 93.539,
+    "evtxecmd_ms_total": 31392.362,
+    "hayabusa_ms_total": 16801.898,
+    "hayabusa_jsonl_rows": 7436,
+    "hayabusa_jsonl_decode_ms": 801.635,
+    "evtx_jsonl_consume_ms_total": 89862.176,
+    "evtx_outer_json_decode_ms": 977.261,
+    "evtx_nested_payload_decode_ms": 615.162,
+    "normalization_ms": 38601.479,
+    "alias_scoped_scan_ms": 5715.507,
+    "alias_pg_write_ms": 3.212,
+    "clickhouse_insert_batches": 16,
+    "clickhouse_insert_rows": 110742,
+    "fence_shared_acquire_ms": 9.329,
+    "fence_exclusive_acquire_ms": 16.274,
+    "events_buffer_exists": false,
+    "clickhouse_after_insert_parts": {
+      "active_parts": 6,
+      "compact_parts": 2,
+      "wide_parts": 4,
+      "mutations": 0
+    },
+    "clickhouse_after_optimize_parts": {
+      "active_parts": 1,
+      "wide_parts": 1,
+      "active_bytes": 20762373,
+      "mutations": 0
+    },
+    "errors": 0,
+    "retries": 0
+  },
+  "performance_gate": {
+    "required_events_per_second": 665.348,
+    "actual_events_per_second": 809.109,
+    "throughput_multiplier_vs_phase0": 2.432,
+    "wall_time_reduction_percent_vs_phase0": 58.887,
+    "rss_delta_mb_vs_phase0": -14.91,
+    "pass": true
+  },
+  "semantic_parity": {
+    "events": 110742,
+    "detections": 7436,
+    "erk_missing": 0,
+    "erk_extra": 0,
+    "deterministic_field_diffs": 0,
+    "cross_file_detection_attachments": 0,
+    "raw_json_parity": true,
+    "search_blob_parity": true,
+    "extra_fields_parity": true,
+    "parser_errors": 0,
+    "parser_warnings": 0,
+    "pass": true
+  },
+  "privacy_cmmc": {
+    "contracted_protected_identities": 1152,
+    "missing_baseline_identities": 0,
+    "extra_contracted_identities": 0,
+    "normalization_mismatches": 0,
+    "raw_json_alias_extraction": false,
+    "freeze_verify_phase1b_implemented": false,
+    "pass": true
+  },
+  "fence_gate": {
+    "fail_open_correctness_callers": 0,
+    "redis_unavailable_shared": "fail_closed_no_insert",
+    "redis_unavailable_exclusive": "refuse_to_run",
+    "stale_owner_can_continue": false,
+    "multiple_admins_serialize": true,
+    "nested_ownership_correct": true,
+    "pass": true
+  },
+  "buffer_exit": {
+    "production_runtime_dependencies": 0,
+    "fresh_installs_create_buffer": false,
+    "direct_inserts_table": "events",
+    "operator_cutover_migration": "migrations/remove_events_buffer.py",
+    "production_buffer_drop_performed": false,
+    "pass": true
+  },
+  "ioc_gate": {
+    "raw_json_remains_common_path": true,
+    "fixture_no_raw_json_a_minus_b": 2,
+    "case10_no_raw_json_a_minus_b": 3,
+    "valid_legacy_raw_json_only_matches": true,
+    "erk_provenance_changed": false,
+    "ioc_evidence_lifecycle_changed": false,
+    "pass": true
+  },
+  "profiler_gate": {
+    "bounded_query_count": 2,
+    "username_or_sid_preserved": true,
+    "hostname_roles_preserved": true,
+    "semantic_parity": true,
+    "known_deferred_defect": "EXISTING_PROFILER_CORRECTNESS_DEFECT: _get_top_n tie ordering",
+    "pass": true
+  },
+  "directory_mode_gate": {
+    "policy": "eager first ready EVTX per-file; remaining ready EVTX bounded directory groups",
+    "preferred_target_files": 8,
+    "preferred_target_bytes": 134217728,
+    "absolute_max_files": 32,
+    "absolute_max_bytes": 536870912,
+    "fill_window_seconds": 0,
+    "correlation": "source file identity + RecordID",
+    "record_id_only_forbidden": true,
+    "cross_file_detection_attachments": 0,
+    "first_searchable_progressive": true,
+    "pass": true
+  },
+  "typed_column_gate": {
+    "promoted_columns": [
+      "key_length"
+    ],
+    "source_field": "EventData.KeyLength",
+    "type": "Nullable(UInt16)",
+    "storage_delta_compressed_bytes": 291138,
+    "storage_delta_percent": 0.543,
+    "nonzero_case33_legacy_json_median_ms": 14.006,
+    "nonzero_case33_typed_only_median_ms": 5.015,
+    "nonzero_case33_fallback_median_ms": 9.165,
+    "historical_fallback": true,
+    "no_backfill": true,
+    "pass": true
+  },
+  "typed_column_deployment_compatibility": {
+    "new_code_against_old_schema": "NO",
+    "old_code_against_new_schema": "YES",
+    "hard_requirement": "Add nullable key_length column before deploying new application code.",
+    "compatibility_probe": {
+      "new_insert_old_schema": "FAIL_EXPECTED",
+      "new_reader_old_schema": "FAIL_EXPECTED",
+      "old_insert_new_schema": "PASS"
+    }
+  },
+  "schema_migration_integration": {
+    "forced_wide_reset_idempotent": true,
+    "buffer_remove_idempotent": true,
+    "key_length_add_idempotent": true,
+    "mass_backfill_performed": false,
+    "optimize_final_required": false,
+    "final_events_buffer_exists": false,
+    "final_key_length_type": "Nullable(UInt16)",
+    "pass": true
+  },
+  "reader_writer_inventory": {
+    "old_reader_locations": 167,
+    "current_reader_inventory_exact_scanner_available": false,
+    "old_write_mutation_paths": 47,
+    "new_reader_paths_identified": [
+      "utils/candidate_extractor.py",
+      "models/pattern_rules.py",
+      "utils/mitre_attack_sync.py"
+    ],
+    "new_writer_paths_identified": [
+      "parsers/base.py / parsers/registry.py key_length insert column"
+    ],
+    "new_destructive_paths_identified": []
+  },
+  "tests": {
+    "monolithic_focused_suite": {
+      "tests": 395,
+      "errors": 20,
+      "failures": 0,
+      "skipped": 1,
+      "classification": "test_process_contamination: utils.clickhouse stub leaked into later tests"
+    },
+    "module_scoped_focused_suite": {
+      "tests": 407,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 1,
+      "classification": "PASS with graph model dependency loaded before graph lifecycle tests"
+    }
+  },
+  "static_validation": {
+    "json_files_checked": 49,
+    "jsonl_files_checked": 8,
+    "python_files_compiled": 673,
+    "python_compile_errors": 0,
+    "malformed_artifacts": [
+      "docs/database_flow_phase1/phase1_step4_latency_ingest_summary.jsonl contains non-JSON migration console output",
+      "five Step 4 probe JSON tool outputs contain UTF-8 BOM and fail strict json.loads without utf-8-sig"
+    ],
+    "pass": false
+  },
+  "exit_blockers": [
+    "STATIC_ARTIFACT_VALIDATION_FAIL: malformed Phase 1 generated artifacts remain under docs/database_flow_phase1/",
+    "INTEGRATED_MONOLITHIC_TEST_COMMAND_FAIL: focused modules pass when isolated, but one-process suite has test-order contamination"
+  ],
+  "phase1b_preconditions": {
+    "declared_satisfied": false,
+    "reason": "Phase 1 verdict is PHASE1_NOT_ACCEPTED",
+    "not_implemented": [
+      "evidence generations",
+      "ingest_attempt_id",
+      "deterministic ingest_batch_id",
+      "manifest STAGED/DURABLE protocol",
+      "CH row ordinals/hashes",
+      "generation publication projections",
+      "event_observations_current",
+      "events_current",
+      "capability watermarks",
+      "freeze-then-verify AI privacy gating",
+      "completion reconciler",
+      "readiness UI"
+    ]
+  }
+}

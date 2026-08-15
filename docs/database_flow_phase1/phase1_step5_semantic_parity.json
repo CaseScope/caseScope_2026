@@ -1,0 +1,20 @@
+{
+  "captured_at": "2026-08-15T17:48:07.388761+00:00",
+  "directory_wall_seconds": 115.221,
+  "first_parsed_event_seconds": 27.274,
+  "legacy_events": 110742,
+  "directory_events": 110742,
+  "legacy_detections": 7436,
+  "directory_detections": 7436,
+  "erk_legacy_minus_directory": 0,
+  "erk_directory_minus_legacy": 0,
+  "events_with_field_differences": 0,
+  "field_diff_examples": [],
+  "legacy_detections_minus_directory": 0,
+  "directory_detections_minus_legacy": 0,
+  "incorrect_cross_file_attachments": 0,
+  "parser_errors": [],
+  "parser_warnings_count": 0,
+  "event_parity": true,
+  "detection_parity": true
+}

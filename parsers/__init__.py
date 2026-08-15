@@ -60,6 +60,7 @@ from parsers.registry import (
     get_registry,
     process_file,
     process_directory,
+    process_evtx_group,
     BatchProcessor,
     FileTypeMapping,
 )
@@ -78,6 +79,7 @@ __all__ = [
     # Processing functions
     'process_file',
     'process_directory',
+    'process_evtx_group',
     'BatchProcessor',
 ]
 

@@ -1,6 +1,14 @@
 {
-  "version": "4.18.5",
+  "version": "4.18.6",
   "changelog": [
+    {
+      "version": "4.18.6",
+      "date": "2026-08-15",
+      "changes": [
+        "Selected measured Step 4 EVTX eager-first directory grouping to restore first-searchable latency while preserving source-aware directory correlation",
+        "Separated preferred EVTX directory target limits from absolute safety caps"
+      ]
+    },
     {
       "version": "4.18.5",
       "date": "2026-08-13",

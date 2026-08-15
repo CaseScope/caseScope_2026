@@ -1,0 +1,167 @@
+{
+  "phase": "1",
+  "step": "2",
+  "verdict": "STEP2_ACCEPTED",
+  "fence_verdict": "FENCE_PASS",
+  "full_phase1_complete": false,
+  "starting_state": {
+    "remote_main_sha": "8c4c1dd3b1651df42dc08c39f06250d296864c57",
+    "local_head_sha": "8c4c1dd3b1651df42dc08c39f06250d296864c57",
+    "version": "4.18.5",
+    "main_changed_since_8c4c1dd": false
+  },
+  "corpus": {
+    "files": 8,
+    "bytes": 77103104,
+    "parsed_events": 110742,
+    "sha256_verified": true,
+    "sha256": {
+      "Application.evtx": "a9a10f634fb4409e765791c6eedc73346bbed6244a583f8f694c651c6931cbb1",
+      "Microsoft-Windows-PowerShell-Operational.evtx": "a0deb6a8e4c97a563e487fa2c96e0a2711566654ef77a28a4e7c7952bcb29a69",
+      "Microsoft-Windows-TaskScheduler-Operational.evtx": "915c2c1ef94a010885c882cda0b52cfc26a1512d22f9133c1295e26087dcf499",
+      "Microsoft-Windows-TerminalServices-LocalSessionManager.evtx": "eba5bea0102201e553ad004ac1d9fb575067d270a6a2dce3e96740dad64593b8",
+      "Microsoft-Windows-WMI-Activity-Operational.evtx": "184b17c902cdaa684da76bb7b256a39a89a5cdb8438ff307714b2a767785f8e0",
+      "Microsoft-Windows-Windows-Defender-Operational.evtx": "b52d925a12d38422c6373416a11fe28565ffb4a872dc6318900e1756f8ef9ed0",
+      "Security.evtx": "f720ce8362f7f9c5b8ec7068f916026efb04e78499fd30859e3e6e172265244a",
+      "System.evtx": "1f4cef929100fc1398f440afc583222ef2e228e1a577c33c19f5a3a82b88699a"
+    }
+  },
+  "phase0": {
+    "wall_time_seconds": 332.884,
+    "parsed_events": 110742,
+    "events_per_second": 332.674,
+    "source_mb_per_second": 0.221,
+    "peak_rss_mb": 237.36
+  },
+  "step1": {
+    "wall_time_seconds": 148.408,
+    "parsed_events": 110742,
+    "events_per_second": 746.198,
+    "source_mb_per_second": 0.495,
+    "peak_rss_mb": 226.29,
+    "clickhouse_insert_ms": 2490.981,
+    "erk_set_sha256": "6ad87fe76520d18bde4cfb421bbd4fce0b410c00d60abaf642769aa303515b7c",
+    "alias_contracted_protected_identities": 1152
+  },
+  "step2_official": {
+    "run_id": "phase0a_ingest_20260814204500",
+    "production_batch_size": 10000,
+    "events_buffer_created": false,
+    "destination_table": "events",
+    "wall_time_seconds": 152.325,
+    "parsed_events": 110742,
+    "events_per_second": 727.01,
+    "source_mb_per_second": 0.483,
+    "peak_rss_mb": 233.21,
+    "clickhouse_insert_ms": 5439.077,
+    "insert_calls": 16,
+    "fence_shared_acquire_ms": 9.088,
+    "fence_exclusive_acquire_ms": 15.212,
+    "alias_scoped_scan_ms": 5644.143,
+    "jsonl_consume_ms": 74616.124,
+    "evtxecmd_ms": 45214.201,
+    "hayabusa_ms": 45797.55,
+    "completion_buffer_flush_ms": 0.0,
+    "completion_events_final_optimize_ms": 3578.522,
+    "dedup_ms": 96.446,
+    "after_insert_compact_parts": 1,
+    "after_insert_wide_parts": 4,
+    "after_events_final_wide_parts": 1,
+    "erk_set_sha256": "6ad87fe76520d18bde4cfb421bbd4fce0b410c00d60abaf642769aa303515b7c"
+  },
+  "step2_investigation_runs": {
+    "run1_stalled": {
+      "wall_time_seconds": 233.482,
+      "clickhouse_insert_ms": 82037.089,
+      "note": "One Security 10k insert took 77179.655 ms. Did not reproduce."
+    },
+    "run2_loaded": {
+      "wall_time_seconds": 196.734,
+      "clickhouse_insert_ms": 6698.753,
+      "note": "No 77s stall. EvtxECmd/Hayabusa slower than official run."
+    }
+  },
+  "delta_step1_to_step2": {
+    "wall_time_seconds": 3.917,
+    "wall_time_percent": 2.64,
+    "throughput_multiplier": 0.974,
+    "rss_delta_mb": 6.92,
+    "clickhouse_insert_delta_ms": 2948.096,
+    "fence_overhead_ms": 24.3,
+    "meaningful_regression": false
+  },
+  "delta_phase0_to_step2": {
+    "wall_time_reduction_seconds": 180.559,
+    "wall_time_reduction_percent": 54.24,
+    "throughput_multiplier": 2.185,
+    "rss_delta_mb": -4.15
+  },
+  "semantic": {
+    "parsed_event_count_identical": true,
+    "unique_erk_count": 110742,
+    "erk_set_sha256": "6ad87fe76520d18bde4cfb421bbd4fce0b410c00d60abaf642769aa303515b7c",
+    "erk_set_parity_vs_step1": true,
+    "two_step2_dumps_deterministic_field_differences": 0,
+    "raw_json_parity": true,
+    "search_blob_parity": true,
+    "extra_fields_parity": true,
+    "alias_privacy_level": "cmmc_cui",
+    "alias_contracted_protected_identities": 1152,
+    "alias_contracted_parity_vs_step1": true,
+    "legacy_dedup_duplicates_found": 0,
+    "destination_table": "events",
+    "events_buffer_used": false
+  },
+  "fence": {
+    "module": "utils/ingest_fence.py",
+    "contract": "INGEST_FENCE_CONTRACT.md",
+    "redis_unavailable_shared": "fail_closed_no_insert",
+    "redis_unavailable_exclusive": "refuse_to_run",
+    "require_lock_is_fail_open_switch": false,
+    "correctness_sensitive_fail_open_callers": 0,
+    "exclusive_scope": "global events table",
+    "production_redis_stopped": false,
+    "test_backend": "MemoryFenceBackend / FailingFenceBackend / isolated INGEST_FENCE_KEY_PREFIX"
+  },
+  "buffer": {
+    "production_runtime_required_dependencies": 0,
+    "fresh_install_creates_events_buffer": false,
+    "production_casescope_still_has_events_buffer": true,
+    "production_drop_executed": false,
+    "disposable_cutover": {
+      "database": "phase1_step2_cutover_20260814",
+      "pending_before": 50,
+      "pending_after_drain": 0,
+      "events_rows_after_drain": 50,
+      "dropped": true,
+      "idempotent_already_removed": true,
+      "production_refused": true,
+      "drain_method": "OPTIMIZE TABLE events_buffer"
+    }
+  },
+  "batch_size_study": {
+    "production_default_unchanged": 10000,
+    "official_10k_wall_seconds": 152.325,
+    "disposable_25k_wall_seconds": 153.941,
+    "disposable_50k_wall_seconds": 152.838,
+    "disposable_100k_wall_seconds": 153.634,
+    "future_generation_candidate": 25000
+  },
+  "tests": {
+    "focused_count": 130,
+    "failures": 0,
+    "errors": 0,
+    "ingest_fence": 23,
+    "phase1_step2": 13,
+    "production_redis_stopped": false,
+    "full_unittest_discovery": false
+  },
+  "acceptance": {
+    "fence_pass": true,
+    "semantic_parity_pass": true,
+    "production_runtime_buffer_dependency": 0,
+    "disposable_drain_removal_pass": true,
+    "unresolved_step2_regression": false,
+    "final_verdict": "STEP2_ACCEPTED"
+  }
+}

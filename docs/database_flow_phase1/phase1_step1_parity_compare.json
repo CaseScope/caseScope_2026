@@ -1,0 +1,430 @@
+{
+  "compared_at": "2026-08-14T19:21:52.862998+00:00",
+  "baseline_dir": "/tmp/phase1_step1_parity_base_20260814191048_out",
+  "step1_dir": "/tmp/phase1_step1_parity_step_20260814191048_out",
+  "corpus_baseline": [
+    {
+      "path": "/opt/casescope-benchmark/phase0a_evtx/Application.evtx",
+      "name": "Application.evtx",
+      "size_bytes": 11603968,
+      "sha256": "a9a10f634fb4409e765791c6eedc73346bbed6244a583f8f694c651c6931cbb1",
+      "expected_sha256": "a9a10f634fb4409e765791c6eedc73346bbed6244a583f8f694c651c6931cbb1",
+      "sha256_match": true
+    },
+    {
+      "path": "/opt/casescope-benchmark/phase0a_evtx/Microsoft-Windows-PowerShell-Operational.evtx",
+      "name": "Microsoft-Windows-PowerShell-Operational.evtx",
+      "size_bytes": 15798272,
+      "sha256": "a0deb6a8e4c97a563e487fa2c96e0a2711566654ef77a28a4e7c7952bcb29a69",
+      "expected_sha256": "a0deb6a8e4c97a563e487fa2c96e0a2711566654ef77a28a4e7c7952bcb29a69",
+      "sha256_match": true
+    },
+    {
+      "path": "/opt/casescope-benchmark/phase0a_evtx/Microsoft-Windows-TaskScheduler-Operational.evtx",
+      "name": "Microsoft-Windows-TaskScheduler-Operational.evtx",
+      "size_bytes": 69632,
+      "sha256": "915c2c1ef94a010885c882cda0b52cfc26a1512d22f9133c1295e26087dcf499",
+      "expected_sha256": "915c2c1ef94a010885c882cda0b52cfc26a1512d22f9133c1295e26087dcf499",
+      "sha256_match": true
+    },
+    {
+      "path": "/opt/casescope-benchmark/phase0a_evtx/Microsoft-Windows-TerminalServices-LocalSessionManager.evtx",
+      "name": "Microsoft-Windows-TerminalServices-LocalSessionManager.evtx",
+      "size_bytes": 1118208,
+      "sha256": "eba5bea0102201e553ad004ac1d9fb575067d270a6a2dce3e96740dad64593b8",
+      "expected_sha256": "eba5bea0102201e553ad004ac1d9fb575067d270a6a2dce3e96740dad64593b8",
+      "sha256_match": true
+    },
+    {
+      "path": "/opt/casescope-benchmark/phase0a_evtx/Microsoft-Windows-WMI-Activity-Operational.evtx",
+      "name": "Microsoft-Windows-WMI-Activity-Operational.evtx",
+      "size_bytes": 1118208,
+      "sha256": "184b17c902cdaa684da76bb7b256a39a89a5cdb8438ff307714b2a767785f8e0",
+      "expected_sha256": "184b17c902cdaa684da76bb7b256a39a89a5cdb8438ff307714b2a767785f8e0",
+      "sha256_match": true
+    },
+    {
+      "path": "/opt/casescope-benchmark/phase0a_evtx/Microsoft-Windows-Windows-Defender-Operational.evtx",
+      "name": "Microsoft-Windows-Windows-Defender-Operational.evtx",
+      "size_bytes": 5312512,
+      "sha256": "b52d925a12d38422c6373416a11fe28565ffb4a872dc6318900e1756f8ef9ed0",
+      "expected_sha256": "b52d925a12d38422c6373416a11fe28565ffb4a872dc6318900e1756f8ef9ed0",
+      "sha256_match": true
+    },
+    {
+      "path": "/opt/casescope-benchmark/phase0a_evtx/Security.evtx",
+      "name": "Security.evtx",
+      "size_bytes": 21041152,
+      "sha256": "f720ce8362f7f9c5b8ec7068f916026efb04e78499fd30859e3e6e172265244a",
+      "expected_sha256": "f720ce8362f7f9c5b8ec7068f916026efb04e78499fd30859e3e6e172265244a",
+      "sha256_match": true
+    },
+    {
+      "path": "/opt/casescope-benchmark/phase0a_evtx/System.evtx",
+      "name": "System.evtx",
+      "size_bytes": 21041152,
+      "sha256": "1f4cef929100fc1398f440afc583222ef2e228e1a577c33c19f5a3a82b88699a",
+      "expected_sha256": "1f4cef929100fc1398f440afc583222ef2e228e1a577c33c19f5a3a82b88699a",
+      "sha256_match": true
+    }
+  ],
+  "corpus_step1": [
+    {
+      "path": "/opt/casescope-benchmark/phase0a_evtx/Application.evtx",
+      "name": "Application.evtx",
+      "size_bytes": 11603968,
+      "sha256": "a9a10f634fb4409e765791c6eedc73346bbed6244a583f8f694c651c6931cbb1",
+      "expected_sha256": "a9a10f634fb4409e765791c6eedc73346bbed6244a583f8f694c651c6931cbb1",
+      "sha256_match": true
+    },
+    {
+      "path": "/opt/casescope-benchmark/phase0a_evtx/Microsoft-Windows-PowerShell-Operational.evtx",
+      "name": "Microsoft-Windows-PowerShell-Operational.evtx",
+      "size_bytes": 15798272,
+      "sha256": "a0deb6a8e4c97a563e487fa2c96e0a2711566654ef77a28a4e7c7952bcb29a69",
+      "expected_sha256": "a0deb6a8e4c97a563e487fa2c96e0a2711566654ef77a28a4e7c7952bcb29a69",
+      "sha256_match": true
+    },
+    {
+      "path": "/opt/casescope-benchmark/phase0a_evtx/Microsoft-Windows-TaskScheduler-Operational.evtx",
+      "name": "Microsoft-Windows-TaskScheduler-Operational.evtx",
+      "size_bytes": 69632,
+      "sha256": "915c2c1ef94a010885c882cda0b52cfc26a1512d22f9133c1295e26087dcf499",
+      "expected_sha256": "915c2c1ef94a010885c882cda0b52cfc26a1512d22f9133c1295e26087dcf499",
+      "sha256_match": true
+    },
+    {
+      "path": "/opt/casescope-benchmark/phase0a_evtx/Microsoft-Windows-TerminalServices-LocalSessionManager.evtx",
+      "name": "Microsoft-Windows-TerminalServices-LocalSessionManager.evtx",
+      "size_bytes": 1118208,
+      "sha256": "eba5bea0102201e553ad004ac1d9fb575067d270a6a2dce3e96740dad64593b8",
+      "expected_sha256": "eba5bea0102201e553ad004ac1d9fb575067d270a6a2dce3e96740dad64593b8",
+      "sha256_match": true
+    },
+    {
+      "path": "/opt/casescope-benchmark/phase0a_evtx/Microsoft-Windows-WMI-Activity-Operational.evtx",
+      "name": "Microsoft-Windows-WMI-Activity-Operational.evtx",
+      "size_bytes": 1118208,
+      "sha256": "184b17c902cdaa684da76bb7b256a39a89a5cdb8438ff307714b2a767785f8e0",
+      "expected_sha256": "184b17c902cdaa684da76bb7b256a39a89a5cdb8438ff307714b2a767785f8e0",
+      "sha256_match": true
+    },
+    {
+      "path": "/opt/casescope-benchmark/phase0a_evtx/Microsoft-Windows-Windows-Defender-Operational.evtx",
+      "name": "Microsoft-Windows-Windows-Defender-Operational.evtx",
+      "size_bytes": 5312512,
+      "sha256": "b52d925a12d38422c6373416a11fe28565ffb4a872dc6318900e1756f8ef9ed0",
+      "expected_sha256": "b52d925a12d38422c6373416a11fe28565ffb4a872dc6318900e1756f8ef9ed0",
+      "sha256_match": true
+    },
+    {
+      "path": "/opt/casescope-benchmark/phase0a_evtx/Security.evtx",
+      "name": "Security.evtx",
+      "size_bytes": 21041152,
+      "sha256": "f720ce8362f7f9c5b8ec7068f916026efb04e78499fd30859e3e6e172265244a",
+      "expected_sha256": "f720ce8362f7f9c5b8ec7068f916026efb04e78499fd30859e3e6e172265244a",
+      "sha256_match": true
+    },
+    {
+      "path": "/opt/casescope-benchmark/phase0a_evtx/System.evtx",
+      "name": "System.evtx",
+      "size_bytes": 21041152,
+      "sha256": "1f4cef929100fc1398f440afc583222ef2e228e1a577c33c19f5a3a82b88699a",
+      "expected_sha256": "1f4cef929100fc1398f440afc583222ef2e228e1a577c33c19f5a3a82b88699a",
+      "sha256_match": true
+    }
+  ],
+  "buffer_flush_baseline": {
+    "method": "OPTIMIZE TABLE events_buffer",
+    "not_sufficient": "OPTIMIZE TABLE events FINAL",
+    "events_count_before": 49115,
+    "buffer_visible_before": 110742,
+    "pending_before": 61627,
+    "flush_ms": 249.821,
+    "events_count_after": 110742,
+    "buffer_visible_after": 110742,
+    "pending_after": 0,
+    "flushed": true
+  },
+  "buffer_flush_step1": {
+    "method": "OPTIMIZE TABLE events_buffer",
+    "not_sufficient": "OPTIMIZE TABLE events FINAL",
+    "events_count_before": 14004,
+    "buffer_visible_before": 110742,
+    "pending_before": 96738,
+    "flush_ms": 508.313,
+    "events_count_after": 110742,
+    "buffer_visible_after": 110742,
+    "pending_after": 0,
+    "flushed": true
+  },
+  "event_parity": {
+    "baseline_rows": 110742,
+    "step1_rows": 110742,
+    "baseline_unique_erks": 110742,
+    "step1_unique_erks": 110742,
+    "erk_set_difference_A_minus_B": 0,
+    "erk_set_difference_B_minus_A": 0,
+    "missing_erks_sample": [],
+    "extra_erks_sample": [],
+    "rows_compared": 110742,
+    "rows_with_deterministic_field_difference": 0,
+    "fields_differing": {},
+    "json_representation_only_counts": {},
+    "representative_mismatches": [],
+    "excluded_fields": [
+      "case_file_id",
+      "case_id",
+      "indexed_at"
+    ]
+  },
+  "alias_parity": {
+    "privacy_level_baseline": "cmmc_cui",
+    "privacy_level_step1": "cmmc_cui",
+    "alias_path_baseline": "per_event_extract",
+    "alias_path_step1": "scoped_populate",
+    "baseline_candidate_count": 2437,
+    "baseline_candidate_count_raw_json_excluded": 1182,
+    "step1_scanned_candidate_count": 1152,
+    "baseline_unique_protected_identities": 2414,
+    "step1_unique_protected_identities": 1152,
+    "baseline_only_identities": [
+      {
+        "entity_type": "ACCOUNT",
+        "normalized_value": "0x00000000\\n"
+      },
+      {
+        "entity_type": "ACCOUNT",
+        "normalized_value": "0x00000000\\nc"
+      },
+      {
+        "entity_type": "ACCOUNT",
+        "normalized_value": "data\\n"
+      },
+      {
+        "entity_type": "ACCOUNT",
+        "normalized_value": "denied.\\n"
+      },
+      {
+        "entity_type": "ACCOUNT",
+        "normalized_value": "lgens\\n"
+      },
+      {
+        "entity_type": "ACCOUNT",
+        "normalized_value": "progress.\\n"
+      },
+      {
+        "entity_type": "ACCOUNT",
+        "normalized_value": "writer\\n"
+      },
+      {
+        "entity_type": "DOMAIN",
+        "normalized_value": "0x00000000"
+      },
+      {
+        "entity_type": "DOMAIN",
+        "normalized_value": "data"
+      },
+      {
+        "entity_type": "DOMAIN",
+        "normalized_value": "denied."
+      },
+      {
+        "entity_type": "DOMAIN",
+        "normalized_value": "huntress.io"
+      },
+      {
+        "entity_type": "DOMAIN",
+        "normalized_value": "lgens"
+      },
+      {
+        "entity_type": "DOMAIN",
+        "normalized_value": "microsoft.com"
+      },
+      {
+        "entity_type": "DOMAIN",
+        "normalized_value": "progress."
+      },
+      {
+        "entity_type": "DOMAIN",
+        "normalized_value": "writer"
+      },
+      {
+        "entity_type": "FILEPATH",
+        "normalized_value": "013365c77b254ddae9200c29f0009ab2_fdd79f91-4340-4aef-b8a1-70819fb2ecd5"
+      },
+      {
+        "entity_type": "FILEPATH",
+        "normalized_value": "0133b8f7636756b54fffce04bc8bd530_fdd79f91-4340-4aef-b8a1-70819fb2ecd5"
+      },
+      {
+        "entity_type": "FILEPATH",
+        "normalized_value": "01ddb3b2bf65040d4b674f8e9bda78a7_fdd79f91-4340-4aef-b8a1-70819fb2ecd5"
+      },
+      {
+        "entity_type": "FILEPATH",
+        "normalized_value": "0281e01d076924f6572e781dd7460fe5_fdd79f91-4340-4aef-b8a1-70819fb2ecd5"
+      },
+      {
+        "entity_type": "FILEPATH",
+        "normalized_value": "0292c57c6ae8b92920d050d9b96ee1b2_fdd79f91-4340-4aef-b8a1-70819fb2ecd5"
+      },
+      {
+        "entity_type": "FILEPATH",
+        "normalized_value": "02a89f54cf7b9589e7c7e67cc6a9a8cc_fdd79f91-4340-4aef-b8a1-70819fb2ecd5"
+      },
+      {
+        "entity_type": "FILEPATH",
+        "normalized_value": "036ca24d10f17e846e4769e0586472af_fdd79f91-4340-4aef-b8a1-70819fb2ecd5"
+      },
+      {
+        "entity_type": "FILEPATH",
+        "normalized_value": "036d73120669d9ff3a1ba4ce9843c604_fdd79f91-4340-4aef-b8a1-70819fb2ecd5"
+      },
+      {
+        "entity_type": "FILEPATH",
+        "normalized_value": "039d705f046bad2c313276de92afb2bf_fdd79f91-4340-4aef-b8a1-70819fb2ecd5"
+      },
+      {
+        "entity_type": "FILEPATH",
+        "normalized_value": "040b711a768b26041ae2520ccf48f70d_fdd79f91-4340-4aef-b8a1-70819fb2ecd5"
+      }
+    ],
+    "step1_only_identities": [],
+    "baseline_only_count": 1262,
+    "step1_only_count": 0,
+    "baseline_all_type_identities": 2437,
+    "step1_all_type_identities": 1152,
+    "all_type_baseline_only_count": 1285,
+    "all_type_step1_only_count": 0,
+    "normalization_mismatches": [],
+    "normalization_mismatch_count": 0,
+    "per_source_contracted": {
+      "Application.evtx": {
+        "baseline_protected_identities": 46,
+        "step1_protected_identities": 46,
+        "baseline_only": [],
+        "step1_only": [],
+        "baseline_only_count": 0,
+        "step1_only_count": 0,
+        "channels": [
+          "Application"
+        ],
+        "parity": true
+      },
+      "Microsoft-Windows-PowerShell-Operational.evtx": {
+        "baseline_protected_identities": 12,
+        "step1_protected_identities": 12,
+        "baseline_only": [],
+        "step1_only": [],
+        "baseline_only_count": 0,
+        "step1_only_count": 0,
+        "channels": [
+          "Microsoft-Windows-PowerShell/Operational"
+        ],
+        "parity": true
+      },
+      "Microsoft-Windows-TerminalServices-LocalSessionManager.evtx": {
+        "baseline_protected_identities": 9,
+        "step1_protected_identities": 9,
+        "baseline_only": [],
+        "step1_only": [],
+        "baseline_only_count": 0,
+        "step1_only_count": 0,
+        "channels": [
+          "Microsoft-Windows-TerminalServices-LocalSessionManager/Operational"
+        ],
+        "parity": true
+      },
+      "Microsoft-Windows-WMI-Activity-Operational.evtx": {
+        "baseline_protected_identities": 4,
+        "step1_protected_identities": 4,
+        "baseline_only": [],
+        "step1_only": [],
+        "baseline_only_count": 0,
+        "step1_only_count": 0,
+        "channels": [
+          "Microsoft-Windows-WMI-Activity/Operational"
+        ],
+        "parity": true
+      },
+      "Microsoft-Windows-Windows-Defender-Operational.evtx": {
+        "baseline_protected_identities": 144,
+        "step1_protected_identities": 144,
+        "baseline_only": [],
+        "step1_only": [],
+        "baseline_only_count": 0,
+        "step1_only_count": 0,
+        "channels": [
+          "Microsoft-Windows-Windows Defender/Operational"
+        ],
+        "parity": true
+      },
+      "Security.evtx": {
+        "baseline_protected_identities": 946,
+        "step1_protected_identities": 946,
+        "baseline_only": [],
+        "step1_only": [],
+        "baseline_only_count": 0,
+        "step1_only_count": 0,
+        "channels": [
+          "Security"
+        ],
+        "parity": true
+      },
+      "System.evtx": {
+        "baseline_protected_identities": 9,
+        "step1_protected_identities": 9,
+        "baseline_only": [],
+        "step1_only": [],
+        "baseline_only_count": 0,
+        "step1_only_count": 0,
+        "channels": [
+          "System"
+        ],
+        "parity": true
+      }
+    },
+    "protected_identity_set_parity": false
+  },
+  "event_parity_pass": true,
+  "alias_parity_pass": false,
+  "alias_classification": {
+    "live_vault_protected_identity_parity": false,
+    "contracted_cmmc_cui_protected_identity_parity": true,
+    "step1_only_protected_identities": 0,
+    "baseline_only_live_vault_protected": 1262,
+    "baseline_only_classification": {
+      "raw_json_only_sample_fields": 1262,
+      "raw_json_only_by_type": {
+        "FILEPATH": 1203,
+        "SID": 25,
+        "DOMAIN": 8,
+        "HOSTNAME": 8,
+        "ACCOUNT": 7,
+        "UNC_PATH": 5,
+        "FQDN": 2,
+        "USERNAME": 2,
+        "SHARE": 1,
+        "INTERNAL_IPV4": 1
+      },
+      "out_of_level_all_types_not_in_cmmc_cui": {
+        "URL": 13,
+        "EXTERNAL_IPV4": 7,
+        "EXTERNAL_DOMAIN": 3
+      },
+      "unexplained": 0
+    },
+    "note": "The old per-event ingest path vaults raw_json matches and out-of-level types. Phase 1.1 keeps raw_json excluded and vaults only the configured privacy level. After applying those contracts, protected identity sets are identical (1152 == 1152) with zero Step1-only identities and zero unexplained misses."
+  },
+  "alias_parity_pass_contracted": true,
+  "alias_parity_pass_live_vault": false,
+  "acceptance_gates": {
+    "performance_pass_remains_valid": true,
+    "full_corpus_event_semantic_differences_unexplained": 0,
+    "erk_set_parity": true,
+    "contracted_full_corpus_protected_alias_identity_parity": true,
+    "unresolved_step1_caused_regression": false
+  },
+  "final_verdict": "STEP1_ACCEPTED"
+}

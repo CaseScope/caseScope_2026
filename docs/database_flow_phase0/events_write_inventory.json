@@ -1,0 +1,198 @@
+{
+  "phase": "0A",
+  "source_of_truth": "casescope_database_flow_plan_v4_locked.md",
+  "generated_from": "Repository scan for events/events_buffer writes and mutations",
+  "full_scan_summary": {
+    "distinct_production_write_mutation_paths": 47,
+    "key_guard_gaps": [
+      "delete_file_events has no Redis destructive rewrite guard",
+      "run_events_update paths have no Redis destructive rewrite guard",
+      "destructive_event_rewrite_guard fails open by default unless require_lock=True",
+      "pre-parse DELETE is unconditional; existence-probe-before-delete is not implemented"
+    ],
+    "category_counts": {
+      "insert_paths": 2,
+      "file_delete_call_sites": 4,
+      "case_delete_call_sites": 6,
+      "dedup_delete_call_sites": 4,
+      "overlay_update_call_sites_minimum": 15,
+      "buffer_optimize_fence_recreate_paths": 7,
+      "schema_shadow_paths_minimum": 12
+    }
+  },
+  "records": [
+    {
+      "file_function": "parsers/registry.py::BatchProcessor.flush",
+      "classification": ["INSERT"],
+      "command_query": "client.insert(self.table, self._batch, column_names=self._columns)",
+      "scope": "Per parser batch; default destination is events_buffer.",
+      "sync_async": "synchronous client insert into Buffer table; Buffer flush to events is asynchronous by engine behavior",
+      "mutations_sync": null,
+      "destructive_rewrite_guard": false,
+      "require_lock": null,
+      "redis_dependency": false,
+      "expected_row_fraction": "new rows for one parser batch",
+      "reason": "Primary normalized event ingestion path.",
+      "planned_future_phase": "Phase 1.4 removes Buffer after fence; Phase 1B adds deterministic ingest batches."
+    },
+    {
+      "file_function": "tasks/celery_tasks.py::case_indexing_complete_task",
+      "classification": ["OPTIMIZE"],
+      "command_query": "OPTIMIZE TABLE events_buffer",
+      "scope": "Whole Buffer table flush after all files complete.",
+      "sync_async": "synchronous command call",
+      "mutations_sync": null,
+      "destructive_rewrite_guard": false,
+      "require_lock": null,
+      "redis_dependency": false,
+      "expected_row_fraction": "all currently buffered rows",
+      "reason": "Forces Buffer flush before dedup/discovery/finalization.",
+      "planned_future_phase": "Phase 1.4 removes events_buffer and this step."
+    },
+    {
+      "file_function": "utils/clickhouse.py::delete_file_events",
+      "classification": ["ALTER DELETE", "retry cleanup", "case/file deletion"],
+      "command_query": "ALTER TABLE events DELETE WHERE case_file_id = ...; ALTER TABLE events_buffer DELETE WHERE case_file_id = ...",
+      "scope": "One CaseFile's rows.",
+      "sync_async": "async mutation unless wait=True; pre-parse and exception cleanup call wait=True",
+      "mutations_sync": "wait_for_mutation_completion polling; no SETTINGS mutations_sync",
+      "destructive_rewrite_guard": false,
+      "require_lock": null,
+      "redis_dependency": false,
+      "expected_row_fraction": "all rows for one case_file_id",
+      "reason": "Re-entrant acks_late retry safety and cleanup of partial file ingest.",
+      "planned_future_phase": "Phase 4.4 removes pre-parse synchronous DELETE via generations."
+    },
+    {
+      "file_function": "utils/clickhouse.py::delete_case_events",
+      "classification": ["ALTER DELETE", "case/file deletion"],
+      "command_query": "ALTER TABLE events DELETE WHERE case_id = ...; ALTER TABLE events_buffer DELETE WHERE case_id = ...",
+      "scope": "All rows for one case.",
+      "sync_async": "async mutation unless wait=True; task waits",
+      "mutations_sync": "wait_for_mutation_completion polling; no SETTINGS mutations_sync",
+      "destructive_rewrite_guard": true,
+      "require_lock": false,
+      "redis_dependency": "fail-open if Redis unavailable because require_lock=False",
+      "expected_row_fraction": "all rows for one case",
+      "reason": "Whole-case deletion and rebuild cleanup.",
+      "planned_future_phase": "Phase 4.6 validates partition purge as one component of coordinated deletion."
+    },
+    {
+      "file_function": "utils/clickhouse.py::run_events_update",
+      "classification": ["ALTER UPDATE", "state write", "analyst write", "IOC write", "MITRE write", "noise write"],
+      "command_query": "ALTER TABLE events UPDATE ... WHERE ... SETTINGS mutations_sync = 1 when wait=True",
+      "scope": "Caller-defined predicate.",
+      "sync_async": "synchronous by default via mutations_sync=1",
+      "mutations_sync": "1 by default",
+      "destructive_rewrite_guard": false,
+      "require_lock": null,
+      "redis_dependency": false,
+      "expected_row_fraction": "small to broad depending on caller",
+      "reason": "Legacy single-table event state model for analyst/overlay updates.",
+      "planned_future_phase": "Phase 5 freezes events state columns; Phase 2.3 only bridges small state paths."
+    },
+    {
+      "file_function": "utils/event_deduplication.py::deduplicate_artifact_type / deduplicate_case_events",
+      "classification": ["ALTER DELETE", "dedup"],
+      "command_query": "ALTER TABLE events DELETE WHERE ... duplicate selector predicate ...",
+      "scope": "Duplicate rows within one case/artifact under legacy recipe.",
+      "sync_async": "mutation wait behavior implemented by ClickHouse helper/guarded workflow",
+      "mutations_sync": "implementation-specific polling/settings in function body",
+      "destructive_rewrite_guard": true,
+      "require_lock": false,
+      "redis_dependency": "guard behavior configurable; completion task uses rewrite_guard_behavior='skip'",
+      "expected_row_fraction": "duplicates only, safety thresholds skip large eligible sets",
+      "reason": "Legacy post-ingest duplicate removal.",
+      "planned_future_phase": "Phase 4.5 deletes whole-case dedup mutation pass; Phase 4.2 reconciles duplicates without deletion."
+    },
+    {
+      "file_function": "utils/event_analyst_state.py, utils/event_noise_state.py, utils/event_ioc_state.py, utils/event_mitre_state.py",
+      "classification": ["schema mutation", "state write", "analyst write", "IOC write", "MITRE write", "noise write"],
+      "command_query": "CREATE TABLE IF NOT EXISTS overlay/state tables; INSERT/ALTER state rows; projection joins back to events",
+      "scope": "Overlay-specific rows by selector_key/ERK/case.",
+      "sync_async": "synchronous command/insert calls",
+      "mutations_sync": "varies; events table summary rebuilds may use mutations",
+      "destructive_rewrite_guard": "not consistently used for all overlay writes",
+      "require_lock": null,
+      "redis_dependency": false,
+      "expected_row_fraction": "overlay rows or affected event summaries",
+      "reason": "Current transitional overlay/state model.",
+      "planned_future_phase": "Phase 3 IOC overlay pilot; Phase 5 MITRE/noise/analyst authority migration."
+    },
+    {
+      "file_function": "migrations/add_events_table.py",
+      "classification": ["schema mutation"],
+      "command_query": "CREATE TABLE IF NOT EXISTS events (... MergeTree ...); CREATE TABLE IF NOT EXISTS events_buffer AS events ENGINE = Buffer(...)",
+      "scope": "Schema creation.",
+      "sync_async": "synchronous DDL",
+      "mutations_sync": null,
+      "destructive_rewrite_guard": false,
+      "require_lock": null,
+      "redis_dependency": false,
+      "expected_row_fraction": "not row rewrite",
+      "reason": "Initial ClickHouse events schema.",
+      "planned_future_phase": "Phase 1.4 drops Buffer; later phases add surfaces/control projections."
+    },
+    {
+      "file_function": "migrations/add_evidence_record_identity.py",
+      "classification": ["schema mutation", "migration/shadow-table operation"],
+      "command_query": "ADD COLUMN/INDEX, CREATE shadow table, INSERT SELECT from events, RENAME/DROP buffer operations",
+      "scope": "All events or case-scoped windows during ERK backfill.",
+      "sync_async": "operator-run migration; synchronous commands",
+      "mutations_sync": "avoids ALTER UPDATE in bulk shadow rewrite path",
+      "destructive_rewrite_guard": true,
+      "require_lock": "fence requires guard for destructive swap paths",
+      "redis_dependency": true,
+      "expected_row_fraction": "large/full table depending migration mode",
+      "reason": "Evidence Identity v2 migration and events_buffer schema alignment.",
+      "planned_future_phase": "Phase 3.0 ERK becomes API identifier; Phase 4 adds LEK/generations."
+    },
+    {
+      "file_function": "utils/case_deletion.py::_flush_clickhouse_buffers / deletion service",
+      "classification": ["OPTIMIZE", "case/file deletion"],
+      "command_query": "OPTIMIZE TABLE events_buffer; delete_case_events(...)",
+      "scope": "Whole case deletion service.",
+      "sync_async": "synchronous flush then guarded mutation helper",
+      "mutations_sync": "wait behavior delegated to delete_case_events",
+      "destructive_rewrite_guard": true,
+      "require_lock": false,
+      "redis_dependency": "fail-open inherited from delete_case_events",
+      "expected_row_fraction": "all rows for deleted case",
+      "reason": "Coordinated case deletion currently includes events mutation.",
+      "planned_future_phase": "Phase 4.6 evaluates DROP PARTITION as one component."
+    },
+    {
+      "file_function": "bin/clear_cases.py, bin/archive_then_reset.py",
+      "classification": ["ALTER DELETE", "maintenance", "deletion"],
+      "command_query": "Administrative case clearing/reset paths call events deletion helpers or direct cleanup SQL.",
+      "scope": "Administrative case/cases.",
+      "sync_async": "operator-run",
+      "mutations_sync": "varies",
+      "destructive_rewrite_guard": "depends on helper path",
+      "require_lock": "varies",
+      "redis_dependency": "varies",
+      "expected_row_fraction": "case/all retained rows",
+      "reason": "Administrative reset/cleanup utilities.",
+      "planned_future_phase": "Phase 4.6/8 coordinated deletion lifecycle."
+    }
+  ],
+  "summary": {
+    "record_count": 11,
+    "record_count_note": "Grouped records. Follow-up full scan found 47 distinct production write/mutation paths.",
+    "mutation_types": {
+      "INSERT": 1,
+      "ALTER UPDATE": 1,
+      "ALTER DELETE": 5,
+      "OPTIMIZE": 2,
+      "schema mutation": 3,
+      "migration/shadow-table operation": 1,
+      "state/overlay write": 2
+    },
+    "biggest_current_rewrite_paths": [
+      "delete_case_events whole-case ALTER DELETE",
+      "event_deduplication legacy duplicate ALTER DELETE",
+      "add_evidence_record_identity shadow-table migration",
+      "run_events_update caller-defined legacy state mutations"
+    ]
+  }
+}

@@ -1,0 +1,446 @@
+{
+  "states": {
+    "A_clean_main": {
+      "summary": {
+        "tests": 2085,
+        "duration_seconds": 74.809,
+        "failures": 6,
+        "errors": 7,
+        "skipped": 7
+      },
+      "output_file": "/home/jdube/.cursor/projects/opt-casescope/agent-tools/0562eb08-a611-4b5d-9f99-c1372fcef0ab.txt",
+      "issue_count": 13
+    },
+    "B_phase0a_only_after_fix": {
+      "summary": {
+        "tests": 2090,
+        "duration_seconds": 73.075,
+        "failures": 6,
+        "errors": 7,
+        "skipped": 7
+      },
+      "output_file": "/home/jdube/.cursor/projects/opt-casescope/agent-tools/12e260b9-5d9f-46c7-aea0-76c7dca2e999.txt",
+      "issue_count": 13
+    },
+    "C_current_after_fix": {
+      "summary": {
+        "tests": 2092,
+        "duration_seconds": 67.908,
+        "failures": 6,
+        "errors": 6,
+        "skipped": 7
+      },
+      "output_file": "/home/jdube/.cursor/projects/opt-casescope/agent-tools/f08569a0-a30c-4459-b914-fae077e09655.txt",
+      "issue_count": 12
+    }
+  },
+  "phase0a_regression_fixed": [
+    "tests.test_parser_hardening EVTX transform tests returned None before lazy counter initialization"
+  ],
+  "issues": [
+    {
+      "test": "test_a_case_with_no_aliases_reports_zero (tests.test_privacy_alias_number_allocation.HighestAliasNumberQueryTestCase.test_a_case_with_no_aliases_reports_zero)",
+      "kind": "ERROR",
+      "module": "test_a_case_with_no_aliases_reports_zero",
+      "affected_subsystem": "privacy aliases",
+      "classification": "PRE_EXISTING_MAIN_FAILURE",
+      "state_results": {
+        "A_clean_main": {
+          "present": true,
+          "kind": "ERROR",
+          "last_line": "AttributeError: 'types.SimpleNamespace' object has no attribute 'func'"
+        },
+        "B_phase0a_only_after_fix": {
+          "present": true,
+          "kind": "ERROR",
+          "last_line": "AttributeError: 'types.SimpleNamespace' object has no attribute 'func'"
+        },
+        "C_current_after_fix": {
+          "present": true,
+          "kind": "ERROR",
+          "last_line": "AttributeError: 'types.SimpleNamespace' object has no attribute 'func'"
+        }
+      },
+      "stack_trace_current": "Traceback (most recent call last):\n  File \"/opt/casescope/tests/test_privacy_alias_number_allocation.py\", line 170, in test_a_case_with_no_aliases_reports_zero\n    self.assertEqual(0, privacy_aliases._highest_alias_number(99, 'ACCOUNT'))\n                        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/opt/casescope/utils/privacy_aliases.py\", line 1412, in _highest_alias_number\n    db.func.max(\n    ^^^^^^^\nAttributeError: 'types.SimpleNamespace' object has no attribute 'func'",
+      "associated_with_phase0a_instrumentation": false,
+      "associated_with_pre_existing_graph_work": false,
+      "external_service_dependency_observed": false,
+      "order_dependency_observed": false
+    },
+    {
+      "test": "test_assert_active_detects_stolen_token_synchronously (tests.test_clickhouse_destructive_lock.ClickHouseDestructiveLockTestCase.test_assert_active_detects_stolen_token_synchronously)",
+      "kind": "ERROR",
+      "module": "test_assert_active_detects_stolen_token_synchronously",
+      "affected_subsystem": "clickhouse/destructive-lock",
+      "classification": "PRE_EXISTING_MAIN_FAILURE",
+      "state_results": {
+        "A_clean_main": {
+          "present": true,
+          "kind": "ERROR",
+          "last_line": "AttributeError: module 'utils.clickhouse' has no attribute '_destructive_rewrite_lock_renew_interval'"
+        },
+        "B_phase0a_only_after_fix": {
+          "present": true,
+          "kind": "ERROR",
+          "last_line": "AttributeError: module 'utils.clickhouse' has no attribute '_destructive_rewrite_lock_renew_interval'"
+        },
+        "C_current_after_fix": {
+          "present": true,
+          "kind": "ERROR",
+          "last_line": "AttributeError: module 'utils.clickhouse' has no attribute '_destructive_rewrite_lock_renew_interval'"
+        }
+      },
+      "stack_trace_current": "Traceback (most recent call last):\n  File \"/opt/casescope/tests/test_clickhouse_destructive_lock.py\", line 100, in test_assert_active_detects_stolen_token_synchronously\n    original_interval = clickhouse._destructive_rewrite_lock_renew_interval\n                        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nAttributeError: module 'utils.clickhouse' has no attribute '_destructive_rewrite_lock_renew_interval'",
+      "associated_with_phase0a_instrumentation": false,
+      "associated_with_pre_existing_graph_work": false,
+      "external_service_dependency_observed": false,
+      "order_dependency_observed": false
+    },
+    {
+      "test": "test_delete_pcap_scope_raises_before_metadata_delete_when_clickhouse_delete_fails (tests.test_clickhouse_delete_dedup_contracts.PcapReindexContractTestCase.test_delete_pcap_scope_raises_before_metadata_delete_when_clickhouse_delete_fails)",
+      "kind": "ERROR",
+      "module": "test_delete_pcap_scope_raises_before_metadata_delete_when_clickhouse_delete_fails",
+      "affected_subsystem": "pcap deletion",
+      "classification": "ENVIRONMENT_DEPENDENT",
+      "state_results": {
+        "A_clean_main": {
+          "present": true,
+          "kind": "ERROR",
+          "last_line": "PermissionError: [Errno 13] Permission denied: '/tmp/casescope-phase0a-main/uploads'"
+        },
+        "B_phase0a_only_after_fix": {
+          "present": true,
+          "kind": "ERROR",
+          "last_line": "PermissionError: [Errno 13] Permission denied: '/tmp/casescope-phase0a-phase0a-only/uploads'"
+        },
+        "C_current_after_fix": {
+          "present": false,
+          "kind": null,
+          "last_line": null
+        }
+      },
+      "stack_trace_current": null,
+      "associated_with_phase0a_instrumentation": false,
+      "associated_with_pre_existing_graph_work": false,
+      "external_service_dependency_observed": true,
+      "order_dependency_observed": false
+    },
+    {
+      "test": "test_dispatcher_caches_allow_for_same_sensitive_params (tests.test_phase6_chat_runtime_contract.Phase6ChatRuntimeContractTestCase.test_dispatcher_caches_allow_for_same_sensitive_params)",
+      "kind": "FAIL",
+      "module": "test_dispatcher_caches_allow_for_same_sensitive_params",
+      "affected_subsystem": "chat/runtime",
+      "classification": "PRE_EXISTING_MAIN_FAILURE",
+      "state_results": {
+        "A_clean_main": {
+          "present": true,
+          "kind": "FAIL",
+          "last_line": "+ completed"
+        },
+        "B_phase0a_only_after_fix": {
+          "present": true,
+          "kind": "FAIL",
+          "last_line": "+ completed"
+        },
+        "C_current_after_fix": {
+          "present": true,
+          "kind": "FAIL",
+          "last_line": "+ completed"
+        }
+      },
+      "stack_trace_current": "Traceback (most recent call last):\n  File \"/opt/casescope/tests/test_phase6_chat_runtime_contract.py\", line 275, in test_dispatcher_caches_allow_for_same_sensitive_params\n    self.assertEqual(first.to_payload()[\"status\"], \"completed\")\nAssertionError: 'rejected' != 'completed'\n- rejected\n+ completed",
+      "associated_with_phase0a_instrumentation": false,
+      "associated_with_pre_existing_graph_work": false,
+      "external_service_dependency_observed": false,
+      "order_dependency_observed": false
+    },
+    {
+      "test": "test_dispatcher_interrupts_sensitive_read_without_cached_approval (tests.test_phase6_chat_runtime_contract.Phase6ChatRuntimeContractTestCase.test_dispatcher_interrupts_sensitive_read_without_cached_approval)",
+      "kind": "FAIL",
+      "module": "test_dispatcher_interrupts_sensitive_read_without_cached_approval",
+      "affected_subsystem": "chat/runtime",
+      "classification": "PRE_EXISTING_MAIN_FAILURE",
+      "state_results": {
+        "A_clean_main": {
+          "present": true,
+          "kind": "FAIL",
+          "last_line": "+ interrupt"
+        },
+        "B_phase0a_only_after_fix": {
+          "present": true,
+          "kind": "FAIL",
+          "last_line": "+ interrupt"
+        },
+        "C_current_after_fix": {
+          "present": true,
+          "kind": "FAIL",
+          "last_line": "+ interrupt"
+        }
+      },
+      "stack_trace_current": "Traceback (most recent call last):\n  File \"/opt/casescope/tests/test_phase6_chat_runtime_contract.py\", line 186, in test_dispatcher_interrupts_sensitive_read_without_cached_approval\n    self.assertEqual(payload[\"status\"], \"interrupt\")\nAssertionError: 'rejected' != 'interrupt'\n- rejected\n+ interrupt",
+      "associated_with_phase0a_instrumentation": false,
+      "associated_with_pre_existing_graph_work": false,
+      "external_service_dependency_observed": false,
+      "order_dependency_observed": false
+    },
+    {
+      "test": "test_dispatcher_requires_new_approval_for_different_sensitive_params (tests.test_phase6_chat_runtime_contract.Phase6ChatRuntimeContractTestCase.test_dispatcher_requires_new_approval_for_different_sensitive_params)",
+      "kind": "FAIL",
+      "module": "test_dispatcher_requires_new_approval_for_different_sensitive_params",
+      "affected_subsystem": "chat/runtime",
+      "classification": "PRE_EXISTING_MAIN_FAILURE",
+      "state_results": {
+        "A_clean_main": {
+          "present": true,
+          "kind": "FAIL",
+          "last_line": "+ completed"
+        },
+        "B_phase0a_only_after_fix": {
+          "present": true,
+          "kind": "FAIL",
+          "last_line": "+ completed"
+        },
+        "C_current_after_fix": {
+          "present": true,
+          "kind": "FAIL",
+          "last_line": "+ completed"
+        }
+      },
+      "stack_trace_current": "Traceback (most recent call last):\n  File \"/opt/casescope/tests/test_phase6_chat_runtime_contract.py\", line 307, in test_dispatcher_requires_new_approval_for_different_sensitive_params\n    self.assertEqual(approved.to_payload()[\"status\"], \"completed\")\nAssertionError: 'rejected' != 'completed'\n- rejected\n+ completed",
+      "associated_with_phase0a_instrumentation": false,
+      "associated_with_pre_existing_graph_work": false,
+      "external_service_dependency_observed": false,
+      "order_dependency_observed": false
+    },
+    {
+      "test": "test_dispatcher_session_allow_applies_to_new_sensitive_params (tests.test_phase6_chat_runtime_contract.Phase6ChatRuntimeContractTestCase.test_dispatcher_session_allow_applies_to_new_sensitive_params)",
+      "kind": "FAIL",
+      "module": "test_dispatcher_session_allow_applies_to_new_sensitive_params",
+      "affected_subsystem": "chat/runtime",
+      "classification": "PRE_EXISTING_MAIN_FAILURE",
+      "state_results": {
+        "A_clean_main": {
+          "present": true,
+          "kind": "FAIL",
+          "last_line": "+ completed"
+        },
+        "B_phase0a_only_after_fix": {
+          "present": true,
+          "kind": "FAIL",
+          "last_line": "+ completed"
+        },
+        "C_current_after_fix": {
+          "present": true,
+          "kind": "FAIL",
+          "last_line": "+ completed"
+        }
+      },
+      "stack_trace_current": "Traceback (most recent call last):\n  File \"/opt/casescope/tests/test_phase6_chat_runtime_contract.py\", line 338, in test_dispatcher_session_allow_applies_to_new_sensitive_params\n    self.assertEqual(approved.to_payload()[\"status\"], \"completed\")\nAssertionError: 'rejected' != 'completed'\n- rejected\n+ completed",
+      "associated_with_phase0a_instrumentation": false,
+      "associated_with_pre_existing_graph_work": false,
+      "external_service_dependency_observed": false,
+      "order_dependency_observed": false
+    },
+    {
+      "test": "test_parallel_profile_task_delegates_to_pipeline_baselines_stage (tests.test_phase7_baselines_stage.Phase7BaselinesStageTestCase.test_parallel_profile_task_delegates_to_pipeline_baselines_stage)",
+      "kind": "FAIL",
+      "module": "test_parallel_profile_task_delegates_to_pipeline_baselines_stage",
+      "affected_subsystem": "graph/profile",
+      "classification": "PRE_EXISTING_MAIN_FAILURE",
+      "state_results": {
+        "A_clean_main": {
+          "present": true,
+          "kind": "FAIL",
+          "last_line": "-  'progress_callback': <function _wave_progress_reporter.<locals>.report at 0x7d6ea209ab60>}"
+        },
+        "B_phase0a_only_after_fix": {
+          "present": true,
+          "kind": "FAIL",
+          "last_line": "-  'progress_callback': <function _wave_progress_reporter.<locals>.report at 0x79c3135b4900>}"
+        },
+        "C_current_after_fix": {
+          "present": true,
+          "kind": "FAIL",
+          "last_line": "-  'progress_callback': <function _wave_progress_reporter.<locals>.report at 0x714e44f2d760>}"
+        }
+      },
+      "stack_trace_current": "Traceback (most recent call last):\n  File \"/opt/casescope/tests/test_phase7_baselines_stage.py\", line 165, in test_parallel_profile_task_delegates_to_pipeline_baselines_stage\n    self.assertEqual(\nAssertionError: {'cas[34 chars]s-11', 'progress_callback': <function _wave_pr[46 chars]760>} != {'cas[34 chars]s-11'}\n- {'analysis_id': 'analysis-11',\n+ {'analysis_id': 'analysis-11', 'case_id': 11}\n?                               +++++++++++++++\n\n-  'case_id': 11,\n-  'progress_callback': <function _wave_progress_reporter.<locals>.report at 0x714e44f2d760>}",
+      "associated_with_phase0a_instrumentation": false,
+      "associated_with_pre_existing_graph_work": true,
+      "external_service_dependency_observed": false,
+      "order_dependency_observed": false
+    },
+    {
+      "test": "test_required_lock_fails_closed_when_redis_unavailable (tests.test_clickhouse_destructive_lock.ClickHouseDestructiveLockTestCase.test_required_lock_fails_closed_when_redis_unavailable)",
+      "kind": "ERROR",
+      "module": "test_required_lock_fails_closed_when_redis_unavailable",
+      "affected_subsystem": "clickhouse/destructive-lock",
+      "classification": "PRE_EXISTING_MAIN_FAILURE",
+      "state_results": {
+        "A_clean_main": {
+          "present": true,
+          "kind": "ERROR",
+          "last_line": "AttributeError: module 'utils.clickhouse' has no attribute 'destructive_event_rewrite_guard'"
+        },
+        "B_phase0a_only_after_fix": {
+          "present": true,
+          "kind": "ERROR",
+          "last_line": "AttributeError: module 'utils.clickhouse' has no attribute 'destructive_event_rewrite_guard'"
+        },
+        "C_current_after_fix": {
+          "present": true,
+          "kind": "ERROR",
+          "last_line": "AttributeError: module 'utils.clickhouse' has no attribute 'destructive_event_rewrite_guard'"
+        }
+      },
+      "stack_trace_current": "Traceback (most recent call last):\n  File \"/opt/casescope/tests/test_clickhouse_destructive_lock.py\", line 87, in test_required_lock_fails_closed_when_redis_unavailable\n    with clickhouse.destructive_event_rewrite_guard(\"test_lock\", require_lock=True):\n         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nAttributeError: module 'utils.clickhouse' has no attribute 'destructive_event_rewrite_guard'",
+      "associated_with_phase0a_instrumentation": false,
+      "associated_with_pre_existing_graph_work": false,
+      "external_service_dependency_observed": false,
+      "order_dependency_observed": false
+    },
+    {
+      "test": "test_required_lock_uses_admin_redis_without_secret_and_renews (tests.test_clickhouse_destructive_lock.ClickHouseDestructiveLockTestCase.test_required_lock_uses_admin_redis_without_secret_and_renews)",
+      "kind": "ERROR",
+      "module": "test_required_lock_uses_admin_redis_without_secret_and_renews",
+      "affected_subsystem": "clickhouse/destructive-lock",
+      "classification": "PRE_EXISTING_MAIN_FAILURE",
+      "state_results": {
+        "A_clean_main": {
+          "present": true,
+          "kind": "ERROR",
+          "last_line": "AttributeError: module 'utils.clickhouse' has no attribute '_destructive_rewrite_lock_renew_interval'"
+        },
+        "B_phase0a_only_after_fix": {
+          "present": true,
+          "kind": "ERROR",
+          "last_line": "AttributeError: module 'utils.clickhouse' has no attribute '_destructive_rewrite_lock_renew_interval'"
+        },
+        "C_current_after_fix": {
+          "present": true,
+          "kind": "ERROR",
+          "last_line": "AttributeError: module 'utils.clickhouse' has no attribute '_destructive_rewrite_lock_renew_interval'"
+        }
+      },
+      "stack_trace_current": "Traceback (most recent call last):\n  File \"/opt/casescope/tests/test_clickhouse_destructive_lock.py\", line 46, in test_required_lock_uses_admin_redis_without_secret_and_renews\n    original_interval = clickhouse._destructive_rewrite_lock_renew_interval\n                        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nAttributeError: module 'utils.clickhouse' has no attribute '_destructive_rewrite_lock_renew_interval'",
+      "associated_with_phase0a_instrumentation": false,
+      "associated_with_pre_existing_graph_work": false,
+      "external_service_dependency_observed": false,
+      "order_dependency_observed": false
+    },
+    {
+      "test": "test_tag_artifacts_start_routes_to_ioc_queue_and_tracks_task_access (tests.test_route_security_regressions.RouteSecurityRegressionTestCase.test_tag_artifacts_start_routes_to_ioc_queue_and_tracks_task_access)",
+      "kind": "FAIL",
+      "module": "test_tag_artifacts_start_routes_to_ioc_queue_and_tracks_task_access",
+      "affected_subsystem": "route/ioc",
+      "classification": "PRE_EXISTING_MAIN_FAILURE",
+      "state_results": {
+        "A_clean_main": {
+          "present": true,
+          "kind": "FAIL",
+          "last_line": "  Actual: apply_async(args=(11, 'tester', None), queue='ioc')"
+        },
+        "B_phase0a_only_after_fix": {
+          "present": true,
+          "kind": "FAIL",
+          "last_line": "  Actual: apply_async(args=(11, 'tester', None), queue='ioc')"
+        },
+        "C_current_after_fix": {
+          "present": true,
+          "kind": "FAIL",
+          "last_line": "  Actual: apply_async(args=(11, 'tester', None), queue='ioc')"
+        }
+      },
+      "stack_trace_current": "Traceback (most recent call last):\n  File \"/opt/casescope/tests/test_route_security_regressions.py\", line 580, in test_tag_artifacts_start_routes_to_ioc_queue_and_tracks_task_access\n    task_mock.apply_async.assert_called_once_with(args=(11,), queue='ioc')\n  File \"/usr/lib/python3.12/unittest/mock.py\", line 956, in assert_called_once_with\n    return self.assert_called_with(*args, **kwargs)\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/usr/lib/python3.12/unittest/mock.py\", line 944, in assert_called_with\n    raise AssertionError(_error_message()) from cause\nAssertionError: expected call not found.\nExpected: apply_async(args=(11,), queue='ioc')\n  Actual: apply_async(args=(11, 'tester', None), queue='ioc')",
+      "associated_with_phase0a_instrumentation": false,
+      "associated_with_pre_existing_graph_work": false,
+      "external_service_dependency_observed": false,
+      "order_dependency_observed": false
+    },
+    {
+      "test": "test_unlicensed_deterministic_report_does_not_invoke_ai_provider (tests.test_investigation_thread_report_snapshots.DeterministicReportRouteLifecycleTestCase.test_unlicensed_deterministic_report_does_not_invoke_ai_provider)",
+      "kind": "ERROR",
+      "module": "test_unlicensed_deterministic_report_does_not_invoke_ai_provider",
+      "affected_subsystem": "reporting",
+      "classification": "PRE_EXISTING_MAIN_FAILURE",
+      "state_results": {
+        "A_clean_main": {
+          "present": true,
+          "kind": "ERROR",
+          "last_line": "AttributeError: 'tuple' object has no attribute 'get_json'"
+        },
+        "B_phase0a_only_after_fix": {
+          "present": true,
+          "kind": "ERROR",
+          "last_line": "AttributeError: 'tuple' object has no attribute 'get_json'"
+        },
+        "C_current_after_fix": {
+          "present": true,
+          "kind": "ERROR",
+          "last_line": "AttributeError: 'tuple' object has no attribute 'get_json'"
+        }
+      },
+      "stack_trace_current": "Traceback (most recent call last):\n  File \"/opt/casescope/tests/test_investigation_thread_report_snapshots.py\", line 733, in test_unlicensed_deterministic_report_does_not_invoke_ai_provider\n    payload = response.get_json()\n              ^^^^^^^^^^^^^^^^^\nAttributeError: 'tuple' object has no attribute 'get_json'",
+      "associated_with_phase0a_instrumentation": false,
+      "associated_with_pre_existing_graph_work": false,
+      "external_service_dependency_observed": false,
+      "order_dependency_observed": false
+    },
+    {
+      "test": "tests.test_async_cancellation_remaining (unittest.loader._FailedTest.tests.test_async_cancellation_remaining)",
+      "kind": "ERROR",
+      "module": "test_async_cancellation_remaining",
+      "affected_subsystem": "async analysis",
+      "classification": "PRE_EXISTING_MAIN_FAILURE",
+      "state_results": {
+        "A_clean_main": {
+          "present": true,
+          "kind": "ERROR",
+          "last_line": "AttributeError: type object '_FakeAnalysisStatus' has no attribute 'terminal_statuses'. Did you mean: 'running_statuses'?"
+        },
+        "B_phase0a_only_after_fix": {
+          "present": true,
+          "kind": "ERROR",
+          "last_line": "AttributeError: type object '_FakeAnalysisStatus' has no attribute 'terminal_statuses'. Did you mean: 'running_statuses'?"
+        },
+        "C_current_after_fix": {
+          "present": true,
+          "kind": "ERROR",
+          "last_line": "AttributeError: type object '_FakeAnalysisStatus' has no attribute 'terminal_statuses'. Did you mean: 'running_statuses'?"
+        }
+      },
+      "stack_trace_current": "ImportError: Failed to import test module: tests.test_async_cancellation_remaining\nTraceback (most recent call last):\n  File \"/usr/lib/python3.12/unittest/loader.py\", line 394, in _find_test_path\n    module = self._get_module_from_name(name)\n             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/usr/lib/python3.12/unittest/loader.py\", line 337, in _get_module_from_name\n    __import__(name)\n  File \"/opt/casescope/tests/_support/stubs.py\", line 110, in guarded_import\n    return _ORIGINAL_IMPORT(name, globals, locals, fromlist, level)\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/opt/casescope/tests/test_async_cancellation_remaining.py\", line 169, in <module>\n    case_analyzer = _load_module(\"case_analyzer_remaining_cancellation_test\", \"utils/case_analyzer.py\")\n                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/opt/casescope/tests/test_async_cancellation_remaining.py\", line 31, in _load_module\n    spec.loader.exec_module(module)\n  File \"/opt/casescope/utils/case_analyzer.py\", line 33, in <module>\n    from utils.analysis_progress import record_analysis_progress\n  File \"/opt/casescope/tests/_support/stubs.py\", line 110, in guarded_import\n    return _ORIGINAL_IMPORT(name, globals, locals, fromlist, level)\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/opt/casescope/utils/analysis_progress.py\", line 35, in <module>\n    _TERMINAL = frozenset(AnalysisStatus.terminal_statuses())\n                          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nAttributeError: type object '_FakeAnalysisStatus' has no attribute 'terminal_statuses'. Did you mean: 'running_statuses'?",
+      "associated_with_phase0a_instrumentation": false,
+      "associated_with_pre_existing_graph_work": false,
+      "external_service_dependency_observed": false,
+      "order_dependency_observed": false
+    }
+  ],
+  "test_isolation_safety": {
+    "full_discovery_with_casescope_env_safe_for_production": false,
+    "reason": "Sourcing /etc/casescope/casescope.env points selected tests at production PostgreSQL and ClickHouse.",
+    "production_touching_tests": [
+      {
+        "file": "tests/test_graph_bulk_writer_postgres.py",
+        "risk": "Writes to PostgreSQL using CASESCOPE_POSTGRES_TEST_DATABASE_URL or DATABASE_URL; with casescope.env loaded this falls back to production DATABASE_URL.",
+        "classification": "HIGH_RISK_PRODUCTION_POSTGRES_WRITE"
+      },
+      {
+        "file": "tests/test_deterministic_pattern_regressions.py",
+        "risk": "Uses real ClickHouse client to insert rows into events and issue ALTER TABLE events DELETE on reserved high case IDs.",
+        "classification": "MODERATE_RISK_PRODUCTION_CLICKHOUSE_MUTATION"
+      },
+      {
+        "file": "tests/test_event_selector.py",
+        "risk": "Uses real ClickHouse client for read-only selector parity SELECT when ClickHouse is reachable.",
+        "classification": "READ_ONLY_PRODUCTION_CLICKHOUSE"
+      }
+    ],
+    "recommended_safe_overrides": [
+      "Do not source full production casescope.env for non-destructive discovery comparisons.",
+      "Set CASESCOPE_POSTGRES_TEST_DATABASE_URL to a disposable PostgreSQL database or unset DATABASE_URL so PostgreSQL tests skip.",
+      "Run ClickHouse-mutating regression tests only against a disposable ClickHouse database or exclude them from non-destructive comparisons.",
+      "Keep CASESCOPE_RUN_CLICKHOUSE_INTEGRATION unset on production."
+    ]
+  }
+}

@@ -1,0 +1,317 @@
+{
+  "phase": "0A",
+  "source_of_truth": "casescope_database_flow_plan_v4_locked.md",
+  "generated_from": "Repository scan for direct ClickHouse events readers in live code",
+  "notes": [
+    "Tests are excluded unless they encode a production migration/diagnostic pattern.",
+    "Rows are grouped by production function/module where repeated direct events queries share the same purpose and future surface.",
+    "Target surfaces are Phase 0A assignments only and remain subject to contract ratification.",
+    "Follow-up full-scan finding: direct reader totals are larger than the grouped inventory below; see full_scan_summary."
+  ],
+  "full_scan_summary": {
+    "production_file_function_readers": 167,
+    "production_files_touched": 52,
+    "embedded_query_strings": {
+      "total": "227+",
+      "pattern_rules": 75,
+      "pattern_checks_approx": 136,
+      "campaign_templates": 16
+    },
+    "read_vs_in_query_write": {
+      "read": 159,
+      "read_plus_write": 8
+    },
+    "target_future_surface_breakdown": {
+      "events_current_approx": 69,
+      "event_observations_current_approx": 8,
+      "administrative_or_raw_events_only_approx": 33,
+      "unresolved_approx": 57
+    },
+    "highest_fanout_hubs": [
+      "utils/clickhouse.py",
+      "utils/chat_tools.py",
+      "routes/hunting.py",
+      "tasks/rag_tasks.py",
+      "utils/pattern_check_definitions.py",
+      "models/pattern_rules.py",
+      "models/rag.py"
+    ],
+    "embedded_query_libraries": [
+      {
+        "file": "models/pattern_rules.py",
+        "container": "*_ATTACK_PATTERNS detection_query",
+        "query_count": 75,
+        "semantic_basis": "LOGICAL",
+        "target_future_surface": "events_current"
+      },
+      {
+        "file": "utils/pattern_check_definitions.py",
+        "container": "PATTERN_CHECKS query_template",
+        "query_count": "approximately 136",
+        "semantic_basis": "LOGICAL",
+        "target_future_surface": "events_current"
+      },
+      {
+        "file": "models/rag.py",
+        "container": "CAMPAIGN_TEMPLATES detection_query",
+        "query_count": 16,
+        "semantic_basis": "LOGICAL",
+        "target_future_surface": "events_current"
+      }
+    ]
+  },
+  "records": [
+    {
+      "file": "utils/clickhouse.py",
+      "function_class": "query_events, get_event_by_evidence_record_key, count_events, get_event_stats, count_file_events",
+      "query_purpose": "Generic events access helpers, event identity lookup, case/file counts, artifact/channel/time statistics.",
+      "read_write": "read",
+      "semantic_basis": "UNKNOWN / needs contract decision",
+      "joins_projections": "No joins; direct SELECT from events.",
+      "dependencies": {"ioc": false, "mitre": false, "noise": false, "analyst_state": false, "selector_key": false, "erk": true, "raw_json": false, "extra_fields": false, "search_blob": false},
+      "category": ["maintenance", "other"],
+      "target_future_surface": "unresolved"
+    },
+    {
+      "file": "tasks/celery_tasks.py",
+      "function_class": "_insert_hayabusa_mitre_matches_for_case_file",
+      "query_purpose": "Reads freshly inserted EVTX rows with Hayabusa MITRE arrays and extra_fields to backfill shared MITRE match rows.",
+      "read_write": "read",
+      "semantic_basis": "PHYSICAL / ERK semantics",
+      "joins_projections": "No joins; filters by case_id, case_file_id, mitre_attack_sources.",
+      "dependencies": {"ioc": false, "mitre": true, "noise": false, "analyst_state": false, "selector_key": true, "erk": false, "raw_json": false, "extra_fields": true, "search_blob": false},
+      "category": ["MITRE", "ingest-finalization"],
+      "target_future_surface": "event_observations_current"
+    },
+    {
+      "file": "tasks/celery_tasks.py",
+      "function_class": "delete_case_events_task, reindex_case_task, tag_iocs_for_case flow",
+      "query_purpose": "Counts case rows before destructive delete/rebuild and reads IOC candidate event fields for post-ingest IOC tagging.",
+      "read_write": "read",
+      "semantic_basis": "UNKNOWN / needs contract decision",
+      "joins_projections": "Direct SELECT from events; IOC path uses event_ioc_state projection clause.",
+      "dependencies": {"ioc": true, "mitre": false, "noise": false, "analyst_state": false, "selector_key": false, "erk": false, "raw_json": true, "extra_fields": false, "search_blob": false},
+      "category": ["deletion", "IOC", "maintenance"],
+      "target_future_surface": "unresolved"
+    },
+    {
+      "file": "routes/case_files.py",
+      "function_class": "case file/statistics routes",
+      "query_purpose": "Case event counts, artifact breakdown, reviewed/IOC/MITRE/noise counters for file/case UI.",
+      "read_write": "read",
+      "semantic_basis": "LOGICAL / analyst-event semantics",
+      "joins_projections": "Joins event_analyst_state, event_ioc_state, event_noise_state projections as e aliases.",
+      "dependencies": {"ioc": true, "mitre": true, "noise": true, "analyst_state": true, "selector_key": true, "erk": false, "raw_json": false, "extra_fields": false, "search_blob": false},
+      "category": ["hunting/UI"],
+      "target_future_surface": "events_current"
+    },
+    {
+      "file": "routes/hunting.py",
+      "function_class": "hunting stats, event listing, detail, process-tree, executable pivots, host list",
+      "query_purpose": "Primary analyst hunting/search UI over events with filters, pagination, detail lookup, process tree, executable and host pivots.",
+      "read_write": "read",
+      "semantic_basis": "LOGICAL / analyst-event semantics",
+      "joins_projections": "Joins analyst, IOC, MITRE, and noise projections; projects selector_key and overlay fields.",
+      "dependencies": {"ioc": true, "mitre": true, "noise": true, "analyst_state": true, "selector_key": true, "erk": true, "raw_json": true, "extra_fields": true, "search_blob": true},
+      "category": ["hunting/UI", "IOC", "MITRE", "noise"],
+      "target_future_surface": "events_current"
+    },
+    {
+      "file": "utils/investigation_context.py",
+      "function_class": "InvestigationContext event/evidence retrieval",
+      "query_purpose": "Builds AI/investigation context from event evidence by ERK, time windows, source host, and nearby events.",
+      "read_write": "read",
+      "semantic_basis": "UNKNOWN / needs contract decision",
+      "joins_projections": "No joins; direct event columns for evidence context.",
+      "dependencies": {"ioc": false, "mitre": true, "noise": false, "analyst_state": false, "selector_key": true, "erk": true, "raw_json": true, "extra_fields": true, "search_blob": true},
+      "category": ["AI/RAG"],
+      "target_future_surface": "unresolved"
+    },
+    {
+      "file": "utils/graph_query.py",
+      "function_class": "Graph event evidence lookup",
+      "query_purpose": "Resolves event support rows for graph evidence display by ERK.",
+      "read_write": "read",
+      "semantic_basis": "PHYSICAL / ERK semantics",
+      "joins_projections": "No joins; direct ERK lookup.",
+      "dependencies": {"ioc": false, "mitre": false, "noise": false, "analyst_state": false, "selector_key": true, "erk": true, "raw_json": false, "extra_fields": false, "search_blob": false},
+      "category": ["graph"],
+      "target_future_surface": "event_observations_current"
+    },
+    {
+      "file": "utils/graph_materializer.py",
+      "function_class": "materialize_events_for_case and graph event stream helpers",
+      "query_purpose": "Streams graph-eligible event rows from ClickHouse into deterministic graph facts.",
+      "read_write": "read",
+      "semantic_basis": "PHYSICAL / ERK semantics",
+      "joins_projections": "No joins; PREWHERE case_id and optional case_file_id scope; excludes raw_json.",
+      "dependencies": {"ioc": false, "mitre": false, "noise": false, "analyst_state": false, "selector_key": false, "erk": true, "raw_json": false, "extra_fields": true, "search_blob": false},
+      "category": ["graph"],
+      "target_future_surface": "event_observations_current"
+    },
+    {
+      "file": "utils/graph_projection.py",
+      "function_class": "graph_eligible_probe, graph_explain_query",
+      "query_purpose": "Checks graph eligibility and prepares EXPLAIN for graph stream queries.",
+      "read_write": "read",
+      "semantic_basis": "PHYSICAL / ERK semantics",
+      "joins_projections": "No joins; direct PREWHERE events.",
+      "dependencies": {"ioc": false, "mitre": false, "noise": false, "analyst_state": false, "selector_key": false, "erk": true, "raw_json": false, "extra_fields": false, "search_blob": false},
+      "category": ["graph", "diagnostic"],
+      "target_future_surface": "event_observations_current"
+    },
+    {
+      "file": "utils/graph_support_lifecycle.py",
+      "function_class": "event support invalidation helpers",
+      "query_purpose": "Finds ERKs by case_file_id for graph support lifecycle updates.",
+      "read_write": "read",
+      "semantic_basis": "PHYSICAL / ERK semantics",
+      "joins_projections": "No joins; case_file_id to ERK lookup.",
+      "dependencies": {"ioc": false, "mitre": false, "noise": false, "analyst_state": false, "selector_key": false, "erk": true, "raw_json": false, "extra_fields": false, "search_blob": false},
+      "category": ["graph", "deletion"],
+      "target_future_surface": "event_observations_current"
+    },
+    {
+      "file": "utils/ioc_artifact_tagger.py",
+      "function_class": "IOC artifact scan/statistics/host helpers",
+      "query_purpose": "Scans event content for IOC matches and computes artifact/host summaries.",
+      "read_write": "read",
+      "semantic_basis": "PHYSICAL / ERK semantics",
+      "joins_projections": "Direct events queries using generated IOC where clauses.",
+      "dependencies": {"ioc": true, "mitre": false, "noise": false, "analyst_state": false, "selector_key": false, "erk": true, "raw_json": true, "extra_fields": true, "search_blob": true},
+      "category": ["IOC"],
+      "target_future_surface": "event_observations_current"
+    },
+    {
+      "file": "utils/ioc_match_provenance.py",
+      "function_class": "event provenance lookup",
+      "query_purpose": "Loads ERK, case_file_id, and timestamp for IOC match provenance.",
+      "read_write": "read",
+      "semantic_basis": "PHYSICAL / ERK semantics",
+      "joins_projections": "No joins; direct events scan by case_id and IOC predicate.",
+      "dependencies": {"ioc": true, "mitre": false, "noise": false, "analyst_state": false, "selector_key": false, "erk": true, "raw_json": false, "extra_fields": false, "search_blob": true},
+      "category": ["IOC"],
+      "target_future_surface": "event_observations_current"
+    },
+    {
+      "file": "utils/event_analyst_state.py",
+      "function_class": "legacy analyst state backfill/projection helpers",
+      "query_purpose": "Reads legacy analyst columns from events while bootstrap PG authority is absent.",
+      "read_write": "read",
+      "semantic_basis": "UNKNOWN / needs contract decision",
+      "joins_projections": "Direct events reads plus analyst projection table creation.",
+      "dependencies": {"ioc": false, "mitre": false, "noise": false, "analyst_state": true, "selector_key": true, "erk": true, "raw_json": false, "extra_fields": false, "search_blob": false},
+      "category": ["analyst-state", "migration"],
+      "target_future_surface": "unresolved"
+    },
+    {
+      "file": "utils/event_noise_state.py",
+      "function_class": "legacy/effective noise state helpers",
+      "query_purpose": "Reads or combines legacy events noise columns with explicit noise state facts.",
+      "read_write": "read",
+      "semantic_basis": "UNKNOWN / needs contract decision",
+      "joins_projections": "Direct events reads and noise projection joins.",
+      "dependencies": {"ioc": false, "mitre": false, "noise": true, "analyst_state": false, "selector_key": true, "erk": true, "raw_json": false, "extra_fields": false, "search_blob": false},
+      "category": ["noise", "migration"],
+      "target_future_surface": "unresolved"
+    },
+    {
+      "file": "utils/event_mitre_state.py",
+      "function_class": "MITRE state tables, Hayabusa insert, summary rebuild, stats",
+      "query_purpose": "Reads legacy MITRE arrays and writes/reads MITRE match projection tables.",
+      "read_write": "read",
+      "semantic_basis": "PHYSICAL / ERK semantics",
+      "joins_projections": "Direct events reads plus event_mitre_matches summaries.",
+      "dependencies": {"ioc": false, "mitre": true, "noise": false, "analyst_state": false, "selector_key": true, "erk": true, "raw_json": false, "extra_fields": true, "search_blob": false},
+      "category": ["MITRE"],
+      "target_future_surface": "event_observations_current"
+    },
+    {
+      "file": "utils/behavioral_profiler.py, utils/temporal_baseline.py, utils/stateful_detectors/auth_events.py, utils/stateful_detectors/*",
+      "function_class": "behavioral profiling and authentication signal loaders",
+      "query_purpose": "Loads authentication and time-series event signals for behavioral baselines/detectors.",
+      "read_write": "read",
+      "semantic_basis": "LOGICAL / analyst-event semantics",
+      "joins_projections": "Direct events queries grouped/windowed by timestamp, host, user, event_id.",
+      "dependencies": {"ioc": false, "mitre": false, "noise": false, "analyst_state": false, "selector_key": false, "erk": false, "raw_json": false, "extra_fields": false, "search_blob": false},
+      "category": ["profile", "detector"],
+      "target_future_surface": "events_current"
+    },
+    {
+      "file": "pipeline/pattern_analysis.py, utils/deterministic_evidence_engine.py, utils/candidate_extractor.py, utils/pattern_check_definitions.py",
+      "function_class": "pattern/candidate/event detection paths",
+      "query_purpose": "Reads event windows and candidate rows for pattern detection and deterministic evidence analysis.",
+      "read_write": "read",
+      "semantic_basis": "LOGICAL / analyst-event semantics",
+      "joins_projections": "Direct events queries and candidate projections.",
+      "dependencies": {"ioc": true, "mitre": true, "noise": true, "analyst_state": true, "selector_key": true, "erk": true, "raw_json": true, "extra_fields": true, "search_blob": true},
+      "category": ["detector", "hunting/UI"],
+      "target_future_surface": "events_current"
+    },
+    {
+      "file": "utils/rag_embeddings.py, tasks/rag_tasks.py, routes/rag.py, utils/chat_agent.py, utils/chat_tools.py, utils/forensic_chat_sources.py",
+      "function_class": "RAG embedding, retrieval, and chat context helpers",
+      "query_purpose": "Reads events for embeddings, AI answers, summaries, and context source snippets.",
+      "read_write": "read",
+      "semantic_basis": "UNKNOWN / needs contract decision",
+      "joins_projections": "Direct events reads, often selecting raw_json/search_blob/extra_fields.",
+      "dependencies": {"ioc": true, "mitre": true, "noise": true, "analyst_state": true, "selector_key": true, "erk": true, "raw_json": true, "extra_fields": true, "search_blob": true},
+      "category": ["AI/RAG"],
+      "target_future_surface": "unresolved"
+    },
+    {
+      "file": "utils/known_users_discovery.py, utils/known_systems_discovery.py",
+      "function_class": "discover_known_users, discover_known_systems",
+      "query_purpose": "Discovers users/systems from event columns after ingest completion.",
+      "read_write": "read",
+      "semantic_basis": "LOGICAL / analyst-event semantics",
+      "joins_projections": "Direct events aggregation by user/system fields.",
+      "dependencies": {"ioc": false, "mitre": false, "noise": false, "analyst_state": false, "selector_key": false, "erk": false, "raw_json": false, "extra_fields": false, "search_blob": false},
+      "category": ["discovery"],
+      "target_future_surface": "events_current"
+    },
+    {
+      "file": "utils/event_deduplication.py",
+      "function_class": "count/deduplicate artifact helpers",
+      "query_purpose": "Counts eligible duplicate groups and currently deletes duplicate rows under legacy semantics.",
+      "read_write": "read",
+      "semantic_basis": "PHYSICAL / ERK semantics",
+      "joins_projections": "Direct events aggregation by artifact-specific legacy dedup keys.",
+      "dependencies": {"ioc": false, "mitre": false, "noise": false, "analyst_state": false, "selector_key": false, "erk": true, "raw_json": true, "extra_fields": false, "search_blob": true},
+      "category": ["maintenance", "deletion"],
+      "target_future_surface": "administrative/raw-events-only"
+    },
+    {
+      "file": "routes/iocs.py, utils/ioc_timeline_builder.py, utils/ai_timeline_generator.py, utils/ai_report_generator.py, utils/ai_event_summary.py",
+      "function_class": "IOC routes and report/timeline generators",
+      "query_purpose": "Builds IOC views, timelines, reports, and event summaries from raw event rows.",
+      "read_write": "read",
+      "semantic_basis": "UNKNOWN / needs contract decision",
+      "joins_projections": "Direct events reads and overlay projections depending on caller.",
+      "dependencies": {"ioc": true, "mitre": true, "noise": true, "analyst_state": true, "selector_key": true, "erk": true, "raw_json": true, "extra_fields": true, "search_blob": true},
+      "category": ["IOC", "export/report", "AI/RAG"],
+      "target_future_surface": "unresolved"
+    },
+    {
+      "file": "migrations/add_evidence_record_identity.py, migrations/backfill_hayabusa_mitre_matches.py, migrations/backfill_timestamp_utc.py, migrations/backfill_search_blob_keyvalue.py, migrations/correlate_hostnames.py",
+      "function_class": "migration/backfill entrypoints",
+      "query_purpose": "Administrative schema/data backfills and shadow-table operations over events.",
+      "read_write": "read",
+      "semantic_basis": "PHYSICAL / ERK semantics",
+      "joins_projections": "Direct events reads; some migrations copy to shadow tables.",
+      "dependencies": {"ioc": false, "mitre": true, "noise": false, "analyst_state": false, "selector_key": true, "erk": true, "raw_json": true, "extra_fields": true, "search_blob": true},
+      "category": ["migration", "maintenance"],
+      "target_future_surface": "administrative/raw-events-only"
+    }
+  ],
+  "summary": {
+    "record_count": 23,
+    "record_count_note": "Grouped records. Full scan found 167 production file+function readers across 52 files plus 227+ embedded query strings.",
+    "target_future_surface_breakdown": {
+      "event_observations_current": 8,
+      "events_current": 5,
+      "administrative/raw-events-only": 2,
+      "unresolved": 8
+    }
+  }
+}
