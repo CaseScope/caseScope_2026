@@ -5,8 +5,10 @@
       "version": "4.18.6",
       "date": "2026-08-15",
       "changes": [
-        "Selected measured Step 4 EVTX eager-first directory grouping to restore first-searchable latency while preserving source-aware directory correlation",
-        "Separated preferred EVTX directory target limits from absolute safety caps"
+        "Accepted Phase 1 database-flow release: moved privacy alias extraction out of the per-event hot path, added orjson to measured EVTX hot loops, removed runtime Buffer dependency through direct events inserts, and added fail-closed shared/exclusive ingest fencing",
+        "Preserved IOC raw_json recall because the zero-false-negative removal gate failed, replaced behavioral-profiler N+1 queries with bounded set-based queries, and added safe source-aware EvtxECmd/Hayabusa directory mode with eager-first progressive behavior",
+        "Promoted EventData.KeyLength to events.key_length Nullable(UInt16) with migration-before-new-runtime deployment requirements",
+        "Phase 1 integrated ingest remained more than 2x faster than Phase 0 while preserving exact ERK, event, detection, and privacy parity"
       ]
     },
     {
