@@ -1296,7 +1296,9 @@ def parse_evtx_group_task(self, case_id: int, members: List[Dict[str, Any]]) -> 
     to the existing per-file path inside process_evtx_group.
     """
     from parsers import process_evtx_group
+    from parsers.registry import _cleanup_evtx_group_events_strict
     from utils.clickhouse import get_fresh_client
+    from utils.evtx_directory_mode import DirectoryModeError
     from models.case import Case
 
     task_started = time.perf_counter()
@@ -1351,7 +1353,11 @@ def parse_evtx_group_task(self, case_id: int, members: List[Dict[str, Any]]) -> 
                     case_file_id,
                     e,
                 )
-            _cleanup_case_file_events(case_file_id)
+        _cleanup_evtx_group_events_strict(
+            members,
+            clickhouse_client=client,
+            context="evtx_group_pre_parse_cleanup",
+        )
 
         results = process_evtx_group(
             members,
@@ -1418,16 +1424,53 @@ def parse_evtx_group_task(self, case_id: int, members: List[Dict[str, Any]]) -> 
         return {'success': all(item.get('success') for item in result_dicts), 'files': result_dicts}
 
     except SoftTimeLimitExceeded:
+        cleanup_error_message = ''
+        try:
+            _cleanup_evtx_group_events_strict(
+                members,
+                clickhouse_client=locals().get('client'),
+                context="evtx_group_timeout_cleanup",
+            )
+        except (IngestFenceUnavailable, IngestAdmissionDenied, IngestExclusiveTimeout, IngestFenceLost):
+            raise
+        except Exception as cleanup_error:
+            cleanup_error_message = f"; cleanup failed: {_format_error_message(cleanup_error)}"
+            logger.error(
+                "Strict EVTX group timeout cleanup failed for case_id=%s: %s",
+                case_id,
+                cleanup_error,
+            )
         for case_file_id in member_ids:
-            _cleanup_case_file_events(case_file_id)
             if case_file_id:
                 _update_case_file_status(
                     case_file_id=case_file_id,
                     status='error',
                     ingestion_status='error',
-                    error_message='Task timeout',
+                    error_message=f'Task timeout{cleanup_error_message}',
                 )
         raise
+
+    except DirectoryModeError as e:
+        logger.warning(
+            "EVTX group cleanup/fallback failed closed for case_id=%s; retrying without marking success: %s",
+            case_id,
+            e,
+        )
+        emit_metric(
+            "parse_evtx_group_task_total",
+            case_id=case_id,
+            group_size=len(members),
+            duration_ms=(time.perf_counter() - task_started) * 1000.0,
+            success=False,
+            error_type=e.__class__.__name__,
+            error_reason=getattr(e, 'reason', ''),
+            fail_closed=True,
+        )
+        raise self.retry(
+            exc=e,
+            countdown=min(30, 2 ** max(int(getattr(self.request, 'retries', 0)), 0)),
+            max_retries=10,
+        )
 
     except (IngestFenceUnavailable, IngestAdmissionDenied, IngestExclusiveTimeout, IngestFenceLost) as e:
         logger.warning(
@@ -1443,14 +1486,29 @@ def parse_evtx_group_task(self, case_id: int, members: List[Dict[str, Any]]) -> 
 
     except Exception as e:
         logger.exception("Error processing EVTX group for case %s", case_id)
+        cleanup_error_message = ''
+        try:
+            _cleanup_evtx_group_events_strict(
+                members,
+                clickhouse_client=locals().get('client'),
+                context="evtx_group_exception_cleanup",
+            )
+        except (IngestFenceUnavailable, IngestAdmissionDenied, IngestExclusiveTimeout, IngestFenceLost):
+            raise
+        except Exception as cleanup_error:
+            cleanup_error_message = f"; cleanup failed: {_format_error_message(cleanup_error)}"
+            logger.error(
+                "Strict EVTX group exception cleanup failed for case_id=%s: %s",
+                case_id,
+                cleanup_error,
+            )
         for case_file_id in member_ids:
-            _cleanup_case_file_events(case_file_id)
             if case_file_id:
                 _update_case_file_status(
                     case_file_id=case_file_id,
                     status='error',
                     ingestion_status='error',
-                    error_message=_format_error_message(e),
+                    error_message=f'{_format_error_message(e)}{cleanup_error_message}',
                 )
         raise
 

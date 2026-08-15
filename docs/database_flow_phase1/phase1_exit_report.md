@@ -522,3 +522,33 @@ Known deferred items remain deferred as listed in section 20 and are not Phase 1
 ### 16. Final Phase 1 Verdict
 
 PHASE1_ACCEPTED
+
+## 25. Pre-Merge Review Closure
+
+PR #1 pre-merge review blocker: EVTX directory-mode fallback was not fail-closed after partial ClickHouse inserts.
+
+Root cause: `process_evtx_group` could flush directory-mode rows through `BatchProcessor`, catch `DirectoryModeError`, log cleanup failures per member, and still call `process_file`, allowing mixed directory-mode and per-file rows. The new `parse_evtx_group_task` path also used permissive pre-parse and exception cleanup for grouped redelivery.
+
+Fix: grouped EVTX cleanup now uses `_cleanup_evtx_group_events_strict(...)` with `delete_file_events(..., wait=True)` for each affected `case_file_id`. Cleanup failure or ingest-fence denial stops fallback/retry, propagates to the grouped task, and prevents successful CaseFile ingestion marking. Successful directory-mode parsing is unchanged.
+
+Regression tests:
+
+- `tests.test_phase1_step4.FailClosedFallbackTestCase.test_partial_insert_directory_error_cleanup_success_fallback_has_no_duplicates`
+- `tests.test_phase1_step4.FailClosedFallbackTestCase.test_partial_insert_cleanup_failure_stops_fallback_and_propagates`
+- `tests.test_phase1_step4.FailClosedFallbackTestCase.test_parse_evtx_group_task_redelivery_cleanup_failure_retries_before_parse`
+- `tests.test_phase1_step4.FailClosedFallbackTestCase.test_clean_tool_failure_before_insert_still_falls_back`
+- `tests.test_phase1_step4.FailClosedFallbackTestCase.test_attribution_ambiguity_after_partial_yield_cleans_before_fallback`
+- `tests.test_phase1_step4.FailClosedFallbackTestCase.test_fence_failure_during_cleanup_propagates_without_fallback`
+
+Validation:
+
+- Focused cleanup/fence/delete/retry tests: 94 tests, PASS.
+- Canonical one-process Phase 1 focused command: 401 tests, PASS, skipped 1.
+- Reverse-order focused command: 401 tests, PASS, skipped 1.
+- Shuffled orders: seeds 101, 202, 303 each 401 tests, PASS, skipped 1.
+
+Successful-path production behavior changed YES/NO: NO.
+
+Benchmark rerun required YES/NO: NO. The change is limited to grouped EVTX error, cleanup, and fallback/retry paths.
+
+Final pre-merge blocker status: PR1_PREMERGE_BLOCKERS = 0.

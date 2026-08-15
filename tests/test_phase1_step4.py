@@ -12,6 +12,8 @@ import json
 import os
 import tempfile
 import unittest
+from contextlib import nullcontext
+from datetime import datetime
 from unittest.mock import patch
 
 os.environ.setdefault("SECRET_KEY", "phase1-step4-test-secret")
@@ -31,6 +33,41 @@ from utils.evtx_directory_mode import (
     remap_evtxecmd_sourcefile,
     stage_evtx_group,
 )
+from utils.ingest_fence import IngestAdmissionDenied
+
+
+def _clickhouse_row(case_id: int, case_file_id: int, marker: str) -> tuple:
+    return (
+        case_id,
+        "evtx",
+        datetime(2026, 1, 1),
+        datetime(2026, 1, 1),
+        "UTC",
+        f"{marker}.evtx",
+        f"/tmp/{marker}.evtx",
+        "HOST",
+        case_file_id,
+    )
+
+
+class _FlushEvent:
+    def __init__(self, case_id: int, case_file_id: int, marker: str):
+        self.case_file_id = case_file_id
+        self._row = _clickhouse_row(case_id, case_file_id, marker)
+
+    def to_clickhouse_row(self):
+        return self._row
+
+
+class _StatefulClickHouseClient:
+    def __init__(self):
+        self.rows = []
+
+    def insert(self, _table, batch, column_names=None):
+        self.rows.extend(batch)
+
+    def delete_case_file_rows(self, case_file_id: int):
+        self.rows = [row for row in self.rows if row[8] != case_file_id]
 
 
 def _touch_evtx(path: str, payload: bytes = b"ElfFile\x00fake") -> str:
@@ -631,6 +668,228 @@ class FallbackBehaviorTestCase(unittest.TestCase):
         )
         self.assertNotIn(os.path.abspath("/tmp/eager.evtx"), process_file_calls)
         self.assertEqual(len(results), 2)
+
+
+class FailClosedFallbackTestCase(unittest.TestCase):
+    def _members(self):
+        return [
+            {"file_path": "/tmp/a.evtx", "case_file_id": 101, "source_host": "A"},
+            {"file_path": "/tmp/b.evtx", "case_file_id": 202, "source_host": "B"},
+        ]
+
+    def _registry_for_parser(self, parser):
+        class FakeRegistry:
+            def get_parser(self, *args, **kwargs):
+                return parser
+
+        return FakeRegistry()
+
+    def _patch_admission(self):
+        return patch(
+            "parsers.registry.shared_ingest_admission",
+            side_effect=lambda *args, **kwargs: nullcontext(),
+        )
+
+    def test_partial_insert_directory_error_cleanup_success_fallback_has_no_duplicates(self):
+        from parsers.base import ParseResult
+        from parsers.registry import process_evtx_group
+
+        client = _StatefulClickHouseClient()
+        order = []
+
+        class PartialThenBoomParser:
+            errors = []
+            warnings = []
+
+            def parse_directory_group(self, members):
+                yield _FlushEvent(7, members[0].case_file_id, "directory-partial")
+                raise DirectoryModeError("tool_crash", "directory failed after insert")
+
+        def delete_file_events(case_file_id, *, wait=False, client=None):
+            order.append(("cleanup", case_file_id, wait))
+            self.assertIs(client, client_obj)
+            client.delete_case_file_rows(case_file_id)
+
+        def fake_process_file(**kwargs):
+            order.append(("fallback", kwargs["case_file_id"]))
+            client.rows.append(_clickhouse_row(kwargs["case_id"], kwargs["case_file_id"], "fallback"))
+            return ParseResult(
+                success=True,
+                file_path=kwargs["file_path"],
+                artifact_type="evtx",
+                events_count=1,
+                errors=[],
+                warnings=[],
+                duration_seconds=0.01,
+            )
+
+        client_obj = client
+        with patch("parsers.registry._get_registry", return_value=self._registry_for_parser(PartialThenBoomParser())), \
+             patch("parsers.registry.process_file", side_effect=fake_process_file), \
+             patch("utils.clickhouse.delete_file_events", side_effect=delete_file_events), \
+             self._patch_admission():
+            results = process_evtx_group(self._members(), case_id=7, clickhouse_client=client, batch_size=1)
+
+        self.assertTrue(all(result.success for result in results))
+        self.assertEqual(
+            order,
+            [
+                ("cleanup", 101, True),
+                ("cleanup", 202, True),
+                ("fallback", 101),
+                ("fallback", 202),
+            ],
+        )
+        self.assertEqual([row[8] for row in client.rows], [101, 202])
+        self.assertNotIn("directory-partial.evtx", [row[5] for row in client.rows])
+
+    def test_partial_insert_cleanup_failure_stops_fallback_and_propagates(self):
+        from parsers.registry import process_evtx_group
+
+        client = _StatefulClickHouseClient()
+        process_file_calls = []
+
+        class PartialThenBoomParser:
+            errors = []
+            warnings = []
+
+            def parse_directory_group(self, members):
+                yield _FlushEvent(7, members[0].case_file_id, "directory-partial")
+                raise DirectoryModeError("tool_crash", "directory failed after insert")
+
+        def delete_file_events(case_file_id, *, wait=False, client=None):
+            if case_file_id == 202:
+                raise RuntimeError("mutation failed")
+            client.delete_case_file_rows(case_file_id)
+
+        with patch("parsers.registry._get_registry", return_value=self._registry_for_parser(PartialThenBoomParser())), \
+             patch("parsers.registry.process_file", side_effect=lambda **kwargs: process_file_calls.append(kwargs)), \
+             patch("utils.clickhouse.delete_file_events", side_effect=delete_file_events), \
+             self._patch_admission():
+            with self.assertRaises(DirectoryModeError) as raised:
+                process_evtx_group(self._members(), case_id=7, clickhouse_client=client, batch_size=1)
+
+        self.assertEqual(raised.exception.reason, "group_cleanup_failed")
+        self.assertEqual(process_file_calls, [])
+        self.assertEqual(client.rows, [])
+
+    def test_attribution_ambiguity_after_partial_yield_cleans_before_fallback(self):
+        from parsers.base import ParseResult
+        from parsers.registry import process_evtx_group
+
+        client = _StatefulClickHouseClient()
+
+        class AmbiguousAfterFlushParser:
+            errors = []
+            warnings = []
+
+            def parse_directory_group(self, members):
+                yield _FlushEvent(7, members[0].case_file_id, "directory-partial")
+                raise DirectoryModeError("attribution_ambiguity", "ambiguous source", unsafe_retry=True)
+
+        def delete_file_events(case_file_id, *, wait=False, client=None):
+            client.delete_case_file_rows(case_file_id)
+
+        def fake_process_file(**kwargs):
+            client.rows.append(_clickhouse_row(kwargs["case_id"], kwargs["case_file_id"], "fallback"))
+            return ParseResult(
+                success=True,
+                file_path=kwargs["file_path"],
+                artifact_type="evtx",
+                events_count=1,
+                errors=[],
+                warnings=[],
+                duration_seconds=0.01,
+            )
+
+        with patch("parsers.registry._get_registry", return_value=self._registry_for_parser(AmbiguousAfterFlushParser())), \
+             patch("parsers.registry.process_file", side_effect=fake_process_file), \
+             patch("utils.clickhouse.delete_file_events", side_effect=delete_file_events), \
+             self._patch_admission():
+            process_evtx_group(self._members(), case_id=7, clickhouse_client=client, batch_size=1)
+
+        self.assertEqual([row[5] for row in client.rows], ["fallback.evtx", "fallback.evtx"])
+
+    def test_clean_tool_failure_before_insert_still_falls_back(self):
+        from parsers.base import ParseResult
+        from parsers.registry import process_evtx_group
+
+        client = _StatefulClickHouseClient()
+        process_file_calls = []
+
+        class BoomBeforeInsertParser:
+            errors = []
+            warnings = []
+
+            def parse_directory_group(self, members):
+                raise DirectoryModeError("empty_output", "no output before yielding rows")
+                yield  # pragma: no cover
+
+        def fake_process_file(**kwargs):
+            process_file_calls.append(kwargs["case_file_id"])
+            return ParseResult(
+                success=True,
+                file_path=kwargs["file_path"],
+                artifact_type="evtx",
+                events_count=0,
+                errors=[],
+                warnings=[],
+                duration_seconds=0.01,
+            )
+
+        with patch("parsers.registry._get_registry", return_value=self._registry_for_parser(BoomBeforeInsertParser())), \
+             patch("parsers.registry.process_file", side_effect=fake_process_file), \
+             patch("utils.clickhouse.delete_file_events") as delete_mock, \
+             self._patch_admission():
+            results = process_evtx_group(self._members(), case_id=7, clickhouse_client=client, batch_size=1)
+
+        self.assertTrue(all(result.success for result in results))
+        self.assertEqual(process_file_calls, [101, 202])
+        delete_mock.assert_not_called()
+
+    def test_fence_failure_during_cleanup_propagates_without_fallback(self):
+        from parsers.registry import process_evtx_group
+
+        client = _StatefulClickHouseClient()
+        process_file_calls = []
+
+        class PartialThenBoomParser:
+            errors = []
+            warnings = []
+
+            def parse_directory_group(self, members):
+                yield _FlushEvent(7, members[0].case_file_id, "directory-partial")
+                raise DirectoryModeError("tool_crash", "directory failed after insert")
+
+        with patch("parsers.registry._get_registry", return_value=self._registry_for_parser(PartialThenBoomParser())), \
+             patch("parsers.registry.process_file", side_effect=lambda **kwargs: process_file_calls.append(kwargs)), \
+             patch("utils.clickhouse.delete_file_events", side_effect=IngestAdmissionDenied("denied")), \
+             self._patch_admission():
+            with self.assertRaises(IngestAdmissionDenied):
+                process_evtx_group(self._members(), case_id=7, clickhouse_client=client, batch_size=1)
+
+        self.assertEqual(process_file_calls, [])
+        self.assertEqual([row[5] for row in client.rows], ["directory-partial.evtx"])
+
+    def test_parse_evtx_group_task_redelivery_cleanup_failure_retries_before_parse(self):
+        from tasks import celery_tasks
+
+        members = self._members()
+        status_updates = []
+
+        with patch("tasks.celery_tasks._update_case_file_status", side_effect=lambda **kwargs: status_updates.append(kwargs)), \
+             patch("utils.clickhouse.get_fresh_client", return_value=object()), \
+             patch("utils.event_mitre_state.delete_hayabusa_matches_for_case_file"), \
+             patch("utils.clickhouse.delete_file_events", side_effect=RuntimeError("mutation failed")), \
+             patch("parsers.process_evtx_group") as process_group_mock, \
+             patch.object(celery_tasks.parse_evtx_group_task, "retry", side_effect=RuntimeError("retry requested")) as retry_mock:
+            with self.assertRaisesRegex(RuntimeError, "retry requested"):
+                celery_tasks.parse_evtx_group_task.run(case_id=7, members=members)
+
+        process_group_mock.assert_not_called()
+        retry_mock.assert_called_once()
+        self.assertTrue(status_updates)
+        self.assertTrue(all(update["status"] == "ingesting" for update in status_updates))
 
 
 if __name__ == "__main__":

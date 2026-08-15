@@ -966,6 +966,54 @@ def _populate_file_privacy_aliases(
         )
 
 
+def _cleanup_evtx_group_events_strict(
+    members: List[Any],
+    *,
+    clickhouse_client=None,
+    context: str = "evtx_group_cleanup",
+) -> List[int]:
+    """Synchronously remove grouped EVTX rows or raise before any retry/fallback.
+
+    This helper is intentionally scoped to grouped EVTX ingest. Legacy
+    single-file cleanup keeps its existing best-effort behavior.
+    """
+    from utils.clickhouse import delete_file_events
+    from utils.evtx_directory_mode import DirectoryModeError
+
+    cleaned_case_file_ids: List[int] = []
+    seen = set()
+    for member in members:
+        case_file_id = (
+            getattr(member, "case_file_id", None)
+            if not isinstance(member, dict)
+            else member.get("case_file_id")
+        )
+        if not case_file_id or case_file_id in seen:
+            continue
+        seen.add(case_file_id)
+        try:
+            with timed_stage(context, case_file_id=case_file_id):
+                delete_file_events(case_file_id, wait=True, client=clickhouse_client)
+        except (IngestFenceUnavailable, IngestAdmissionDenied, IngestExclusiveTimeout, IngestFenceLost):
+            logger.warning(
+                "EVTX group cleanup blocked by ingest fence for case_file_id=%s",
+                case_file_id,
+            )
+            raise
+        except Exception as cleanup_error:
+            logger.error(
+                "Strict EVTX group cleanup failed for case_file_id=%s: %s",
+                case_file_id,
+                cleanup_error,
+            )
+            raise DirectoryModeError(
+                "group_cleanup_failed",
+                f"EVTX group cleanup failed for case_file_id={case_file_id}: {cleanup_error}",
+            ) from cleanup_error
+        cleaned_case_file_ids.append(int(case_file_id))
+    return cleaned_case_file_ids
+
+
 def process_file(file_path: str, case_id: int, source_host: str = '',
                 case_file_id: Optional[int] = None, clickhouse_client=None,
                 batch_size: int = 10000, case_tz: str = 'UTC',
@@ -1255,18 +1303,14 @@ def process_evtx_group(members: List[Any], case_id: int, clickhouse_client=None,
             len(group),
             exc,
         )
-        from utils.clickhouse import delete_file_events
+        if first_insert_at is not None:
+            _cleanup_evtx_group_events_strict(
+                group,
+                clickhouse_client=clickhouse_client,
+                context="evtx_group_fallback_cleanup",
+            )
         results = []
         for member in group:
-            if member.case_file_id:
-                try:
-                    delete_file_events(member.case_file_id, wait=True, client=clickhouse_client)
-                except Exception as cleanup_error:
-                    logger.warning(
-                        "Fallback cleanup failed for case_file_id=%s: %s",
-                        member.case_file_id,
-                        cleanup_error,
-                    )
             result = process_file(
                 file_path=member.file_path,
                 case_id=case_id,
@@ -1293,18 +1337,14 @@ def process_evtx_group(members: List[Any], case_id: int, clickhouse_client=None,
     except Exception as exc:
         logger.exception("EVTX directory group failed; falling back to per-file")
         wrapped = DirectoryModeError('tool_crash', str(exc)[:500])
-        from utils.clickhouse import delete_file_events
+        if first_insert_at is not None:
+            _cleanup_evtx_group_events_strict(
+                group,
+                clickhouse_client=clickhouse_client,
+                context="evtx_group_fallback_cleanup",
+            )
         results = []
         for member in group:
-            if member.case_file_id:
-                try:
-                    delete_file_events(member.case_file_id, wait=True, client=clickhouse_client)
-                except Exception as cleanup_error:
-                    logger.warning(
-                        "Fallback cleanup failed for case_file_id=%s: %s",
-                        member.case_file_id,
-                        cleanup_error,
-                    )
             result = process_file(
                 file_path=member.file_path,
                 case_id=case_id,

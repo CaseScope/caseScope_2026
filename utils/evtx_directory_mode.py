@@ -34,7 +34,12 @@ EVTXECMD_DIRECTORY_TIMEOUT_SECONDS = 3600
 
 
 class DirectoryModeError(RuntimeError):
-    """Bounded directory-mode failure that must fall back to per-file parsing."""
+    """Bounded directory-mode failure.
+
+    ``unsafe_retry`` marks parser-level failures where directory attribution is
+    uncertain. Callers must still fail closed if any rows may already have been
+    inserted; it never permits fallback without proven cleanup.
+    """
 
     def __init__(self, reason: str, message: str, *, unsafe_retry: bool = False):
         super().__init__(message)
