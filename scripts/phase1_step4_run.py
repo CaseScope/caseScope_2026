@@ -138,32 +138,60 @@ def _run(cmd: List[str], timeout: int = 3600, cwd: Optional[str] = None) -> Dict
         }
 
 
+def _normalize_evtxecmd_json_output(path: Path) -> None:
+    """Normalize EvtxECmd JSON-record output to strict UTF-8 JSON arrays."""
+    if not path.exists() or path.stat().st_size == 0:
+        path.write_text("[]\n", encoding="utf-8")
+        return
+    text = path.read_text(encoding="utf-8-sig", errors="replace")
+    stripped = text.lstrip()
+    if stripped.startswith("["):
+        rows = json.loads(stripped)
+        path.write_text(json.dumps(rows, indent=2, default=str) + "\n", encoding="utf-8")
+        return
+    rows = []
+    for line in text.splitlines():
+        line = line.strip()
+        if line:
+            rows.append(json.loads(line))
+    path.write_text(json.dumps(rows, indent=2, default=str) + "\n", encoding="utf-8")
+
+
 def _load_jsonl(path: Path, limit: Optional[int] = None) -> List[Dict[str, Any]]:
     rows: List[Dict[str, Any]] = []
     if not path.exists() or path.stat().st_size == 0:
         return rows
-    with path.open("r", encoding="utf-8-sig", errors="replace") as handle:
-        for line in handle:
-            line = line.strip()
-            if not line:
-                continue
-            try:
-                rows.append(json.loads(line))
-            except json.JSONDecodeError:
-                rows.append({"_unparsed": True, "_line": line[:200]})
-            if limit is not None and len(rows) >= limit:
-                break
+    text = path.read_text(encoding="utf-8-sig", errors="replace")
+    stripped = text.lstrip()
+    if stripped.startswith("["):
+        payload = json.loads(stripped)
+        if isinstance(payload, list):
+            return payload[:limit] if limit is not None else payload
+    for line in text.splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            rows.append(json.loads(line))
+        except json.JSONDecodeError:
+            rows.append({"_unparsed": True, "_line": line[:200]})
+        if limit is not None and len(rows) >= limit:
+            break
     return rows
 
 
 def _count_jsonl(path: Path) -> int:
     if not path.exists() or path.stat().st_size == 0:
         return 0
+    text = path.read_text(encoding="utf-8-sig", errors="replace")
+    stripped = text.lstrip()
+    if stripped.startswith("["):
+        payload = json.loads(stripped)
+        return len(payload) if isinstance(payload, list) else 0
     count = 0
-    with path.open("r", encoding="utf-8-sig", errors="replace") as handle:
-        for line in handle:
-            if line.strip():
-                count += 1
+    for line in text.splitlines():
+        if line.strip():
+            count += 1
     return count
 
 
@@ -351,6 +379,7 @@ def cmd_probe(args: argparse.Namespace) -> int:
         "--maps", EVTXECMD_MAPS,
     ])
     evtx_single_path = evtx_single_dir / "single.json"
+    _normalize_evtxecmd_json_output(evtx_single_path)
     evtx_single_rows = _load_jsonl(evtx_single_path, limit=5)
     evtx_single_count = _count_jsonl(evtx_single_path)
     report["evtxecmd_single_file"] = {
@@ -376,6 +405,7 @@ def cmd_probe(args: argparse.Namespace) -> int:
         "--maps", EVTXECMD_MAPS,
     ])
     evtx_dir_path = evtx_dir_out / "dir.json"
+    _normalize_evtxecmd_json_output(evtx_dir_path)
     evtx_dir_sample = _load_jsonl(evtx_dir_path, limit=30)
     evtx_dir_count = _count_jsonl(evtx_dir_path)
     source_fields = []
@@ -439,6 +469,7 @@ def cmd_probe(args: argparse.Namespace) -> int:
         "--maps", EVTXECMD_MAPS,
     ])
     evtx_dup_path = evtx_dup_out / "dup.json"
+    _normalize_evtxecmd_json_output(evtx_dup_path)
     evtx_dup_sample = _load_jsonl(evtx_dup_path, limit=20)
     evtx_dup_count = _count_jsonl(evtx_dup_path)
     report["evtxecmd_duplicate_basename"] = {
@@ -463,6 +494,7 @@ def cmd_probe(args: argparse.Namespace) -> int:
         "--maps", EVTXECMD_MAPS,
     ])
     evtx_bad_path = evtx_bad_out / "bad.json"
+    _normalize_evtxecmd_json_output(evtx_bad_path)
     report["evtxecmd_malformed_member"] = {
         "run": {k: v for k, v in evtx_bad_run.items() if k != "cmd"},
         "row_count": _count_jsonl(evtx_bad_path),
@@ -482,7 +514,9 @@ def cmd_probe(args: argparse.Namespace) -> int:
         "--fj",
         "--maps", EVTXECMD_MAPS,
     ])
-    evtx_fj_sample = _load_jsonl(evtx_fj_out / "fj.json", limit=3)
+    evtx_fj_path = evtx_fj_out / "fj.json"
+    _normalize_evtxecmd_json_output(evtx_fj_path)
+    evtx_fj_sample = _load_jsonl(evtx_fj_path, limit=3)
     fj_keys = sorted(evtx_fj_sample[0].keys()) if evtx_fj_sample else []
     fj_hits = []
     for row in evtx_fj_sample:

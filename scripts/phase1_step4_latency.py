@@ -358,6 +358,26 @@ def _compact_ingest(path: Path) -> Dict[str, Any]:
     }
 
 
+def _default_ingest_summary_inputs() -> List[Path]:
+    return sorted(OUT_DIR.glob("phase1_step4_latency_ingest_P*.json"))
+
+
+def cmd_summarize_ingests(args: argparse.Namespace) -> int:
+    inputs = [Path(item) for item in args.inputs] if args.inputs else _default_ingest_summary_inputs()
+    if not inputs:
+        raise SystemExit("No Phase 1 Step 4 latency ingest JSON artifacts found")
+    output = Path(args.output) if args.output else OUT_DIR / "phase1_step4_latency_ingest_summary.jsonl"
+    output.parent.mkdir(parents=True, exist_ok=True)
+    with output.open("w", encoding="utf-8") as handle:
+        for path in inputs:
+            compact = _compact_ingest(path)
+            compact["label"] = path.stem.replace("phase1_step4_latency_ingest_", "")
+            compact["source_artifact"] = str(path)
+            handle.write(json.dumps(compact, sort_keys=True, default=str) + "\n")
+    print(json.dumps({"output": str(output), "records": len(inputs)}, sort_keys=True))
+    return 0
+
+
 def _sha256_text(value: Any) -> str:
     payload = value if isinstance(value, str) else json.dumps(value, sort_keys=True, default=str)
     return hashlib.sha256(payload.encode("utf-8")).hexdigest()
@@ -613,7 +633,7 @@ def cmd_ingest_one(args: argparse.Namespace) -> int:
         compact["label"] = args.label
         compact["run_id"] = run_id
         compact["returncode"] = rc
-        print(json.dumps(compact, indent=2))
+        print(json.dumps(compact, sort_keys=True, default=str))
         return rc
     finally:
         subprocess.run(["sudo", "-n", "-u", "postgres", "dropdb", "--if-exists", run_id], check=False)
@@ -658,6 +678,9 @@ def main() -> int:
     ingest.add_argument("--eager-first", action="store_true")
     ingest.add_argument("--target-files", type=int, default=8)
     ingest.add_argument("--order", choices=["queue", "smallest"], default="queue")
+    summarize = sub.add_parser("summarize-ingests")
+    summarize.add_argument("--output", default="")
+    summarize.add_argument("inputs", nargs="*")
     sub.add_parser("selected-parity")
     args = parser.parse_args()
     if args.cmd == "describe-groups":
@@ -666,6 +689,8 @@ def main() -> int:
         return cmd_parser_study(args)
     if args.cmd == "ingest-one":
         return cmd_ingest_one(args)
+    if args.cmd == "summarize-ingests":
+        return cmd_summarize_ingests(args)
     if args.cmd == "selected-parity":
         return cmd_selected_parity(args)
     raise SystemExit(f"unknown command {args.cmd}")

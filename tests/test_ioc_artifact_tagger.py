@@ -8,56 +8,86 @@ import unittest
 os.environ.setdefault('SECRET_KEY', 'test-secret')
 
 REPO_ROOT = os.path.dirname(os.path.dirname(__file__))
-utils_package = types.ModuleType('utils')
-clickhouse_module = types.ModuleType('utils.clickhouse')
-clickhouse_module.get_fresh_client = lambda: None
-clickhouse_module.get_client = lambda: None
-clickhouse_module.clickhouse_string_literal = lambda value: f"'{value}'"
-clickhouse_module.run_events_update = (
-    lambda assignments_sql, where_sql, *, client=None, wait=True, audit=None: client.command(
-        f"ALTER TABLE events UPDATE {assignments_sql} WHERE {where_sql} SETTINGS mutations_sync = 1"
+
+
+def _restore_modules(previous):
+    for name, original in previous.items():
+        if original is None:
+            sys.modules.pop(name, None)
+        else:
+            sys.modules[name] = original
+
+
+def _load_ioc_tagger_under_test():
+    stub_names = (
+        'utils',
+        'utils.clickhouse',
+        'utils.event_selector',
+        'utils.event_ioc_state',
+        'redis',
     )
-)
-utils_package.clickhouse = clickhouse_module
-sys.modules.setdefault('utils', utils_package)
-sys.modules['utils.clickhouse'] = clickhouse_module
+    previous = {name: sys.modules.get(name) for name in stub_names}
 
-redis_module = types.ModuleType('redis')
+    utils_package = types.ModuleType('utils')
+    utils_package.__path__ = []
 
-class _FakeRedis:
-    def __init__(self, *args, **kwargs):
-        self.store = {}
+    clickhouse_module = types.ModuleType('utils.clickhouse')
+    clickhouse_module.get_fresh_client = lambda: None
+    clickhouse_module.get_client = lambda: None
+    clickhouse_module.clickhouse_string_literal = lambda value: f"'{value}'"
+    clickhouse_module.run_events_update = (
+        lambda assignments_sql, where_sql, *, client=None, wait=True, audit=None: client.command(
+            f"ALTER TABLE events UPDATE {assignments_sql} WHERE {where_sql} SETTINGS mutations_sync = 1"
+        )
+    )
+    utils_package.clickhouse = clickhouse_module
 
-    def setex(self, key, _ttl, value):
-        self.store[key] = value
+    redis_module = types.ModuleType('redis')
 
-    def get(self, key):
-        return self.store.get(key)
+    class _FakeRedis:
+        def __init__(self, *args, **kwargs):
+            self.store = {}
 
-    def delete(self, key):
-        self.store.pop(key, None)
+        def setex(self, key, _ttl, value):
+            self.store[key] = value
 
-redis_module.Redis = _FakeRedis
-sys.modules.setdefault('redis', redis_module)
+        def get(self, key):
+            return self.store.get(key)
 
-selector_path = os.path.join(REPO_ROOT, 'utils', 'event_selector.py')
-selector_spec = importlib.util.spec_from_file_location('utils.event_selector', selector_path)
-selector_module = importlib.util.module_from_spec(selector_spec)
-selector_spec.loader.exec_module(selector_module)
-utils_package.event_selector = selector_module
-sys.modules['utils.event_selector'] = selector_module
+        def delete(self, key):
+            self.store.pop(key, None)
 
-ioc_state_path = os.path.join(REPO_ROOT, 'utils', 'event_ioc_state.py')
-ioc_state_spec = importlib.util.spec_from_file_location('utils.event_ioc_state', ioc_state_path)
-ioc_state_module = importlib.util.module_from_spec(ioc_state_spec)
-ioc_state_spec.loader.exec_module(ioc_state_module)
-utils_package.event_ioc_state = ioc_state_module
-sys.modules['utils.event_ioc_state'] = ioc_state_module
+    redis_module.Redis = _FakeRedis
 
-module_path = os.path.join(REPO_ROOT, 'utils', 'ioc_artifact_tagger.py')
-spec = importlib.util.spec_from_file_location('ioc_artifact_tagger_under_test', module_path)
-ioc_tagger = importlib.util.module_from_spec(spec)
-spec.loader.exec_module(ioc_tagger)
+    sys.modules['utils'] = utils_package
+    sys.modules['utils.clickhouse'] = clickhouse_module
+    sys.modules['redis'] = redis_module
+
+    try:
+        selector_path = os.path.join(REPO_ROOT, 'utils', 'event_selector.py')
+        selector_spec = importlib.util.spec_from_file_location('utils.event_selector', selector_path)
+        selector_module = importlib.util.module_from_spec(selector_spec)
+        sys.modules['utils.event_selector'] = selector_module
+        selector_spec.loader.exec_module(selector_module)
+        utils_package.event_selector = selector_module
+
+        ioc_state_path = os.path.join(REPO_ROOT, 'utils', 'event_ioc_state.py')
+        ioc_state_spec = importlib.util.spec_from_file_location('utils.event_ioc_state', ioc_state_path)
+        ioc_state_module = importlib.util.module_from_spec(ioc_state_spec)
+        sys.modules['utils.event_ioc_state'] = ioc_state_module
+        ioc_state_spec.loader.exec_module(ioc_state_module)
+        utils_package.event_ioc_state = ioc_state_module
+
+        module_path = os.path.join(REPO_ROOT, 'utils', 'ioc_artifact_tagger.py')
+        spec = importlib.util.spec_from_file_location('ioc_artifact_tagger_under_test', module_path)
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        return module
+    finally:
+        _restore_modules(previous)
+
+
+ioc_tagger = _load_ioc_tagger_under_test()
 
 
 class IOCArtifactTaggerTestCase(unittest.TestCase):

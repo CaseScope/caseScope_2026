@@ -389,3 +389,136 @@ Phase 1B work still not implemented:
 - freeze-then-verify AI privacy gating
 - completion reconciler
 - readiness UI
+
+## 24. Exit Closure
+
+### 1. Previous Exit Verdict
+
+PHASE1_NOT_ACCEPTED.
+
+The previous failed exit verdict is preserved above as historical evidence. It was not rewritten or hidden.
+
+### 2. Original Blockers
+
+- `STATIC_ARTIFACT_VALIDATION_FAIL`: malformed generated Phase 1 artifacts remained under `docs/database_flow_phase1/`.
+- `INTEGRATED_MONOLITHIC_TEST_COMMAND_FAIL`: focused modules passed in isolation, but the one-process focused command was contaminated by test order.
+
+### 3. Malformed Artifact Inventory
+
+| Path | Artifact type | Validation command | Exact failure | Generator/helper | Consumption | Classification |
+| --- | --- | --- | --- | --- | --- | --- |
+| `docs/database_flow_phase1/phase1_step4_latency_ingest_summary.jsonl` | JSONL generated summary | strict per-line `json.loads` over `docs/database_flow_phase1/**/*.jsonl` | contained migration console output and was not valid JSONL | `scripts/phase1_step4_latency.py` | machine-consumed generated Phase 1 evidence | MALFORMED_JSON |
+| `docs/database_flow_phase1/phase1_step4_probe_60qb1ab9/evtx_bad/bad.json` | EvtxECmd probe JSON | strict UTF-8 `json.loads` over `docs/database_flow_phase1/**/*.json` | UTF-8 BOM caused strict `json.loads` failure without `utf-8-sig`; after BOM removal, JSON-record content needed JSON-array normalization | `scripts/phase1_step4_run.py` | machine-consumed generated Phase 1 probe evidence | INVALID_ENCODING |
+| `docs/database_flow_phase1/phase1_step4_probe_60qb1ab9/evtx_dir/dir.json` | EvtxECmd probe JSON | strict UTF-8 `json.loads` over `docs/database_flow_phase1/**/*.json` | UTF-8 BOM caused strict `json.loads` failure without `utf-8-sig`; after BOM removal, JSON-record content needed JSON-array normalization | `scripts/phase1_step4_run.py` | machine-consumed generated Phase 1 probe evidence | INVALID_ENCODING |
+| `docs/database_flow_phase1/phase1_step4_probe_60qb1ab9/evtx_dup/dup.json` | EvtxECmd probe JSON | strict UTF-8 `json.loads` over `docs/database_flow_phase1/**/*.json` | UTF-8 BOM caused strict `json.loads` failure without `utf-8-sig`; after BOM removal, JSON-record content needed JSON-array normalization | `scripts/phase1_step4_run.py` | machine-consumed generated Phase 1 probe evidence | INVALID_ENCODING |
+| `docs/database_flow_phase1/phase1_step4_probe_60qb1ab9/evtx_fj/fj.json` | EvtxECmd probe JSON | strict UTF-8 `json.loads` over `docs/database_flow_phase1/**/*.json` | UTF-8 BOM caused strict `json.loads` failure without `utf-8-sig`; after BOM removal, JSON-record content needed JSON-array normalization | `scripts/phase1_step4_run.py` | machine-consumed generated Phase 1 probe evidence | INVALID_ENCODING |
+| `docs/database_flow_phase1/phase1_step4_probe_60qb1ab9/evtx_single/single.json` | EvtxECmd probe JSON | strict UTF-8 `json.loads` over `docs/database_flow_phase1/**/*.json` | UTF-8 BOM caused strict `json.loads` failure without `utf-8-sig`; after BOM removal, JSON-record content needed JSON-array normalization | `scripts/phase1_step4_run.py` | machine-consumed generated Phase 1 probe evidence | INVALID_ENCODING |
+
+### 4. Artifact Root Causes
+
+- The Step 4 latency summary was produced from console-facing output instead of a JSONL writer.
+- EvtxECmd probe outputs were emitted with a UTF-8 BOM and JSON-record content under `.json` filenames, while the exit static check requires strict UTF-8 JSON parsing for `.json` artifacts.
+
+### 5. Artifact Repairs
+
+- `scripts/phase1_step4_latency.py` now emits compact JSON for `ingest-one` and adds `summarize-ingests`, which rebuilds `phase1_step4_latency_ingest_summary.jsonl` from existing accepted latency ingest JSON artifacts.
+- `scripts/phase1_step4_run.py` now normalizes EvtxECmd `.json` probe outputs to strict UTF-8 JSON arrays and reads/counts those normalized rows without changing benchmark values or semantic conclusions.
+- Existing generated malformed artifacts were regenerated or normalized from their source helper behavior. Benchmark values, accepted gates, performance measurements, and contract decisions were not changed.
+
+### 6. Static Validation
+
+- Phase 1 and contract JSON files checked: 50
+- Phase 1 JSONL files checked: 8
+- Errors: 0
+- Malformed Phase 1 artifacts: 0
+- Edited Python files compiled: pass
+
+Static gate: PASS.
+
+### 7. Test-Order Reproduction
+
+Original one-process focused command:
+
+`/opt/casescope/venv/bin/python -m unittest tests.test_phase1_step1 tests.test_phase1_step2 tests.test_phase1_step3 tests.test_phase1_step4 tests.test_phase1_step5 tests.test_ingest_fence tests.test_ingest_metrics tests.test_parser_hardening tests.test_parser_retry_cleanup tests.test_clickhouse_delete_dedup_contracts tests.test_clickhouse_destructive_lock tests.test_privacy_fail_closed tests.test_ioc_artifact_tagger tests.test_behavioral_profiler_contract tests.test_mitre_attack_sync tests.test_mitre_corroboration tests.test_graph_support_lifecycle tests.test_graph_bulk_writer_postgres tests.test_graph_materializer`
+
+Original reproduced failure:
+
+- Ran: 395
+- Failures: 0
+- Errors: 20
+- Skipped: 1
+- Determinism: deterministic in the recorded canonical one-process order.
+- Failure messages included `AttributeError: <module 'utils.clickhouse'> does not have the attribute 'count_file_events'`, `AttributeError: <module 'utils.clickhouse'> does not have the attribute 'delete_file_events'`, and `ImportError: cannot import name 'delete_file_events' from 'utils.clickhouse'`.
+
+### 8. Polluter/Victim Identification
+
+POLLUTER: `tests.test_ioc_artifact_tagger`
+
+↓ modifies `sys.modules['utils']`, `sys.modules['utils.clickhouse']`, `sys.modules['utils.event_selector']`, `sys.modules['utils.event_ioc_state']`, and `sys.modules['redis']` with module-level stubs during import.
+
+leaked global/process state
+
+↓
+
+VICTIMS: `tests.test_phase1_step4` and `tests.test_clickhouse_delete_dedup_contracts`
+
+↓ fail because later runtime imports and `unittest.mock.patch('utils.clickhouse...')` observe the stubbed `utils.clickhouse` module, which does not expose real ClickHouse functions such as `delete_file_events`, `count_file_events`, and `get_active_destructive_event_rewrite`.
+
+This was test-fixture leakage, not a production global-state defect.
+
+### 9. Test Isolation Fix
+
+`tests.test_ioc_artifact_tagger` now installs the stubs only while loading `utils/ioc_artifact_tagger.py` under test, then restores the prior `sys.modules` entries in a `finally` block. Assertions were not weakened, tests were not skipped, and the focused command was not split as the fix.
+
+### 10. Canonical One-Process Result
+
+- Command: original focused one-process command above.
+- Ran: 395
+- Failures: 0
+- Errors: 0
+- Skipped: 1
+- Result: PASS
+
+### 11. Reverse-Order Result
+
+- Ran: 395
+- Failures: 0
+- Errors: 0
+- Skipped: 1
+- Result: PASS
+
+### 12. Shuffled-Order Results
+
+- Seed 101: 395 tests, PASS, skipped 1.
+- Seed 202: 395 tests, PASS, skipped 1.
+- Seed 303: 395 tests, PASS, skipped 1.
+
+Order-dependent failures: 0.
+
+### 13. Production Code Changed? YES/NO
+
+NO.
+
+Only test-fixture isolation and Phase 1 generated-artifact helpers/artifacts changed during this closure.
+
+### 14. Benchmark Re-run Required? YES/NO + Reason
+
+NO.
+
+No production Phase 1 implementation path, performance tuning, typed-column semantics, directory-mode semantics, IOC recall semantics, profiler semantics, ingest fence behavior, or Buffer cutover architecture changed.
+
+### 15. Remaining Blockers
+
+None for the two Phase 1 exit blockers:
+
+- malformed Phase 1 artifacts = 0
+- canonical one-process tests PASS
+- reverse-order focused tests PASS
+- shuffled-order focused tests PASS
+- production-state defect = NONE
+
+Known deferred items remain deferred as listed in section 20 and are not Phase 1 exit blockers.
+
+### 16. Final Phase 1 Verdict
+
+PHASE1_ACCEPTED

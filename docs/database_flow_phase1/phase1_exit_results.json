@@ -1,7 +1,7 @@
 {
   "phase": "Phase 1",
   "review": "final_exit_acceptance",
-  "verdict": "PHASE1_NOT_ACCEPTED",
+  "verdict": "PHASE1_ACCEPTED",
   "starting_state": {
     "remote_main_sha": "8c4c1dd3b1651df42dc08c39f06250d296864c57",
     "local_head_sha": "8c4c1dd3b1651df42dc08c39f06250d296864c57",
@@ -9,7 +9,9 @@
     "main_changed": false,
     "version": "4.18.6",
     "branch": "main",
-    "commit_push_pr": "not_performed"
+    "commit_push_pr": "not_performed",
+    "remote_main_sha_reverified_for_exit_closure": "8c4c1dd3b1651df42dc08c39f06250d296864c57",
+    "local_head_sha_during_exit_closure": "cde705da7b9c883238a32da973c75baf4aa741c1"
   },
   "phase0_baseline": {
     "files": 8,
@@ -196,11 +198,12 @@
   },
   "tests": {
     "monolithic_focused_suite": {
+      "command": "/opt/casescope/venv/bin/python -m unittest tests.test_phase1_step1 tests.test_phase1_step2 tests.test_phase1_step3 tests.test_phase1_step4 tests.test_phase1_step5 tests.test_ingest_fence tests.test_ingest_metrics tests.test_parser_hardening tests.test_parser_retry_cleanup tests.test_clickhouse_delete_dedup_contracts tests.test_clickhouse_destructive_lock tests.test_privacy_fail_closed tests.test_ioc_artifact_tagger tests.test_behavioral_profiler_contract tests.test_mitre_attack_sync tests.test_mitre_corroboration tests.test_graph_support_lifecycle tests.test_graph_bulk_writer_postgres tests.test_graph_materializer",
       "tests": 395,
-      "errors": 20,
       "failures": 0,
+      "errors": 0,
       "skipped": 1,
-      "classification": "test_process_contamination: utils.clickhouse stub leaked into later tests"
+      "classification": "PASS after test fixture sys.modules restoration in tests.test_ioc_artifact_tagger"
     },
     "module_scoped_focused_suite": {
       "tests": 407,
@@ -208,26 +211,82 @@
       "errors": 0,
       "skipped": 1,
       "classification": "PASS with graph model dependency loaded before graph lifecycle tests"
+    },
+    "monolithic_focused_suite_previous": {
+      "tests": 395,
+      "errors": 20,
+      "failures": 0,
+      "skipped": 1,
+      "classification": "test_process_contamination: utils.clickhouse stub leaked into later tests"
+    },
+    "order_robustness": {
+      "reverse_order": {
+        "tests": 395,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 1,
+        "pass": true
+      },
+      "shuffled_orders": [
+        {
+          "seed": 101,
+          "tests": 395,
+          "skipped": 1,
+          "pass": true
+        },
+        {
+          "seed": 202,
+          "tests": 395,
+          "skipped": 1,
+          "pass": true
+        },
+        {
+          "seed": 303,
+          "tests": 395,
+          "skipped": 1,
+          "pass": true
+        }
+      ],
+      "order_dependent_failures": 0,
+      "pass": true
+    },
+    "contamination_chain": {
+      "polluter": "tests.test_ioc_artifact_tagger",
+      "leaked_state": [
+        "sys.modules['utils']",
+        "sys.modules['utils.clickhouse']",
+        "sys.modules['utils.event_selector']",
+        "sys.modules['utils.event_ioc_state']",
+        "sys.modules['redis']"
+      ],
+      "victims": [
+        "tests.test_phase1_step4",
+        "tests.test_clickhouse_delete_dedup_contracts"
+      ],
+      "failure_reason": "later imports and mock.patch observed a stubbed utils.clickhouse module missing production ClickHouse helper attributes",
+      "production_state_defect": null
     }
   },
   "static_validation": {
-    "json_files_checked": 49,
-    "jsonl_files_checked": 8,
-    "python_files_compiled": 673,
-    "python_compile_errors": 0,
-    "malformed_artifacts": [
-      "docs/database_flow_phase1/phase1_step4_latency_ingest_summary.jsonl contains non-JSON migration console output",
-      "five Step 4 probe JSON tool outputs contain UTF-8 BOM and fail strict json.loads without utf-8-sig"
+    "json_files_checked": 50,
+    "json_scope": [
+      "docs/database_flow_phase1/**/*.json",
+      "docs/database_flow_contracts/**/*.json"
     ],
-    "pass": false
+    "jsonl_files_checked": 8,
+    "jsonl_scope": [
+      "docs/database_flow_phase1/**/*.jsonl"
+    ],
+    "python_files_compiled": "edited closure Python files",
+    "python_compile_errors": 0,
+    "malformed_artifacts": [],
+    "malformed_phase1_artifacts": 0,
+    "pass": true
   },
-  "exit_blockers": [
-    "STATIC_ARTIFACT_VALIDATION_FAIL: malformed Phase 1 generated artifacts remain under docs/database_flow_phase1/",
-    "INTEGRATED_MONOLITHIC_TEST_COMMAND_FAIL: focused modules pass when isolated, but one-process suite has test-order contamination"
-  ],
+  "exit_blockers": [],
   "phase1b_preconditions": {
     "declared_satisfied": false,
-    "reason": "Phase 1 verdict is PHASE1_NOT_ACCEPTED",
+    "reason": "Phase 1 exit accepted by closure; Phase 1B preconditions were not evaluated or declared by this closure-only pass.",
     "not_implemented": [
       "evidence generations",
       "ingest_attempt_id",
@@ -242,5 +301,93 @@
       "completion reconciler",
       "readiness UI"
     ]
+  },
+  "previous_exit_verdict": "PHASE1_NOT_ACCEPTED",
+  "previous_exit_blockers": [
+    "STATIC_ARTIFACT_VALIDATION_FAIL: malformed Phase 1 generated artifacts remain under docs/database_flow_phase1/",
+    "INTEGRATED_MONOLITHIC_TEST_COMMAND_FAIL: focused modules pass when isolated, but one-process suite has test-order contamination"
+  ],
+  "static_validation_previous": {
+    "json_files_checked": 49,
+    "jsonl_files_checked": 8,
+    "python_files_compiled": 673,
+    "python_compile_errors": 0,
+    "malformed_artifacts": [
+      "docs/database_flow_phase1/phase1_step4_latency_ingest_summary.jsonl contains non-JSON migration console output",
+      "five Step 4 probe JSON tool outputs contain UTF-8 BOM and fail strict json.loads without utf-8-sig"
+    ],
+    "pass": false
+  },
+  "exit_closure": {
+    "previous_exit_verdict": "PHASE1_NOT_ACCEPTED",
+    "original_blockers": [
+      "STATIC_ARTIFACT_VALIDATION_FAIL: malformed Phase 1 generated artifacts remain under docs/database_flow_phase1/",
+      "INTEGRATED_MONOLITHIC_TEST_COMMAND_FAIL: focused modules pass when isolated, but one-process suite has test-order contamination"
+    ],
+    "malformed_artifact_inventory": [
+      {
+        "path": "docs/database_flow_phase1/phase1_step4_latency_ingest_summary.jsonl",
+        "artifact_type": "JSONL generated summary",
+        "validation_command": "strict per-line json.loads over docs/database_flow_phase1/**/*.jsonl",
+        "exact_failure": "contains migration console output and is not valid JSONL",
+        "generator_or_helper": "scripts/phase1_step4_latency.py",
+        "consumption": "machine-consumed generated Phase 1 evidence",
+        "classification": "MALFORMED_JSON"
+      },
+      {
+        "path": "docs/database_flow_phase1/phase1_step4_probe_60qb1ab9/evtx_bad/bad.json",
+        "artifact_type": "EvtxECmd probe JSON",
+        "validation_command": "strict UTF-8 json.loads over docs/database_flow_phase1/**/*.json",
+        "exact_failure": "UTF-8 BOM caused strict json.loads failure without utf-8-sig; JSON-record content required JSON-array normalization for .json strict parsing",
+        "generator_or_helper": "scripts/phase1_step4_run.py",
+        "consumption": "machine-consumed generated Phase 1 probe evidence",
+        "classification": "INVALID_ENCODING"
+      },
+      {
+        "path": "docs/database_flow_phase1/phase1_step4_probe_60qb1ab9/evtx_dir/dir.json",
+        "artifact_type": "EvtxECmd probe JSON",
+        "validation_command": "strict UTF-8 json.loads over docs/database_flow_phase1/**/*.json",
+        "exact_failure": "UTF-8 BOM caused strict json.loads failure without utf-8-sig; JSON-record content required JSON-array normalization for .json strict parsing",
+        "generator_or_helper": "scripts/phase1_step4_run.py",
+        "consumption": "machine-consumed generated Phase 1 probe evidence",
+        "classification": "INVALID_ENCODING"
+      },
+      {
+        "path": "docs/database_flow_phase1/phase1_step4_probe_60qb1ab9/evtx_dup/dup.json",
+        "artifact_type": "EvtxECmd probe JSON",
+        "validation_command": "strict UTF-8 json.loads over docs/database_flow_phase1/**/*.json",
+        "exact_failure": "UTF-8 BOM caused strict json.loads failure without utf-8-sig; JSON-record content required JSON-array normalization for .json strict parsing",
+        "generator_or_helper": "scripts/phase1_step4_run.py",
+        "consumption": "machine-consumed generated Phase 1 probe evidence",
+        "classification": "INVALID_ENCODING"
+      },
+      {
+        "path": "docs/database_flow_phase1/phase1_step4_probe_60qb1ab9/evtx_fj/fj.json",
+        "artifact_type": "EvtxECmd probe JSON",
+        "validation_command": "strict UTF-8 json.loads over docs/database_flow_phase1/**/*.json",
+        "exact_failure": "UTF-8 BOM caused strict json.loads failure without utf-8-sig; JSON-record content required JSON-array normalization for .json strict parsing",
+        "generator_or_helper": "scripts/phase1_step4_run.py",
+        "consumption": "machine-consumed generated Phase 1 probe evidence",
+        "classification": "INVALID_ENCODING"
+      },
+      {
+        "path": "docs/database_flow_phase1/phase1_step4_probe_60qb1ab9/evtx_single/single.json",
+        "artifact_type": "EvtxECmd probe JSON",
+        "validation_command": "strict UTF-8 json.loads over docs/database_flow_phase1/**/*.json",
+        "exact_failure": "UTF-8 BOM caused strict json.loads failure without utf-8-sig; JSON-record content required JSON-array normalization for .json strict parsing",
+        "generator_or_helper": "scripts/phase1_step4_run.py",
+        "consumption": "machine-consumed generated Phase 1 probe evidence",
+        "classification": "INVALID_ENCODING"
+      }
+    ],
+    "artifact_repairs": [
+      "scripts/phase1_step4_latency.py emits compact ingest-one JSON and adds summarize-ingests for valid JSONL regeneration from accepted ingest JSON artifacts",
+      "scripts/phase1_step4_run.py normalizes EvtxECmd .json outputs to strict UTF-8 JSON arrays and reads/counts normalized rows"
+    ],
+    "production_code_changed": false,
+    "benchmark_rerun_required": false,
+    "benchmark_rerun_reason": "No production Phase 1 implementation path or measured performance behavior changed; only generated-artifact helpers/artifacts and test-fixture isolation changed.",
+    "remaining_blockers": [],
+    "final_phase1_verdict": "PHASE1_ACCEPTED"
   }
 }
