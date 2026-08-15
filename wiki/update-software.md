@@ -65,6 +65,23 @@ sudo -u casescope /opt/casescope/venv/bin/pip install -r /opt/casescope/requirem
 sudo -u casescope /opt/casescope/venv/bin/pip install volatility3
 ```
 
+### Version 4.18.7 / Reconciled Follow-up Release
+
+Version 4.18.7 contains post-4.18.6 admin ingest-fence follow-ups, graph bulk timing aggregation, disposable PostgreSQL GraphBulkWriter replay/idempotence regressions, the restored database-flow baseline utility, and parser/delete test isolation improvements.
+
+This release has no new database migration, no ClickHouse schema migration, no PostgreSQL migration, and no benchmark requirement.
+
+For installs already on 4.18.6, use the normal application code update:
+
+1. Stop `casescope-web`.
+2. Stop `casescope-workers`.
+3. Stop `casescope-beat`.
+4. Pull the 4.18.7 code.
+5. Install or update requirements if the normal release procedure requires it.
+6. Run no new migration for 4.18.7.
+7. Restart `casescope-beat`, `casescope-workers`, and `casescope-web`.
+8. Verify login and service health.
+
 ### Version 4.18.6 / Phase 1 Runtime Activation Gate
 
 Version 4.18.6 promotes `EventData.KeyLength` to `events.key_length Nullable(UInt16)`. New 4.18.6 application code cannot safely run against an old ClickHouse `events` schema without that column, while old application code can continue to run after the nullable column is added.

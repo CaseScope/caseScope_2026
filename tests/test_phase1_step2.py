@@ -9,7 +9,9 @@ Do not use production-bound full unittest discovery.
 from __future__ import annotations
 
 import ast
+import importlib.util
 import os
+import sys
 import threading
 import unittest
 from types import SimpleNamespace
@@ -88,6 +90,51 @@ class _BufferMigrationClient:
             return
         if compact.startswith("DROP TABLE"):
             self.tables.discard("events_buffer")
+
+
+class _ArchiveResetClickHouseClient:
+    def __init__(self, *, tables=None, fail_table_probe=False, fail_counts=None):
+        self.tables = dict(
+            tables
+            if tables is not None
+            else {
+                "events": 0,
+                "network_logs": 0,
+                "case_unified_findings": 0,
+                "detection_summary": 0,
+                "timeline_hourly": 0,
+                "network_logs_buffer": 0,
+            }
+        )
+        self.fail_table_probe = fail_table_probe
+        self.fail_counts = set(fail_counts or [])
+        self.queries = []
+
+    def query(self, sql, parameters=None):
+        parameters = parameters or {}
+        self.queries.append((sql, parameters))
+        text = " ".join(sql.split())
+        if "FROM system.tables" in text:
+            if self.fail_table_probe:
+                raise RuntimeError("system.tables unavailable")
+            table = parameters.get("table_name")
+            return _QueryResult([(1 if table in self.tables else 0,)])
+        if text.startswith("SELECT count() FROM "):
+            table = text.rsplit(" ", 1)[-1]
+            if table in self.fail_counts:
+                raise RuntimeError(f"count failed for {table}")
+            return _QueryResult([(self.tables[table],)])
+        return _QueryResult([])
+
+
+def _load_archive_then_reset():
+    module_name = "test_archive_then_reset_module"
+    path = os.path.join(os.path.dirname(os.path.dirname(__file__)), "bin", "archive_then_reset.py")
+    spec = importlib.util.spec_from_file_location(module_name, path)
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[module_name] = module
+    spec.loader.exec_module(module)
+    return module
 
 
 class Phase1Step2BufferRemovalTests(unittest.TestCase):
@@ -187,13 +234,38 @@ class Phase1Step2BufferRemovalTests(unittest.TestCase):
         self.assertIn("ENGINE = Buffer", EVENTS_BUFFER_SCHEMA_TEMPLATE)
 
     def test_archive_then_reset_does_not_require_events_buffer(self):
-        from pathlib import Path
+        archive_reset = _load_archive_then_reset()
+        client = _ArchiveResetClickHouseClient(tables={"events": 7})
+        self.assertEqual(archive_reset._clickhouse_table_count(client, "events_buffer"), 0)
 
-        source = Path("/opt/casescope/bin/archive_then_reset.py").read_text(encoding="utf-8")
-        self.assertIn("def _clickhouse_table_count", source)
-        self.assertIn("missing table as zero", source)
-        self.assertIn("system.tables", source)
-        self.assertIn("_clickhouse_table_count(clickhouse_client, table)", source)
+    def test_archive_then_reset_counts_existing_required_events_table(self):
+        archive_reset = _load_archive_then_reset()
+        client = _ArchiveResetClickHouseClient(tables={"events": 7})
+        self.assertEqual(archive_reset._clickhouse_table_count(client, "events"), 7)
+
+    def test_archive_then_reset_fails_when_events_table_missing(self):
+        archive_reset = _load_archive_then_reset()
+        client = _ArchiveResetClickHouseClient(tables={})
+        with self.assertRaisesRegex(RuntimeError, "Required ClickHouse table is missing: events"):
+            archive_reset._clickhouse_table_count(client, "events")
+
+    def test_archive_then_reset_fails_when_required_analytics_table_missing(self):
+        archive_reset = _load_archive_then_reset()
+        client = _ArchiveResetClickHouseClient(tables={"events": 1})
+        with self.assertRaisesRegex(RuntimeError, "case_unified_findings"):
+            archive_reset._clickhouse_table_count(client, "case_unified_findings")
+
+    def test_archive_then_reset_fails_when_table_probe_fails(self):
+        archive_reset = _load_archive_then_reset()
+        client = _ArchiveResetClickHouseClient(fail_table_probe=True)
+        with self.assertRaisesRegex(RuntimeError, "system.tables unavailable"):
+            archive_reset._clickhouse_table_count(client, "events_buffer")
+
+    def test_archive_then_reset_fails_when_existing_table_count_fails(self):
+        archive_reset = _load_archive_then_reset()
+        client = _ArchiveResetClickHouseClient(tables={"events": 1}, fail_counts={"events"})
+        with self.assertRaisesRegex(RuntimeError, "count failed for events"):
+            archive_reset._clickhouse_table_count(client, "events")
 
     def test_runtime_insert_path_has_no_required_buffer_dependency(self):
         import parsers.registry as registry

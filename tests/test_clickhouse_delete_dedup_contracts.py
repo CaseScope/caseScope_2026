@@ -117,6 +117,16 @@ utils_package.clickhouse = clickhouse_utils
 sys.modules.setdefault('utils', utils_package)
 sys.modules['utils.clickhouse'] = clickhouse_utils
 
+from utils.ingest_fence import install_memory_backend, reset_fence_backend
+
+
+def setUpModule():
+    install_memory_backend()
+
+
+def tearDownModule():
+    reset_fence_backend()
+
 event_deduplication = _load_module('test_event_deduplication', os.path.join('utils', 'event_deduplication.py'))
 utils_package.event_deduplication = event_deduplication
 sys.modules['utils.event_deduplication'] = event_deduplication
@@ -490,7 +500,7 @@ class CompletionTaskContractTestCase(unittest.TestCase):
             case_uuid='case-uuid',
             track_progress=True,
             max_eligible_events_per_artifact=event_deduplication.AUTO_DEDUP_MAX_ELIGIBLE_EVENTS,
-            rewrite_guard_behavior='skip',
+            rewrite_guard_behavior='error',
         )
 
 

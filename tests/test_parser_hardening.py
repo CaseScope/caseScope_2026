@@ -53,6 +53,16 @@ sys.modules['utils.clickhouse'] = clickhouse_module
 clickhouse_spec.loader.exec_module(clickhouse_module)
 utils_package.clickhouse = clickhouse_module
 
+from utils.ingest_fence import install_memory_backend, reset_fence_backend
+
+
+def setUpModule():
+    install_memory_backend()
+
+
+def tearDownModule():
+    reset_fence_backend()
+
 timezone_spec = importlib.util.spec_from_file_location(
     'utils.timezone',
     os.path.join(os.path.dirname(os.path.dirname(__file__)), 'utils', 'timezone.py'),

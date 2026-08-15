@@ -37,6 +37,7 @@ from models.rag import (
 )
 from config import Config
 from utils.clickhouse import get_client as get_clickhouse_client, delete_case_events
+from utils.ingest_fence import exclusive_ingest_fence
 from models.network_log import delete_case_logs
 
 # Configuration
@@ -50,43 +51,42 @@ def clear_clickhouse(case_ids_to_delete):
     ch = get_clickhouse_client()
     
     print("\n=== Clearing ClickHouse Data ===")
-    
-    # First, flush buffer tables
-    print("Flushing buffer tables...")
-    try:
-        ch.command("OPTIMIZE TABLE events_buffer")
-        print("  - events_buffer flushed")
-    except Exception as e:
-        print(f"  - events_buffer flush error (may not exist): {e}")
-    
-    try:
-        ch.command("OPTIMIZE TABLE network_logs_buffer")
-        print("  - network_logs_buffer flushed")
-    except Exception as e:
-        print(f"  - network_logs_buffer flush error (may not exist): {e}")
-    
-    # Count records before deletion
-    for case_id in case_ids_to_delete:
+
+    with exclusive_ingest_fence("admin_clear_cases"):
+        print("Flushing buffer tables...")
         try:
-            result = ch.query(f"SELECT count() FROM events WHERE case_id = {case_id}")
-            events_count = result.result_rows[0][0] if result.result_rows else 0
-        except:
-            events_count = 0
-        try:
-            result = ch.query(f"SELECT count() FROM network_logs WHERE case_id = {case_id}")
-            network_count = result.result_rows[0][0] if result.result_rows else 0
-        except:
-            network_count = 0
-        print(f"  Case {case_id}: {events_count} events, {network_count} network_logs")
-    
-    # Delete from events table
-    for case_id in case_ids_to_delete:
-        print(f"Deleting events for case_id={case_id}...")
-        try:
-            delete_case_events(case_id, wait=True, client=ch)
-            print("  - events deletion completed")
+            ch.command("OPTIMIZE TABLE events_buffer")
+            print("  - events_buffer flushed")
         except Exception as e:
-            print(f"  Error: {e}")
+            print(f"  - events_buffer flush error (may not exist): {e}")
+
+        try:
+            ch.command("OPTIMIZE TABLE network_logs_buffer")
+            print("  - network_logs_buffer flushed")
+        except Exception as e:
+            print(f"  - network_logs_buffer flush error (may not exist): {e}")
+
+        for case_id in case_ids_to_delete:
+            try:
+                result = ch.query(f"SELECT count() FROM events WHERE case_id = {case_id}")
+                events_count = result.result_rows[0][0] if result.result_rows else 0
+            except Exception:
+                events_count = 0
+            try:
+                result = ch.query(f"SELECT count() FROM network_logs WHERE case_id = {case_id}")
+                network_count = result.result_rows[0][0] if result.result_rows else 0
+            except Exception:
+                network_count = 0
+            print(f"  Case {case_id}: {events_count} events, {network_count} network_logs")
+
+        for case_id in case_ids_to_delete:
+            print(f"Deleting events for case_id={case_id}...")
+            try:
+                delete_case_events(case_id, wait=True, client=ch)
+                print("  - events deletion completed")
+            except Exception as e:
+                print(f"  Error: {e}")
+                raise
     
     # Delete from network_logs table
     for case_id in case_ids_to_delete:

@@ -1,6 +1,18 @@
 {
-  "version": "4.18.6",
+  "version": "4.18.7",
   "changelog": [
+    {
+      "version": "4.18.7",
+      "date": "2026-08-15",
+      "changes": [
+        "Completed post-4.18.6 admin ingest-fence follow-ups",
+        "Archive/reset now tolerates only explicitly optional events_buffer absence while required ClickHouse schema failures fail closed",
+        "Added graph bulk timing aggregation",
+        "Added disposable PostgreSQL GraphBulkWriter replay/idempotence regressions",
+        "Restored database-flow baseline utility",
+        "Improved parser/delete test isolation"
+      ]
+    },
     {
       "version": "4.18.6",
       "date": "2026-08-15",
