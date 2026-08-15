@@ -1,12 +1,15 @@
 import os
 import random
 import unittest
+from dataclasses import dataclass
 from datetime import datetime, timedelta
 from types import SimpleNamespace
 from unittest.mock import patch
 
 from flask import Flask
 from sqlalchemy import func
+from sqlalchemy.engine import make_url
+from sqlalchemy.sql import text
 
 from models.case import Case
 from models.client import Client
@@ -25,6 +28,83 @@ from utils.graph_bulk_writer import GraphBulkWriter
 from utils.graph_extractors import GRAPH_EXTRACTOR_EVENT_COLUMNS, extract_event_relationships
 from utils.graph_identity import GraphSupportState, GraphValidationState
 from utils.graph_materializer import materialize_events_for_case
+
+DEFAULT_CONFIGURED_DATABASE_URL = "postgresql://casescope:casescope@localhost/casescope"
+POSTGRES_SYSTEM_DATABASES = frozenset({"casescope", "postgres", "template0", "template1"})
+DISPOSABLE_DATABASE_PREFIX = "casescope_test_"
+
+
+@dataclass(frozen=True)
+class PostgresTestDatabase:
+    uri: str
+    database_name: str
+
+
+def _normalized_database_url(uri):
+    return make_url(uri).render_as_string(hide_password=False)
+
+
+def _resolve_postgres_test_database_url(environ=os.environ):
+    uri = environ.get("CASESCOPE_POSTGRES_TEST_DATABASE_URL")
+    if not uri:
+        raise unittest.SkipTest("CASESCOPE_POSTGRES_TEST_DATABASE_URL is not configured")
+
+    url = make_url(uri)
+    if not url.drivername.startswith("postgresql"):
+        raise unittest.SkipTest("GraphBulkWriter COPY regressions require PostgreSQL")
+
+    configured_uri = environ.get("DATABASE_URL") or DEFAULT_CONFIGURED_DATABASE_URL
+    if configured_uri and _normalized_database_url(uri) == _normalized_database_url(configured_uri):
+        raise RuntimeError("Refusing to run PostgreSQL regression against configured application DATABASE_URL")
+
+    database_name = url.database or ""
+    _assert_disposable_postgres_database_name(database_name)
+    return PostgresTestDatabase(uri=uri, database_name=database_name)
+
+
+def _assert_disposable_postgres_database_name(database_name):
+    normalized = (database_name or "").lower()
+    if normalized in POSTGRES_SYSTEM_DATABASES:
+        raise RuntimeError(f"Refusing to run PostgreSQL regression against protected database {database_name!r}")
+    if not normalized.startswith(DISPOSABLE_DATABASE_PREFIX):
+        raise RuntimeError(
+            "Refusing to run PostgreSQL regression without disposable database name "
+            f"{DISPOSABLE_DATABASE_PREFIX}*; got {database_name!r}"
+        )
+
+
+class PostgresRegressionSafetyGateTestCase(unittest.TestCase):
+    def test_missing_test_url_skips(self):
+        with self.assertRaises(unittest.SkipTest):
+            _resolve_postgres_test_database_url({})
+
+    def test_database_url_alone_skips_without_connection(self):
+        environ = {"DATABASE_URL": "postgresql://casescope:casescope@localhost/casescope"}
+        with self.assertRaises(unittest.SkipTest):
+            _resolve_postgres_test_database_url(environ)
+
+    def test_explicit_test_url_matching_database_url_refuses(self):
+        uri = "postgresql://casescope:casescope@localhost/casescope_test_same"
+        environ = {
+            "CASESCOPE_POSTGRES_TEST_DATABASE_URL": uri,
+            "DATABASE_URL": uri,
+        }
+        with self.assertRaisesRegex(RuntimeError, "DATABASE_URL"):
+            _resolve_postgres_test_database_url(environ)
+
+    def test_explicit_production_database_name_refuses(self):
+        environ = {
+            "CASESCOPE_POSTGRES_TEST_DATABASE_URL": "postgresql://casescope:casescope@localhost/postgres",
+            "DATABASE_URL": "postgresql://casescope:casescope@localhost/casescope_test_app",
+        }
+        with self.assertRaisesRegex(RuntimeError, "protected database"):
+            _resolve_postgres_test_database_url(environ)
+
+    def test_disposable_test_database_name_is_allowed(self):
+        uri = "postgresql://casescope:casescope@localhost/casescope_test_graph_bulk_unit"
+        resolved = _resolve_postgres_test_database_url({"CASESCOPE_POSTGRES_TEST_DATABASE_URL": uri})
+        self.assertEqual(resolved.uri, uri)
+        self.assertEqual(resolved.database_name, "casescope_test_graph_bulk_unit")
 
 
 def evidence_key(char):
@@ -105,12 +185,10 @@ class GraphBulkWriterPostgresRegressionTestCase(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls):
-        uri = os.environ.get("CASESCOPE_POSTGRES_TEST_DATABASE_URL") or os.environ.get("DATABASE_URL")
-        if not uri or not uri.startswith(("postgresql://", "postgresql+")):
-            raise unittest.SkipTest("PostgreSQL test database URL is not configured")
+        test_database = _resolve_postgres_test_database_url()
         cls.app = Flask(__name__)
         cls.app.config.update(
-            SQLALCHEMY_DATABASE_URI=uri,
+            SQLALCHEMY_DATABASE_URI=test_database.uri,
             SQLALCHEMY_TRACK_MODIFICATIONS=False,
             TESTING=True,
             SECRET_KEY="postgres-graph-test",
@@ -118,20 +196,32 @@ class GraphBulkWriterPostgresRegressionTestCase(unittest.TestCase):
         db.init_app(cls.app)
         cls.ctx = cls.app.app_context()
         cls.ctx.push()
-        for table in (
-            Client.__table__,
-            Case.__table__,
-            KnownSystem.__table__,
-            KnownSystemAlias.__table__,
-            GraphEntity.__table__,
-            GraphEntityObservation.__table__,
-            GraphRelationship.__table__,
-            GraphRelationshipEvidence.__table__,
-            GraphProjectionState.__table__,
-        ):
-            table.create(db.engine, checkfirst=True)
-        if db.engine.dialect.name != "postgresql":
-            raise unittest.SkipTest("GraphBulkWriter COPY regressions require PostgreSQL")
+        try:
+            if db.engine.dialect.name != "postgresql":
+                raise unittest.SkipTest("GraphBulkWriter COPY regressions require PostgreSQL")
+            current_database = db.session.execute(text("SELECT current_database()")).scalar_one()
+            if current_database != test_database.database_name:
+                raise RuntimeError(
+                    "PostgreSQL regression connected to unexpected database "
+                    f"{current_database!r}; expected {test_database.database_name!r}"
+                )
+            _assert_disposable_postgres_database_name(current_database)
+            for table in (
+                Client.__table__,
+                Case.__table__,
+                KnownSystem.__table__,
+                KnownSystemAlias.__table__,
+                GraphEntity.__table__,
+                GraphEntityObservation.__table__,
+                GraphRelationship.__table__,
+                GraphRelationshipEvidence.__table__,
+                GraphProjectionState.__table__,
+            ):
+                table.create(db.engine, checkfirst=True)
+        except Exception:
+            db.session.remove()
+            cls.ctx.pop()
+            raise
 
     @classmethod
     def tearDownClass(cls):

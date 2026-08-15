@@ -54,15 +54,17 @@ CASE_ANALYTICS_TABLES = CLICKHOUSE_BACKUP_TABLES + (
     "events_buffer",
     "network_logs_buffer",
 )
+OPTIONAL_CASE_ANALYTICS_TABLES = frozenset({"events_buffer"})
 DEFAULT_ARCHIVE_LAYOUT_PREFIX = "system_reset"
 CLICKHOUSE_NATIVE_PORT = int(os.environ.get("CLICKHOUSE_NATIVE_PORT", 9000))
 
 
 def _clickhouse_table_count(client, table: str) -> int:
-    """Count rows in a ClickHouse table, treating a missing table as zero.
+    """Count rows in a ClickHouse table.
 
     After Phase 1.4 Buffer removal, ``events_buffer`` is no longer required.
-    System-reset inventory/validation must not fail closed on its absence.
+    Other archive/reset analytics tables remain required and must fail closed
+    if schema validation cannot prove they exist.
     """
     exists = client.query(
         """
@@ -74,7 +76,9 @@ def _clickhouse_table_count(client, table: str) -> int:
         parameters={"table_name": table},
     )
     if not exists.result_rows or int(exists.result_rows[0][0] or 0) == 0:
-        return 0
+        if table in OPTIONAL_CASE_ANALYTICS_TABLES:
+            return 0
+        raise RuntimeError(f"Required ClickHouse table is missing: {table}")
     return int(client.query(f"SELECT count() FROM {table}").result_rows[0][0])
 
 
