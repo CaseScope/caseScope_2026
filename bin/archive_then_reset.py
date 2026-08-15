@@ -58,6 +58,26 @@ DEFAULT_ARCHIVE_LAYOUT_PREFIX = "system_reset"
 CLICKHOUSE_NATIVE_PORT = int(os.environ.get("CLICKHOUSE_NATIVE_PORT", 9000))
 
 
+def _clickhouse_table_count(client, table: str) -> int:
+    """Count rows in a ClickHouse table, treating a missing table as zero.
+
+    After Phase 1.4 Buffer removal, ``events_buffer`` is no longer required.
+    System-reset inventory/validation must not fail closed on its absence.
+    """
+    exists = client.query(
+        """
+        SELECT count()
+        FROM system.tables
+        WHERE database = currentDatabase()
+          AND name = {table_name:String}
+        """,
+        parameters={"table_name": table},
+    )
+    if not exists.result_rows or int(exists.result_rows[0][0] or 0) == 0:
+        return 0
+    return int(client.query(f"SELECT count() FROM {table}").result_rows[0][0])
+
+
 @dataclass
 class SnapshotLayout:
     root: Path
@@ -232,7 +252,7 @@ def collect_inventory(app: Flask) -> Dict[str, Any]:
     clickhouse_client = get_clickhouse_client()
     clickhouse_counts = {}
     for table in CASE_ANALYTICS_TABLES:
-        clickhouse_counts[table] = int(clickhouse_client.query(f"SELECT count() FROM {table}").result_rows[0][0])
+        clickhouse_counts[table] = _clickhouse_table_count(clickhouse_client, table)
 
     return {
         "generated_at": datetime.now(timezone.utc).isoformat(),
@@ -430,8 +450,7 @@ def validate_post_reset(app: Flask) -> Dict[str, Any]:
     clickhouse_client = get_clickhouse_client()
     lingering_clickhouse = {}
     for table in CASE_ANALYTICS_TABLES:
-        count = int(clickhouse_client.query(f"SELECT count() FROM {table}").result_rows[0][0])
-        lingering_clickhouse[table] = count
+        lingering_clickhouse[table] = _clickhouse_table_count(clickhouse_client, table)
 
     return {
         "clients": clients_count,

@@ -7,6 +7,15 @@ from unittest.mock import patch
 os.environ.setdefault('SECRET_KEY', 'test-secret')
 
 from parsers.registry import BatchProcessor, process_file
+from utils.ingest_fence import install_memory_backend, reset_fence_backend
+
+
+def setUpModule():
+    install_memory_backend()
+
+
+def tearDownModule():
+    reset_fence_backend()
 
 
 class _FakeEvent:
