@@ -1,0 +1,368 @@
+{
+  "dataset": "LEGACY_PER_FILE",
+  "captured_at": "2026-08-15T15:36:34.553003+00:00",
+  "corpus_dir": "/opt/casescope-benchmark/phase0a_evtx",
+  "file_count": 8,
+  "total_bytes": 77103104,
+  "total_parsed_events": 110742,
+  "total_hayabusa_detection_attachments": 7436,
+  "wall_seconds": 148.609,
+  "files": [
+    {
+      "source_absolute_path": "/opt/casescope-benchmark/phase0a_evtx/Application.evtx",
+      "source_basename": "Application.evtx",
+      "sha256": "a9a10f634fb4409e765791c6eedc73346bbed6244a583f8f694c651c6931cbb1",
+      "size_bytes": 11603968,
+      "case_file_id": 1,
+      "source_host": "Application",
+      "channels": {
+        "Application": 12137
+      },
+      "primary_channel": "Application",
+      "evtxecmd_row_count": 12137,
+      "hayabusa_detection_count": 0,
+      "events_with_detections": 0,
+      "parser_errors": [],
+      "parser_warnings_count": 0,
+      "wall_seconds": 15.285
+    },
+    {
+      "source_absolute_path": "/opt/casescope-benchmark/phase0a_evtx/Microsoft-Windows-PowerShell-Operational.evtx",
+      "source_basename": "Microsoft-Windows-PowerShell-Operational.evtx",
+      "sha256": "a0deb6a8e4c97a563e487fa2c96e0a2711566654ef77a28a4e7c7952bcb29a69",
+      "size_bytes": 15798272,
+      "case_file_id": 2,
+      "source_host": "Microsoft-Windows-PowerShell-Operational",
+      "channels": {
+        "Microsoft-Windows-PowerShell/Operational": 488
+      },
+      "primary_channel": "Microsoft-Windows-PowerShell/Operational",
+      "evtxecmd_row_count": 488,
+      "hayabusa_detection_count": 399,
+      "events_with_detections": 399,
+      "parser_errors": [],
+      "parser_warnings_count": 0,
+      "wall_seconds": 6.363
+    },
+    {
+      "source_absolute_path": "/opt/casescope-benchmark/phase0a_evtx/Microsoft-Windows-TaskScheduler-Operational.evtx",
+      "source_basename": "Microsoft-Windows-TaskScheduler-Operational.evtx",
+      "sha256": "915c2c1ef94a010885c882cda0b52cfc26a1512d22f9133c1295e26087dcf499",
+      "size_bytes": 69632,
+      "case_file_id": 3,
+      "source_host": "Microsoft-Windows-TaskScheduler-Operational",
+      "channels": {},
+      "primary_channel": null,
+      "evtxecmd_row_count": 0,
+      "hayabusa_detection_count": 0,
+      "events_with_detections": 0,
+      "parser_errors": [],
+      "parser_warnings_count": 0,
+      "wall_seconds": 5.134
+    },
+    {
+      "source_absolute_path": "/opt/casescope-benchmark/phase0a_evtx/Microsoft-Windows-TerminalServices-LocalSessionManager.evtx",
+      "source_basename": "Microsoft-Windows-TerminalServices-LocalSessionManager.evtx",
+      "sha256": "eba5bea0102201e553ad004ac1d9fb575067d270a6a2dce3e96740dad64593b8",
+      "size_bytes": 1118208,
+      "case_file_id": 4,
+      "source_host": "Microsoft-Windows-TerminalServices-LocalSessionManager",
+      "channels": {
+        "Microsoft-Windows-TerminalServices-LocalSessionManager/Operational": 221
+      },
+      "primary_channel": "Microsoft-Windows-TerminalServices-LocalSessionManager/Operational",
+      "evtxecmd_row_count": 221,
+      "hayabusa_detection_count": 79,
+      "events_with_detections": 79,
+      "parser_errors": [],
+      "parser_warnings_count": 0,
+      "wall_seconds": 5.689
+    },
+    {
+      "source_absolute_path": "/opt/casescope-benchmark/phase0a_evtx/Microsoft-Windows-WMI-Activity-Operational.evtx",
+      "source_basename": "Microsoft-Windows-WMI-Activity-Operational.evtx",
+      "sha256": "184b17c902cdaa684da76bb7b256a39a89a5cdb8438ff307714b2a767785f8e0",
+      "size_bytes": 1118208,
+      "case_file_id": 5,
+      "source_host": "Microsoft-Windows-WMI-Activity-Operational",
+      "channels": {
+        "Microsoft-Windows-WMI-Activity/Operational": 1158
+      },
+      "primary_channel": "Microsoft-Windows-WMI-Activity/Operational",
+      "evtxecmd_row_count": 1158,
+      "hayabusa_detection_count": 323,
+      "events_with_detections": 323,
+      "parser_errors": [],
+      "parser_warnings_count": 0,
+      "wall_seconds": 6.255
+    },
+    {
+      "source_absolute_path": "/opt/casescope-benchmark/phase0a_evtx/Microsoft-Windows-Windows-Defender-Operational.evtx",
+      "source_basename": "Microsoft-Windows-Windows-Defender-Operational.evtx",
+      "sha256": "b52d925a12d38422c6373416a11fe28565ffb4a872dc6318900e1756f8ef9ed0",
+      "size_bytes": 5312512,
+      "case_file_id": 6,
+      "source_host": "Microsoft-Windows-Windows-Defender-Operational",
+      "channels": {
+        "Microsoft-Windows-Windows Defender/Operational": 5536
+      },
+      "primary_channel": "Microsoft-Windows-Windows Defender/Operational",
+      "evtxecmd_row_count": 5536,
+      "hayabusa_detection_count": 106,
+      "events_with_detections": 90,
+      "parser_errors": [],
+      "parser_warnings_count": 0,
+      "wall_seconds": 10.077
+    },
+    {
+      "source_absolute_path": "/opt/casescope-benchmark/phase0a_evtx/Security.evtx",
+      "source_basename": "Security.evtx",
+      "sha256": "f720ce8362f7f9c5b8ec7068f916026efb04e78499fd30859e3e6e172265244a",
+      "size_bytes": 21041152,
+      "case_file_id": 7,
+      "source_host": "Security",
+      "channels": {
+        "Security": 29575
+      },
+      "primary_channel": "Security",
+      "evtxecmd_row_count": 29575,
+      "hayabusa_detection_count": 6397,
+      "events_with_detections": 6222,
+      "parser_errors": [],
+      "parser_warnings_count": 0,
+      "wall_seconds": 36.98
+    },
+    {
+      "source_absolute_path": "/opt/casescope-benchmark/phase0a_evtx/System.evtx",
+      "source_basename": "System.evtx",
+      "sha256": "1f4cef929100fc1398f440afc583222ef2e228e1a577c33c19f5a3a82b88699a",
+      "size_bytes": 21041152,
+      "case_file_id": 8,
+      "source_host": "System",
+      "channels": {
+        "System": 61627
+      },
+      "primary_channel": "System",
+      "evtxecmd_row_count": 61627,
+      "hayabusa_detection_count": 132,
+      "events_with_detections": 124,
+      "parser_errors": [],
+      "parser_warnings_count": 0,
+      "wall_seconds": 62.317
+    }
+  ],
+  "collision_analysis": {
+    "total_record_id_values_seen": 110742,
+    "unique_record_ids": 104985,
+    "cross_file_duplicate_record_ids": 5536,
+    "cross_file_duplicate_channel_record_id": 0,
+    "cross_file_duplicate_source_file_record_id": 0,
+    "intra_file_duplicate_source_file_record_id": 0,
+    "cross_file_record_id_examples": [
+      {
+        "record_id": 1,
+        "source_files": [
+          "Application.evtx",
+          "Microsoft-Windows-TerminalServices-LocalSessionManager.evtx",
+          "Microsoft-Windows-Windows-Defender-Operational.evtx"
+        ]
+      },
+      {
+        "record_id": 2,
+        "source_files": [
+          "Application.evtx",
+          "Microsoft-Windows-TerminalServices-LocalSessionManager.evtx",
+          "Microsoft-Windows-Windows-Defender-Operational.evtx"
+        ]
+      },
+      {
+        "record_id": 3,
+        "source_files": [
+          "Application.evtx",
+          "Microsoft-Windows-TerminalServices-LocalSessionManager.evtx",
+          "Microsoft-Windows-Windows-Defender-Operational.evtx"
+        ]
+      },
+      {
+        "record_id": 4,
+        "source_files": [
+          "Application.evtx",
+          "Microsoft-Windows-TerminalServices-LocalSessionManager.evtx",
+          "Microsoft-Windows-Windows-Defender-Operational.evtx"
+        ]
+      },
+      {
+        "record_id": 5,
+        "source_files": [
+          "Application.evtx",
+          "Microsoft-Windows-TerminalServices-LocalSessionManager.evtx",
+          "Microsoft-Windows-Windows-Defender-Operational.evtx"
+        ]
+      },
+      {
+        "record_id": 6,
+        "source_files": [
+          "Application.evtx",
+          "Microsoft-Windows-TerminalServices-LocalSessionManager.evtx",
+          "Microsoft-Windows-Windows-Defender-Operational.evtx"
+        ]
+      },
+      {
+        "record_id": 7,
+        "source_files": [
+          "Application.evtx",
+          "Microsoft-Windows-TerminalServices-LocalSessionManager.evtx",
+          "Microsoft-Windows-Windows-Defender-Operational.evtx"
+        ]
+      },
+      {
+        "record_id": 8,
+        "source_files": [
+          "Application.evtx",
+          "Microsoft-Windows-TerminalServices-LocalSessionManager.evtx",
+          "Microsoft-Windows-Windows-Defender-Operational.evtx"
+        ]
+      },
+      {
+        "record_id": 9,
+        "source_files": [
+          "Application.evtx",
+          "Microsoft-Windows-TerminalServices-LocalSessionManager.evtx",
+          "Microsoft-Windows-Windows-Defender-Operational.evtx"
+        ]
+      },
+      {
+        "record_id": 10,
+        "source_files": [
+          "Application.evtx",
+          "Microsoft-Windows-TerminalServices-LocalSessionManager.evtx",
+          "Microsoft-Windows-Windows-Defender-Operational.evtx"
+        ]
+      },
+      {
+        "record_id": 11,
+        "source_files": [
+          "Application.evtx",
+          "Microsoft-Windows-TerminalServices-LocalSessionManager.evtx",
+          "Microsoft-Windows-Windows-Defender-Operational.evtx"
+        ]
+      },
+      {
+        "record_id": 12,
+        "source_files": [
+          "Application.evtx",
+          "Microsoft-Windows-TerminalServices-LocalSessionManager.evtx",
+          "Microsoft-Windows-Windows-Defender-Operational.evtx"
+        ]
+      },
+      {
+        "record_id": 13,
+        "source_files": [
+          "Application.evtx",
+          "Microsoft-Windows-TerminalServices-LocalSessionManager.evtx",
+          "Microsoft-Windows-Windows-Defender-Operational.evtx"
+        ]
+      },
+      {
+        "record_id": 14,
+        "source_files": [
+          "Application.evtx",
+          "Microsoft-Windows-TerminalServices-LocalSessionManager.evtx",
+          "Microsoft-Windows-Windows-Defender-Operational.evtx"
+        ]
+      },
+      {
+        "record_id": 15,
+        "source_files": [
+          "Application.evtx",
+          "Microsoft-Windows-TerminalServices-LocalSessionManager.evtx",
+          "Microsoft-Windows-Windows-Defender-Operational.evtx"
+        ]
+      },
+      {
+        "record_id": 16,
+        "source_files": [
+          "Application.evtx",
+          "Microsoft-Windows-TerminalServices-LocalSessionManager.evtx",
+          "Microsoft-Windows-Windows-Defender-Operational.evtx"
+        ]
+      },
+      {
+        "record_id": 17,
+        "source_files": [
+          "Application.evtx",
+          "Microsoft-Windows-TerminalServices-LocalSessionManager.evtx",
+          "Microsoft-Windows-Windows-Defender-Operational.evtx"
+        ]
+      },
+      {
+        "record_id": 18,
+        "source_files": [
+          "Application.evtx",
+          "Microsoft-Windows-TerminalServices-LocalSessionManager.evtx",
+          "Microsoft-Windows-Windows-Defender-Operational.evtx"
+        ]
+      },
+      {
+        "record_id": 19,
+        "source_files": [
+          "Application.evtx",
+          "Microsoft-Windows-TerminalServices-LocalSessionManager.evtx",
+          "Microsoft-Windows-Windows-Defender-Operational.evtx"
+        ]
+      },
+      {
+        "record_id": 20,
+        "source_files": [
+          "Application.evtx",
+          "Microsoft-Windows-TerminalServices-LocalSessionManager.evtx",
+          "Microsoft-Windows-Windows-Defender-Operational.evtx"
+        ]
+      },
+      {
+        "record_id": 21,
+        "source_files": [
+          "Application.evtx",
+          "Microsoft-Windows-TerminalServices-LocalSessionManager.evtx",
+          "Microsoft-Windows-Windows-Defender-Operational.evtx"
+        ]
+      },
+      {
+        "record_id": 22,
+        "source_files": [
+          "Application.evtx",
+          "Microsoft-Windows-TerminalServices-LocalSessionManager.evtx",
+          "Microsoft-Windows-Windows-Defender-Operational.evtx"
+        ]
+      },
+      {
+        "record_id": 23,
+        "source_files": [
+          "Application.evtx",
+          "Microsoft-Windows-TerminalServices-LocalSessionManager.evtx",
+          "Microsoft-Windows-Windows-Defender-Operational.evtx"
+        ]
+      },
+      {
+        "record_id": 24,
+        "source_files": [
+          "Application.evtx",
+          "Microsoft-Windows-TerminalServices-LocalSessionManager.evtx",
+          "Microsoft-Windows-Windows-Defender-Operational.evtx"
+        ]
+      },
+      {
+        "record_id": 25,
+        "source_files": [
+          "Application.evtx",
+          "Microsoft-Windows-TerminalServices-LocalSessionManager.evtx",
+          "Microsoft-Windows-Windows-Defender-Operational.evtx"
+        ]
+      }
+    ],
+    "cross_file_channel_record_id_examples": [],
+    "intra_file_duplicate_examples": {}
+  },
+  "events_jsonl": "/opt/casescope/docs/database_flow_phase1/phase1_step4_legacy_events.jsonl",
+  "detections_jsonl": "/opt/casescope/docs/database_flow_phase1/phase1_step4_legacy_detections.jsonl"
+}

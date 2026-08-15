@@ -276,7 +276,21 @@ def build_token_match_clause(value: str, columns: list = None) -> str:
     return f"({' OR '.join(clauses)})"
 
 
-def _build_substring_for_column(value: str, column: str) -> str:
+def _like_predicate(column: str, pattern: str, case_mode: str = 'lower') -> str:
+    """Build a LIKE/ILIKE predicate. Default ``lower`` is the production path.
+
+    ``case_mode`` is an additive comparator hook (Phase 1.5). Production callers
+    omit it and keep ``lower(column) LIKE``. Do not remove ``lower()`` from the
+    common path unless the stored column is proven canonical.
+    """
+    if case_mode == 'ilike':
+        return f"{column} ILIKE '{pattern}'"
+    if case_mode == 'sensitive':
+        return f"{column} LIKE '{pattern}'"
+    return f"lower({column}) LIKE '{pattern}'"
+
+
+def _build_substring_for_column(value: str, column: str, case_mode: str = 'lower') -> str:
     """Build a single LIKE clause for one column."""
     value_lower = value.lower()
     
@@ -304,44 +318,47 @@ def _build_substring_for_column(value: str, column: str) -> str:
             
             # Join with wildcards
             pattern = '%' + '%'.join(escaped_parts) + '%'
-            return f"lower({column}) LIKE '{pattern}'"
+            return _like_predicate(column, pattern, case_mode)
     
     # Standard substring match - match the exact phrase including spaces
     # For values with spaces (like "advanced ip"), we match the literal phrase
     # rather than splitting into separate words with wildcards between them
     # (splitting caused false positives where "advanced" and "ip" matched separately)
     escaped = value_lower.replace("'", "''").replace('%', '\\%').replace('_', '\\_')
-    return f"lower({column}) LIKE '%{escaped}%'"
+    return _like_predicate(column, f'%{escaped}%', case_mode)
 
 
 def _like_escape(value: str) -> str:
     return str(value or '').lower().replace("'", "''").replace('%', '\\%').replace('_', '\\_')
 
 
-def build_username_match_clause(value: str) -> str:
+def build_username_match_clause(value: str, columns: list = None, case_mode: str = 'lower') -> str:
     """Build a username/display-name match clause across normalized and raw fields."""
     raw_value = str(value or '').strip()
     if not raw_value:
         return "1=0"
 
-    columns = ['username', 'raw_json', 'search_blob']
-    clauses = [build_substring_match_clause(raw_value, columns)]
+    if columns is None:
+        columns = ['username', 'raw_json', 'search_blob']
+    elif isinstance(columns, str):
+        columns = [columns]
+    clauses = [build_substring_match_clause(raw_value, columns, case_mode=case_mode)]
     name_parts = [part for part in re.split(r'\s+', raw_value) if part]
 
     if len(name_parts) > 1:
         forward_pattern = '%' + '%'.join(_like_escape(part) for part in name_parts) + '%'
         reverse_pattern = '%' + '%'.join(_like_escape(part) for part in reversed(name_parts)) + '%'
         clauses.append(
-            "(" + " OR ".join(f"lower({column}) LIKE '{forward_pattern}'" for column in columns) + ")"
+            "(" + " OR ".join(_like_predicate(column, forward_pattern, case_mode) for column in columns) + ")"
         )
         clauses.append(
-            "(" + " OR ".join(f"lower({column}) LIKE '{reverse_pattern}'" for column in columns) + ")"
+            "(" + " OR ".join(_like_predicate(column, reverse_pattern, case_mode) for column in columns) + ")"
         )
 
     return f"({' OR '.join(clauses)})"
 
 
-def build_substring_match_clause(value: str, columns: list = None) -> str:
+def build_substring_match_clause(value: str, columns: list = None, case_mode: str = 'lower') -> str:
     """Build LIKE clause for substring matching across multiple columns.
     
     Substring matching finds any occurrence of the value.
@@ -364,11 +381,11 @@ def build_substring_match_clause(value: str, columns: list = None) -> str:
     elif isinstance(columns, str):
         columns = ['raw_json', 'search_blob']
     
-    clauses = [_build_substring_for_column(value, col) for col in columns]
+    clauses = [_build_substring_for_column(value, col, case_mode=case_mode) for col in columns]
     return f"({' OR '.join(clauses)})"
 
 
-def build_regex_match_clause(value: str, columns: list = None) -> str:
+def build_regex_match_clause(value: str, columns: list = None, case_mode: str = 'lower') -> str:
     """Build regex match clause across multiple columns.
     
     Args:
@@ -393,12 +410,16 @@ def build_regex_match_clause(value: str, columns: list = None) -> str:
         return build_substring_match_clause(value, columns)
     
     escaped = value.replace("'", "\\'").replace("\\", "\\\\")
-    clauses = [f"match(lower({col}), '{escaped}')" for col in columns]
+    if case_mode == 'sensitive':
+        clauses = [f"match({col}, '{escaped}')" for col in columns]
+    else:
+        clauses = [f"match(lower({col}), '{escaped}')" for col in columns]
     return f"({' OR '.join(clauses)})"
 
 
 def build_ioc_match_clause(ioc_value: str, ioc_type: str, match_type: str, 
-                           aliases: List[str] = None) -> str:
+                           aliases: List[str] = None, columns: list = None,
+                           case_mode: str = 'lower') -> str:
     """Build the complete WHERE clause for an IOC based on its match type.
     
     Searches both raw_json and search_blob for comprehensive matching.
@@ -422,20 +443,24 @@ def build_ioc_match_clause(ioc_value: str, ioc_type: str, match_type: str,
         effective_match_type = 'substring'
     
     if ioc_type == 'Username':
-        primary_clause = build_username_match_clause(ioc_value)
+        primary_clause = build_username_match_clause(
+            ioc_value, columns=columns, case_mode=case_mode
+        )
     elif effective_match_type == 'token':
-        primary_clause = build_token_match_clause(ioc_value)
+        primary_clause = build_token_match_clause(ioc_value, columns)
     elif effective_match_type == 'regex':
-        primary_clause = build_regex_match_clause(ioc_value)
+        primary_clause = build_regex_match_clause(ioc_value, columns, case_mode=case_mode)
     else:  # substring (default)
-        primary_clause = build_substring_match_clause(ioc_value)
+        primary_clause = build_substring_match_clause(
+            ioc_value, columns, case_mode=case_mode
+        )
     
     # File-name aliases are alternate renderings or full paths from IOC extraction.
     # Treat them as additional evidence, not required context, so filename-only
     # artifacts such as USN/MFT rows still tag when the primary value matches.
     if aliases and ioc_type == 'File Name':
         alias_clauses = [
-            build_substring_match_clause(alias)
+            build_substring_match_clause(alias, columns, case_mode=case_mode)
             for alias in aliases
             if alias
         ]
@@ -448,7 +473,9 @@ def build_ioc_match_clause(ioc_value: str, ioc_type: str, match_type: str,
         for alias in aliases:
             if alias:
                 # Aliases always use substring matching for flexibility
-                alias_clauses.append(build_substring_match_clause(alias))
+                alias_clauses.append(
+                    build_substring_match_clause(alias, columns, case_mode=case_mode)
+                )
         
         if alias_clauses:
             alias_clause = ' OR '.join(alias_clauses)

@@ -1,0 +1,62 @@
+{
+  "generated_at": "2026-08-14T21:08:18.720123+00:00",
+  "case_id": 33,
+  "read_only": true,
+  "ioc_count": 6,
+  "legacy": {
+    "path": "legacy",
+    "wall_ms": 594.078,
+    "match_count": 0,
+    "ioc_count": 6
+  },
+  "legacy_match_count": 0,
+  "paths": {
+    "no_raw_json": {
+      "candidate_path": "no_raw_json",
+      "specs": 6,
+      "a_count": 0,
+      "b_count": 0,
+      "a_minus_b": [],
+      "b_minus_a": [],
+      "intersection": 0,
+      "a_minus_b_count": 0,
+      "b_minus_a_count": 0,
+      "recall_gate_pass": true,
+      "raw_json_only_in_a": 0,
+      "miss_classifications": [],
+      "miss_classification_counts": {},
+      "ioc_verdict": "IOC_PASS",
+      "b_stats": {
+        "path": "no_raw_json",
+        "wall_ms": 205.383,
+        "match_count": 0,
+        "ioc_count": 6
+      }
+    },
+    "structured_plus_search_blob": {
+      "candidate_path": "structured_plus_search_blob",
+      "specs": 6,
+      "a_count": 0,
+      "b_count": 0,
+      "a_minus_b": [],
+      "b_minus_a": [],
+      "intersection": 0,
+      "a_minus_b_count": 0,
+      "b_minus_a_count": 0,
+      "recall_gate_pass": true,
+      "raw_json_only_in_a": 0,
+      "miss_classifications": [],
+      "miss_classification_counts": {},
+      "ioc_verdict": "IOC_PASS",
+      "b_stats": {
+        "path": "structured_plus_search_blob",
+        "wall_ms": 205.555,
+        "match_count": 0,
+        "ioc_count": 6
+      }
+    }
+  },
+  "clickhouse_statements": 18,
+  "clickhouse_query_wall_ms": 1004.182,
+  "peak_rss_mb": 88.24
+}

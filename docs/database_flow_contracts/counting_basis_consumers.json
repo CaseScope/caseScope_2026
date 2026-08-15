@@ -1,0 +1,2849 @@
+{
+  "phase": "0B",
+  "artifact": "counting_basis_consumers",
+  "source_inventory": "docs/database_flow_phase0/events_reader_inventory.json",
+  "id_assignment": "phase0a_reader_id P0A-R001..P0A-R167 assigned by sorting unique Phase 0A production file+function FROM/JOIN events readers (file, function). Embedded query libraries remain separately accounted and are not extra IDs.",
+  "direct_reader_locations_total": 167,
+  "accounting_rule": "SET equality of phase0a_reader_id is required. Sum of grouped counts is not sufficient.",
+  "embedded_query_strings_total": "227+",
+  "allowed_basis": [
+    "ERK",
+    "LEK",
+    "CANONICAL_EDGE",
+    "OTHER",
+    "UNRESOLVED"
+  ],
+  "summary": {
+    "ERK": 28,
+    "LEK": 102,
+    "CANONICAL_EDGE": 0,
+    "OTHER": 37,
+    "UNRESOLVED": 0
+  },
+  "canonical_edge_note": "CANONICAL_EDGE is a counting-basis rule for graph topology views. Those views do not query ClickHouse events directly, so they are not members of this 167-reader set. Graph events readers are ERK observation/support.",
+  "records": [
+    {
+      "phase0a_reader_id": "P0A-R001",
+      "file": "bin/clear_cases.py",
+      "function": "clear_clickhouse",
+      "location": "bin/clear_cases.py::clear_clickhouse",
+      "query_purpose": "clear clickhouse",
+      "future_surface": "events",
+      "counting_basis": "OTHER",
+      "migration_phase": "administrative",
+      "risk": "medium",
+      "required_regression_tests": [
+        "CT-006",
+        "CT-007"
+      ],
+      "reason": "Administrative/raw/helper; not a product default count."
+    },
+    {
+      "phase0a_reader_id": "P0A-R002",
+      "file": "migrations/add_audit_reconciliation_markers.py",
+      "function": "collect_case_state",
+      "location": "migrations/add_audit_reconciliation_markers.py::collect_case_state",
+      "query_purpose": "collect case state",
+      "future_surface": "events",
+      "counting_basis": "OTHER",
+      "migration_phase": "administrative",
+      "risk": "medium",
+      "required_regression_tests": [
+        "CT-006",
+        "CT-007"
+      ],
+      "reason": "Administrative/raw/helper; not a product default count."
+    },
+    {
+      "phase0a_reader_id": "P0A-R003",
+      "file": "migrations/add_evidence_record_identity.py",
+      "function": "_case_source_windows",
+      "location": "migrations/add_evidence_record_identity.py::_case_source_windows",
+      "query_purpose": " case source windows",
+      "future_surface": "events",
+      "counting_basis": "OTHER",
+      "migration_phase": "administrative",
+      "risk": "medium",
+      "required_regression_tests": [
+        "CT-006",
+        "CT-007"
+      ],
+      "reason": "Administrative/raw/helper; not a product default count."
+    },
+    {
+      "phase0a_reader_id": "P0A-R004",
+      "file": "migrations/add_evidence_record_identity.py",
+      "function": "_copy_bulk_server_fallback_to_shadow",
+      "location": "migrations/add_evidence_record_identity.py::_copy_bulk_server_fallback_to_shadow",
+      "query_purpose": " copy bulk server fallback to shadow",
+      "future_surface": "events",
+      "counting_basis": "OTHER",
+      "migration_phase": "administrative",
+      "risk": "medium",
+      "required_regression_tests": [
+        "CT-006",
+        "CT-007"
+      ],
+      "reason": "Administrative/raw/helper; not a product default count."
+    },
+    {
+      "phase0a_reader_id": "P0A-R005",
+      "file": "migrations/add_evidence_record_identity.py",
+      "function": "_copy_native_evtx_fast_path_to_shadow",
+      "location": "migrations/add_evidence_record_identity.py::_copy_native_evtx_fast_path_to_shadow",
+      "query_purpose": " copy native evtx fast path to shadow",
+      "future_surface": "events",
+      "counting_basis": "OTHER",
+      "migration_phase": "administrative",
+      "risk": "medium",
+      "required_regression_tests": [
+        "CT-006",
+        "CT-007"
+      ],
+      "reason": "Administrative/raw/helper; not a product default count."
+    },
+    {
+      "phase0a_reader_id": "P0A-R006",
+      "file": "migrations/add_evidence_record_identity.py",
+      "function": "_count_bulk_server_fallback_rows",
+      "location": "migrations/add_evidence_record_identity.py::_count_bulk_server_fallback_rows",
+      "query_purpose": " count bulk server fallback rows",
+      "future_surface": "events",
+      "counting_basis": "OTHER",
+      "migration_phase": "administrative",
+      "risk": "medium",
+      "required_regression_tests": [
+        "CT-006",
+        "CT-007"
+      ],
+      "reason": "Administrative/raw/helper; not a product default count."
+    },
+    {
+      "phase0a_reader_id": "P0A-R007",
+      "file": "migrations/add_evidence_record_identity.py",
+      "function": "_count_native_evtx_fast_path_mutation_rows",
+      "location": "migrations/add_evidence_record_identity.py::_count_native_evtx_fast_path_mutation_rows",
+      "query_purpose": " count native evtx fast path mutation rows",
+      "future_surface": "events",
+      "counting_basis": "OTHER",
+      "migration_phase": "administrative",
+      "risk": "medium",
+      "required_regression_tests": [
+        "CT-006",
+        "CT-007"
+      ],
+      "reason": "Administrative/raw/helper; not a product default count."
+    },
+    {
+      "phase0a_reader_id": "P0A-R008",
+      "file": "migrations/add_evidence_record_identity.py",
+      "function": "_count_native_evtx_fast_path_rows",
+      "location": "migrations/add_evidence_record_identity.py::_count_native_evtx_fast_path_rows",
+      "query_purpose": " count native evtx fast path rows",
+      "future_surface": "events",
+      "counting_basis": "OTHER",
+      "migration_phase": "administrative",
+      "risk": "medium",
+      "required_regression_tests": [
+        "CT-006",
+        "CT-007"
+      ],
+      "reason": "Administrative/raw/helper; not a product default count."
+    },
+    {
+      "phase0a_reader_id": "P0A-R009",
+      "file": "migrations/add_evidence_record_identity.py",
+      "function": "_distinct_case_ids",
+      "location": "migrations/add_evidence_record_identity.py::_distinct_case_ids",
+      "query_purpose": " distinct case ids",
+      "future_surface": "events",
+      "counting_basis": "OTHER",
+      "migration_phase": "administrative",
+      "risk": "medium",
+      "required_regression_tests": [
+        "CT-006",
+        "CT-007"
+      ],
+      "reason": "Administrative/raw/helper; not a product default count."
+    },
+    {
+      "phase0a_reader_id": "P0A-R010",
+      "file": "migrations/add_evidence_record_identity.py",
+      "function": "_prepare_shadow_table",
+      "location": "migrations/add_evidence_record_identity.py::_prepare_shadow_table",
+      "query_purpose": " prepare shadow table",
+      "future_surface": "events",
+      "counting_basis": "OTHER",
+      "migration_phase": "administrative",
+      "risk": "medium",
+      "required_regression_tests": [
+        "CT-006",
+        "CT-007"
+      ],
+      "reason": "Administrative/raw/helper; not a product default count."
+    },
+    {
+      "phase0a_reader_id": "P0A-R011",
+      "file": "migrations/add_evidence_record_identity.py",
+      "function": "_source_window_query",
+      "location": "migrations/add_evidence_record_identity.py::_source_window_query",
+      "query_purpose": " source window query",
+      "future_surface": "events",
+      "counting_basis": "OTHER",
+      "migration_phase": "administrative",
+      "risk": "medium",
+      "required_regression_tests": [
+        "CT-006",
+        "CT-007"
+      ],
+      "reason": "Administrative/raw/helper; not a product default count."
+    },
+    {
+      "phase0a_reader_id": "P0A-R012",
+      "file": "migrations/add_evidence_record_identity.py",
+      "function": "_source_window_row_count",
+      "location": "migrations/add_evidence_record_identity.py::_source_window_row_count",
+      "query_purpose": " source window row count",
+      "future_surface": "events",
+      "counting_basis": "OTHER",
+      "migration_phase": "administrative",
+      "risk": "medium",
+      "required_regression_tests": [
+        "CT-006",
+        "CT-007"
+      ],
+      "reason": "Administrative/raw/helper; not a product default count."
+    },
+    {
+      "phase0a_reader_id": "P0A-R013",
+      "file": "migrations/add_evidence_record_identity.py",
+      "function": "_verify_events_buffer_matches_events",
+      "location": "migrations/add_evidence_record_identity.py::_verify_events_buffer_matches_events",
+      "query_purpose": " verify events buffer matches events",
+      "future_surface": "events",
+      "counting_basis": "OTHER",
+      "migration_phase": "administrative",
+      "risk": "medium",
+      "required_regression_tests": [
+        "CT-006",
+        "CT-007"
+      ],
+      "reason": "Administrative/raw/helper; not a product default count."
+    },
+    {
+      "phase0a_reader_id": "P0A-R014",
+      "file": "migrations/backfill_hayabusa_mitre_matches.py",
+      "function": "_case_ids",
+      "location": "migrations/backfill_hayabusa_mitre_matches.py::_case_ids",
+      "query_purpose": " case ids",
+      "future_surface": "events",
+      "counting_basis": "OTHER",
+      "migration_phase": "administrative",
+      "risk": "medium",
+      "required_regression_tests": [
+        "CT-006",
+        "CT-007"
+      ],
+      "reason": "Administrative/raw/helper; not a product default count."
+    },
+    {
+      "phase0a_reader_id": "P0A-R015",
+      "file": "migrations/backfill_hayabusa_mitre_matches.py",
+      "function": "backfill_case",
+      "location": "migrations/backfill_hayabusa_mitre_matches.py::backfill_case",
+      "query_purpose": "backfill case",
+      "future_surface": "events",
+      "counting_basis": "OTHER",
+      "migration_phase": "administrative",
+      "risk": "medium",
+      "required_regression_tests": [
+        "CT-006",
+        "CT-007"
+      ],
+      "reason": "Administrative/raw/helper; not a product default count."
+    },
+    {
+      "phase0a_reader_id": "P0A-R016",
+      "file": "migrations/backfill_search_blob_keyvalue.py",
+      "function": "backfill_case",
+      "location": "migrations/backfill_search_blob_keyvalue.py::backfill_case",
+      "query_purpose": "backfill case",
+      "future_surface": "events",
+      "counting_basis": "OTHER",
+      "migration_phase": "administrative",
+      "risk": "medium",
+      "required_regression_tests": [
+        "CT-006",
+        "CT-007"
+      ],
+      "reason": "Administrative/raw/helper; not a product default count."
+    },
+    {
+      "phase0a_reader_id": "P0A-R017",
+      "file": "migrations/backfill_search_blob_keyvalue.py",
+      "function": "main",
+      "location": "migrations/backfill_search_blob_keyvalue.py::main",
+      "query_purpose": "main",
+      "future_surface": "events",
+      "counting_basis": "OTHER",
+      "migration_phase": "administrative",
+      "risk": "medium",
+      "required_regression_tests": [
+        "CT-006",
+        "CT-007"
+      ],
+      "reason": "Administrative/raw/helper; not a product default count."
+    },
+    {
+      "phase0a_reader_id": "P0A-R018",
+      "file": "migrations/backfill_timestamp_utc.py",
+      "function": "backfill_case",
+      "location": "migrations/backfill_timestamp_utc.py::backfill_case",
+      "query_purpose": "backfill case",
+      "future_surface": "events",
+      "counting_basis": "OTHER",
+      "migration_phase": "administrative",
+      "risk": "medium",
+      "required_regression_tests": [
+        "CT-006",
+        "CT-007"
+      ],
+      "reason": "Administrative/raw/helper; not a product default count."
+    },
+    {
+      "phase0a_reader_id": "P0A-R019",
+      "file": "migrations/correlate_hostnames.py",
+      "function": "<module>",
+      "location": "migrations/correlate_hostnames.py::<module>",
+      "query_purpose": "<module>",
+      "future_surface": "events",
+      "counting_basis": "OTHER",
+      "migration_phase": "administrative",
+      "risk": "medium",
+      "required_regression_tests": [
+        "CT-006",
+        "CT-007"
+      ],
+      "reason": "Administrative/raw/helper; not a product default count."
+    },
+    {
+      "phase0a_reader_id": "P0A-R020",
+      "file": "migrations/correlate_hostnames.py",
+      "function": "deep_correlation",
+      "location": "migrations/correlate_hostnames.py::deep_correlation",
+      "query_purpose": "deep correlation",
+      "future_surface": "events",
+      "counting_basis": "OTHER",
+      "migration_phase": "administrative",
+      "risk": "medium",
+      "required_regression_tests": [
+        "CT-006",
+        "CT-007"
+      ],
+      "reason": "Administrative/raw/helper; not a product default count."
+    },
+    {
+      "phase0a_reader_id": "P0A-R021",
+      "file": "migrations/correlate_hostnames.py",
+      "function": "get_clickhouse_hostnames",
+      "location": "migrations/correlate_hostnames.py::get_clickhouse_hostnames",
+      "query_purpose": "get clickhouse hostnames",
+      "future_surface": "events",
+      "counting_basis": "OTHER",
+      "migration_phase": "administrative",
+      "risk": "medium",
+      "required_regression_tests": [
+        "CT-006",
+        "CT-007"
+      ],
+      "reason": "Administrative/raw/helper; not a product default count."
+    },
+    {
+      "phase0a_reader_id": "P0A-R022",
+      "file": "models/pattern_rules.py",
+      "function": "<module>",
+      "location": "models/pattern_rules.py::<module>",
+      "query_purpose": "<module>",
+      "future_surface": "events_current",
+      "counting_basis": "LEK",
+      "migration_phase": "Phase 4/5",
+      "risk": "high",
+      "required_regression_tests": [
+        "CT-014",
+        "CT-015",
+        "CT-018"
+      ],
+      "reason": "LEK logical analyst/default count."
+    },
+    {
+      "phase0a_reader_id": "P0A-R023",
+      "file": "models/rag.py",
+      "function": "<module>",
+      "location": "models/rag.py::<module>",
+      "query_purpose": "<module>",
+      "future_surface": "events_current",
+      "counting_basis": "LEK",
+      "migration_phase": "Phase 1B/3/4",
+      "risk": "high",
+      "required_regression_tests": [
+        "CT-018",
+        "CT-011",
+        "CT-022",
+        "CT-036"
+      ],
+      "reason": "LEK logical analyst/default count."
+    },
+    {
+      "phase0a_reader_id": "P0A-R024",
+      "file": "pipeline/pattern_analysis.py",
+      "function": "run_pattern_census",
+      "location": "pipeline/pattern_analysis.py::run_pattern_census",
+      "query_purpose": "run pattern census",
+      "future_surface": "events_current",
+      "counting_basis": "LEK",
+      "migration_phase": "Phase 4/5",
+      "risk": "high",
+      "required_regression_tests": [
+        "CT-014",
+        "CT-015",
+        "CT-018"
+      ],
+      "reason": "LEK logical analyst/default count."
+    },
+    {
+      "phase0a_reader_id": "P0A-R025",
+      "file": "routes/case_files.py",
+      "function": "get_case_statistics",
+      "location": "routes/case_files.py::get_case_statistics",
+      "query_purpose": "get case statistics",
+      "future_surface": "events_current",
+      "counting_basis": "LEK",
+      "migration_phase": "Phase 4/5",
+      "risk": "high",
+      "required_regression_tests": [
+        "CT-018",
+        "CT-016",
+        "CT-017"
+      ],
+      "reason": "LEK logical analyst/default count."
+    },
+    {
+      "phase0a_reader_id": "P0A-R026",
+      "file": "routes/dashboard.py",
+      "function": "dashboard_stats",
+      "location": "routes/dashboard.py::dashboard_stats",
+      "query_purpose": "dashboard stats",
+      "future_surface": "events_current",
+      "counting_basis": "LEK",
+      "migration_phase": "Phase 4/5",
+      "risk": "high",
+      "required_regression_tests": [
+        "CT-018",
+        "CT-016",
+        "CT-017"
+      ],
+      "reason": "LEK logical analyst/default count."
+    },
+    {
+      "phase0a_reader_id": "P0A-R027",
+      "file": "routes/hunting.py",
+      "function": "export_tagged_events",
+      "location": "routes/hunting.py::export_tagged_events",
+      "query_purpose": "export tagged events",
+      "future_surface": "events_current",
+      "counting_basis": "LEK",
+      "migration_phase": "Phase 4/5",
+      "risk": "high",
+      "required_regression_tests": [
+        "CT-018",
+        "CT-016",
+        "CT-017"
+      ],
+      "reason": "LEK logical analyst/default count."
+    },
+    {
+      "phase0a_reader_id": "P0A-R028",
+      "file": "routes/hunting.py",
+      "function": "export_view_events",
+      "location": "routes/hunting.py::export_view_events",
+      "query_purpose": "export view events",
+      "future_surface": "events_current",
+      "counting_basis": "LEK",
+      "migration_phase": "Phase 4/5",
+      "risk": "high",
+      "required_regression_tests": [
+        "CT-018",
+        "CT-016",
+        "CT-017"
+      ],
+      "reason": "LEK logical analyst/default count."
+    },
+    {
+      "phase0a_reader_id": "P0A-R029",
+      "file": "routes/hunting.py",
+      "function": "get_hunting_event_detail",
+      "location": "routes/hunting.py::get_hunting_event_detail",
+      "query_purpose": "get hunting event detail",
+      "future_surface": "events_current",
+      "counting_basis": "LEK",
+      "migration_phase": "Phase 4/5",
+      "risk": "high",
+      "required_regression_tests": [
+        "CT-018",
+        "CT-016",
+        "CT-017"
+      ],
+      "reason": "LEK logical analyst/default count."
+    },
+    {
+      "phase0a_reader_id": "P0A-R030",
+      "file": "routes/hunting.py",
+      "function": "get_hunting_events",
+      "location": "routes/hunting.py::get_hunting_events",
+      "query_purpose": "get hunting events",
+      "future_surface": "events_current",
+      "counting_basis": "LEK",
+      "migration_phase": "Phase 4/5",
+      "risk": "high",
+      "required_regression_tests": [
+        "CT-018",
+        "CT-016",
+        "CT-017"
+      ],
+      "reason": "LEK logical analyst/default count."
+    },
+    {
+      "phase0a_reader_id": "P0A-R031",
+      "file": "routes/hunting.py",
+      "function": "get_noise_stats",
+      "location": "routes/hunting.py::get_noise_stats",
+      "query_purpose": "get noise stats",
+      "future_surface": "events_current",
+      "counting_basis": "LEK",
+      "migration_phase": "Phase 4/5",
+      "risk": "high",
+      "required_regression_tests": [
+        "CT-018",
+        "CT-016",
+        "CT-017"
+      ],
+      "reason": "LEK logical analyst/default count."
+    },
+    {
+      "phase0a_reader_id": "P0A-R032",
+      "file": "routes/hunting.py",
+      "function": "get_process_children",
+      "location": "routes/hunting.py::get_process_children",
+      "query_purpose": "get process children",
+      "future_surface": "events_current",
+      "counting_basis": "LEK",
+      "migration_phase": "Phase 4/5",
+      "risk": "high",
+      "required_regression_tests": [
+        "CT-018",
+        "CT-016",
+        "CT-017"
+      ],
+      "reason": "LEK logical analyst/default count."
+    },
+    {
+      "phase0a_reader_id": "P0A-R033",
+      "file": "routes/hunting.py",
+      "function": "get_process_hostnames",
+      "location": "routes/hunting.py::get_process_hostnames",
+      "query_purpose": "get process hostnames",
+      "future_surface": "events_current",
+      "counting_basis": "LEK",
+      "migration_phase": "Phase 4/5",
+      "risk": "high",
+      "required_regression_tests": [
+        "CT-018",
+        "CT-016",
+        "CT-017"
+      ],
+      "reason": "LEK logical analyst/default count."
+    },
+    {
+      "phase0a_reader_id": "P0A-R034",
+      "file": "routes/hunting.py",
+      "function": "get_process_parent",
+      "location": "routes/hunting.py::get_process_parent",
+      "query_purpose": "get process parent",
+      "future_surface": "events_current",
+      "counting_basis": "LEK",
+      "migration_phase": "Phase 4/5",
+      "risk": "high",
+      "required_regression_tests": [
+        "CT-018",
+        "CT-016",
+        "CT-017"
+      ],
+      "reason": "LEK logical analyst/default count."
+    },
+    {
+      "phase0a_reader_id": "P0A-R035",
+      "file": "routes/hunting.py",
+      "function": "get_raw_event_data",
+      "location": "routes/hunting.py::get_raw_event_data",
+      "query_purpose": "get raw event data",
+      "future_surface": "events_current",
+      "counting_basis": "LEK",
+      "migration_phase": "Phase 4/5",
+      "risk": "high",
+      "required_regression_tests": [
+        "CT-018",
+        "CT-016",
+        "CT-017"
+      ],
+      "reason": "LEK logical analyst/default count."
+    },
+    {
+      "phase0a_reader_id": "P0A-R036",
+      "file": "routes/hunting.py",
+      "function": "get_unified_process_tree::get_children_from_events",
+      "location": "routes/hunting.py::get_unified_process_tree::get_children_from_events",
+      "query_purpose": "get unified process tree / get children from events",
+      "future_surface": "events_current",
+      "counting_basis": "LEK",
+      "migration_phase": "Phase 4/5",
+      "risk": "high",
+      "required_regression_tests": [
+        "CT-018",
+        "CT-016",
+        "CT-017"
+      ],
+      "reason": "LEK logical analyst/default count."
+    },
+    {
+      "phase0a_reader_id": "P0A-R037",
+      "file": "routes/hunting.py",
+      "function": "get_unified_process_tree::get_process_from_events",
+      "location": "routes/hunting.py::get_unified_process_tree::get_process_from_events",
+      "query_purpose": "get unified process tree / get process from events",
+      "future_surface": "events_current",
+      "counting_basis": "LEK",
+      "migration_phase": "Phase 4/5",
+      "risk": "high",
+      "required_regression_tests": [
+        "CT-018",
+        "CT-016",
+        "CT-017"
+      ],
+      "reason": "LEK logical analyst/default count."
+    },
+    {
+      "phase0a_reader_id": "P0A-R038",
+      "file": "routes/hunting.py",
+      "function": "get_unified_processes",
+      "location": "routes/hunting.py::get_unified_processes",
+      "query_purpose": "get unified processes",
+      "future_surface": "events_current",
+      "counting_basis": "LEK",
+      "migration_phase": "Phase 4/5",
+      "risk": "high",
+      "required_regression_tests": [
+        "CT-018",
+        "CT-016",
+        "CT-017"
+      ],
+      "reason": "LEK logical analyst/default count."
+    },
+    {
+      "phase0a_reader_id": "P0A-R039",
+      "file": "routes/hunting.py",
+      "function": "list_mitre_mapping_matches",
+      "location": "routes/hunting.py::list_mitre_mapping_matches",
+      "query_purpose": "list mitre mapping matches",
+      "future_surface": "events_current",
+      "counting_basis": "LEK",
+      "migration_phase": "Phase 4/5",
+      "risk": "high",
+      "required_regression_tests": [
+        "CT-018",
+        "CT-016",
+        "CT-017"
+      ],
+      "reason": "LEK logical analyst/default count."
+    },
+    {
+      "phase0a_reader_id": "P0A-R040",
+      "file": "routes/hunting_query_helpers.py",
+      "function": "resolve_case_latest_event_time",
+      "location": "routes/hunting_query_helpers.py::resolve_case_latest_event_time",
+      "query_purpose": "resolve case latest event time",
+      "future_surface": "events_current",
+      "counting_basis": "LEK",
+      "migration_phase": "Phase 4/5",
+      "risk": "high",
+      "required_regression_tests": [
+        "CT-018",
+        "CT-016",
+        "CT-017"
+      ],
+      "reason": "LEK logical analyst/default count."
+    },
+    {
+      "phase0a_reader_id": "P0A-R041",
+      "file": "routes/iocs.py",
+      "function": "get_find_iocs_stats",
+      "location": "routes/iocs.py::get_find_iocs_stats",
+      "query_purpose": "get find iocs stats",
+      "future_surface": "events_current",
+      "counting_basis": "LEK",
+      "migration_phase": "Phase 4/5",
+      "risk": "high",
+      "required_regression_tests": [
+        "CT-018",
+        "CT-019"
+      ],
+      "reason": "LEK logical analyst/default count."
+    },
+    {
+      "phase0a_reader_id": "P0A-R042",
+      "file": "routes/noise.py",
+      "function": "api_test_matching",
+      "location": "routes/noise.py::api_test_matching",
+      "query_purpose": "api test matching",
+      "future_surface": "events_current",
+      "counting_basis": "LEK",
+      "migration_phase": "Phase 5",
+      "risk": "medium",
+      "required_regression_tests": [
+        "CT-018"
+      ],
+      "reason": "LEK logical analyst/default count."
+    },
+    {
+      "phase0a_reader_id": "P0A-R043",
+      "file": "routes/noise.py",
+      "function": "api_test_single_rule",
+      "location": "routes/noise.py::api_test_single_rule",
+      "query_purpose": "api test single rule",
+      "future_surface": "events_current",
+      "counting_basis": "LEK",
+      "migration_phase": "Phase 5",
+      "risk": "medium",
+      "required_regression_tests": [
+        "CT-018"
+      ],
+      "reason": "LEK logical analyst/default count."
+    },
+    {
+      "phase0a_reader_id": "P0A-R044",
+      "file": "routes/rag.py",
+      "function": "ask_ai",
+      "location": "routes/rag.py::ask_ai",
+      "query_purpose": "ask ai",
+      "future_surface": "events_current",
+      "counting_basis": "LEK",
+      "migration_phase": "Phase 1B/3/4",
+      "risk": "high",
+      "required_regression_tests": [
+        "CT-018",
+        "CT-011",
+        "CT-022",
+        "CT-036"
+      ],
+      "reason": "LEK logical analyst/default count."
+    },
+    {
+      "phase0a_reader_id": "P0A-R045",
+      "file": "routes/rag.py",
+      "function": "get_case_rag_stats",
+      "location": "routes/rag.py::get_case_rag_stats",
+      "query_purpose": "get case rag stats",
+      "future_surface": "events_current",
+      "counting_basis": "LEK",
+      "migration_phase": "Phase 1B/3/4",
+      "risk": "high",
+      "required_regression_tests": [
+        "CT-018",
+        "CT-011",
+        "CT-022",
+        "CT-036"
+      ],
+      "reason": "LEK logical analyst/default count."
+    },
+    {
+      "phase0a_reader_id": "P0A-R046",
+      "file": "routes/rag.py",
+      "function": "review_events",
+      "location": "routes/rag.py::review_events",
+      "query_purpose": "review events",
+      "future_surface": "events_current",
+      "counting_basis": "LEK",
+      "migration_phase": "Phase 1B/3/4",
+      "risk": "high",
+      "required_regression_tests": [
+        "CT-018",
+        "CT-011",
+        "CT-022",
+        "CT-036"
+      ],
+      "reason": "LEK logical analyst/default count."
+    },
+    {
+      "phase0a_reader_id": "P0A-R047",
+      "file": "tasks/celery_tasks.py",
+      "function": "_insert_hayabusa_mitre_matches_for_case_file",
+      "location": "tasks/celery_tasks.py::_insert_hayabusa_mitre_matches_for_case_file",
+      "query_purpose": "Hayabusa MITRE backfill from freshly inserted EVTX rows",
+      "future_surface": "event_observations_current",
+      "counting_basis": "ERK",
+      "migration_phase": "Phase 3/5",
+      "risk": "medium",
+      "required_regression_tests": [
+        "CT-019"
+      ],
+      "reason": "ERK physical provenance/support."
+    },
+    {
+      "phase0a_reader_id": "P0A-R048",
+      "file": "tasks/celery_tasks.py",
+      "function": "delete_case_events_task",
+      "location": "tasks/celery_tasks.py::delete_case_events_task",
+      "query_purpose": "delete case events task",
+      "future_surface": "events",
+      "counting_basis": "OTHER",
+      "migration_phase": "Phase 3/4",
+      "risk": "high",
+      "required_regression_tests": [
+        "CT-023",
+        "CT-001"
+      ],
+      "reason": "Administrative/raw/helper; not a product default count."
+    },
+    {
+      "phase0a_reader_id": "P0A-R049",
+      "file": "tasks/celery_tasks.py",
+      "function": "find_iocs_in_events_task",
+      "location": "tasks/celery_tasks.py::find_iocs_in_events_task",
+      "query_purpose": "find iocs in events task",
+      "future_surface": "event_observations_current",
+      "counting_basis": "ERK",
+      "migration_phase": "Phase 3",
+      "risk": "high",
+      "required_regression_tests": [
+        "CT-019"
+      ],
+      "reason": "ERK physical provenance/support."
+    },
+    {
+      "phase0a_reader_id": "P0A-R050",
+      "file": "tasks/celery_tasks.py",
+      "function": "reindex_case_task",
+      "location": "tasks/celery_tasks.py::reindex_case_task",
+      "query_purpose": "reindex case task",
+      "future_surface": "events",
+      "counting_basis": "OTHER",
+      "migration_phase": "Phase 3/4",
+      "risk": "high",
+      "required_regression_tests": [
+        "CT-023",
+        "CT-001"
+      ],
+      "reason": "Administrative/raw/helper; not a product default count."
+    },
+    {
+      "phase0a_reader_id": "P0A-R051",
+      "file": "tasks/mitre_mapper.py",
+      "function": "map_case_mitre_procedures",
+      "location": "tasks/mitre_mapper.py::map_case_mitre_procedures",
+      "query_purpose": "map case mitre procedures",
+      "future_surface": "events_current",
+      "counting_basis": "LEK",
+      "migration_phase": "Phase 4/5",
+      "risk": "high",
+      "required_regression_tests": [
+        "CT-014",
+        "CT-015",
+        "CT-018"
+      ],
+      "reason": "LEK logical analyst/default count."
+    },
+    {
+      "phase0a_reader_id": "P0A-R052",
+      "file": "tasks/noise_tagger.py",
+      "function": "tag_noise_events",
+      "location": "tasks/noise_tagger.py::tag_noise_events",
+      "query_purpose": "tag noise events",
+      "future_surface": "event_observations_current",
+      "counting_basis": "ERK",
+      "migration_phase": "Phase 5",
+      "risk": "medium",
+      "required_regression_tests": [
+        "CT-013"
+      ],
+      "reason": "ERK physical provenance/support."
+    },
+    {
+      "phase0a_reader_id": "P0A-R053",
+      "file": "tasks/rag_tasks.py",
+      "function": "_count_scope_eligible_events",
+      "location": "tasks/rag_tasks.py::_count_scope_eligible_events",
+      "query_purpose": " count scope eligible events",
+      "future_surface": "events_current",
+      "counting_basis": "LEK",
+      "migration_phase": "Phase 1B/3/4",
+      "risk": "high",
+      "required_regression_tests": [
+        "CT-018",
+        "CT-011",
+        "CT-022",
+        "CT-036"
+      ],
+      "reason": "LEK logical analyst/default count."
+    },
+    {
+      "phase0a_reader_id": "P0A-R054",
+      "file": "tasks/rag_tasks.py",
+      "function": "_get_semantic_pattern_suggestions",
+      "location": "tasks/rag_tasks.py::_get_semantic_pattern_suggestions",
+      "query_purpose": " get semantic pattern suggestions",
+      "future_surface": "events_current",
+      "counting_basis": "LEK",
+      "migration_phase": "Phase 1B/3/4",
+      "risk": "high",
+      "required_regression_tests": [
+        "CT-018",
+        "CT-011",
+        "CT-022",
+        "CT-036"
+      ],
+      "reason": "LEK logical analyst/default count."
+    },
+    {
+      "phase0a_reader_id": "P0A-R055",
+      "file": "tasks/rag_tasks.py",
+      "function": "_prepare_pattern_detection_query",
+      "location": "tasks/rag_tasks.py::_prepare_pattern_detection_query",
+      "query_purpose": " prepare pattern detection query",
+      "future_surface": "events_current",
+      "counting_basis": "LEK",
+      "migration_phase": "Phase 1B/3/4",
+      "risk": "high",
+      "required_regression_tests": [
+        "CT-018",
+        "CT-011",
+        "CT-022",
+        "CT-036"
+      ],
+      "reason": "LEK logical analyst/default count."
+    },
+    {
+      "phase0a_reader_id": "P0A-R056",
+      "file": "tasks/rag_tasks.py",
+      "function": "rag_discover_patterns",
+      "location": "tasks/rag_tasks.py::rag_discover_patterns",
+      "query_purpose": "rag discover patterns",
+      "future_surface": "events_current",
+      "counting_basis": "LEK",
+      "migration_phase": "Phase 1B/3/4",
+      "risk": "high",
+      "required_regression_tests": [
+        "CT-018",
+        "CT-011",
+        "CT-022",
+        "CT-036"
+      ],
+      "reason": "LEK logical analyst/default count."
+    },
+    {
+      "phase0a_reader_id": "P0A-R057",
+      "file": "tasks/rag_tasks.py",
+      "function": "rag_embed_high_severity_events",
+      "location": "tasks/rag_tasks.py::rag_embed_high_severity_events",
+      "query_purpose": "rag embed high severity events",
+      "future_surface": "events_current",
+      "counting_basis": "LEK",
+      "migration_phase": "Phase 1B/3/4",
+      "risk": "high",
+      "required_regression_tests": [
+        "CT-018",
+        "CT-011",
+        "CT-022",
+        "CT-036"
+      ],
+      "reason": "LEK logical analyst/default count."
+    },
+    {
+      "phase0a_reader_id": "P0A-R058",
+      "file": "tasks/rag_tasks.py",
+      "function": "rag_generate_timeline",
+      "location": "tasks/rag_tasks.py::rag_generate_timeline",
+      "query_purpose": "rag generate timeline",
+      "future_surface": "events_current",
+      "counting_basis": "LEK",
+      "migration_phase": "Phase 1B/3/4",
+      "risk": "high",
+      "required_regression_tests": [
+        "CT-018",
+        "CT-011",
+        "CT-022",
+        "CT-036"
+      ],
+      "reason": "LEK logical analyst/default count."
+    },
+    {
+      "phase0a_reader_id": "P0A-R059",
+      "file": "tasks/rag_tasks.py",
+      "function": "rag_hunt_related",
+      "location": "tasks/rag_tasks.py::rag_hunt_related",
+      "query_purpose": "rag hunt related",
+      "future_surface": "events_current",
+      "counting_basis": "LEK",
+      "migration_phase": "Phase 1B/3/4",
+      "risk": "high",
+      "required_regression_tests": [
+        "CT-018",
+        "CT-011",
+        "CT-022",
+        "CT-036"
+      ],
+      "reason": "LEK logical analyst/default count."
+    },
+    {
+      "phase0a_reader_id": "P0A-R060",
+      "file": "utils/ai_event_summary.py",
+      "function": "_build_event_context",
+      "location": "utils/ai_event_summary.py::_build_event_context",
+      "query_purpose": " build event context",
+      "future_surface": "events_current",
+      "counting_basis": "LEK",
+      "migration_phase": "Phase 1B/3/4",
+      "risk": "high",
+      "required_regression_tests": [
+        "CT-018",
+        "CT-011",
+        "CT-022",
+        "CT-036"
+      ],
+      "reason": "LEK logical analyst/default count."
+    },
+    {
+      "phase0a_reader_id": "P0A-R061",
+      "file": "utils/ai_event_summary.py",
+      "function": "_extract_key_indicators",
+      "location": "utils/ai_event_summary.py::_extract_key_indicators",
+      "query_purpose": " extract key indicators",
+      "future_surface": "events_current",
+      "counting_basis": "LEK",
+      "migration_phase": "Phase 1B/3/4",
+      "risk": "high",
+      "required_regression_tests": [
+        "CT-018",
+        "CT-011",
+        "CT-022",
+        "CT-036"
+      ],
+      "reason": "LEK logical analyst/default count."
+    },
+    {
+      "phase0a_reader_id": "P0A-R062",
+      "file": "utils/ai_event_summary.py",
+      "function": "_fetch_tagged_events",
+      "location": "utils/ai_event_summary.py::_fetch_tagged_events",
+      "query_purpose": " fetch tagged events",
+      "future_surface": "events_current",
+      "counting_basis": "LEK",
+      "migration_phase": "Phase 1B/3/4",
+      "risk": "high",
+      "required_regression_tests": [
+        "CT-018",
+        "CT-011",
+        "CT-022",
+        "CT-036"
+      ],
+      "reason": "LEK logical analyst/default count."
+    },
+    {
+      "phase0a_reader_id": "P0A-R063",
+      "file": "utils/ai_report_generator.py",
+      "function": "_fetch_tagged_events",
+      "location": "utils/ai_report_generator.py::_fetch_tagged_events",
+      "query_purpose": " fetch tagged events",
+      "future_surface": "events_current",
+      "counting_basis": "LEK",
+      "migration_phase": "Phase 1B/3/4",
+      "risk": "high",
+      "required_regression_tests": [
+        "CT-018",
+        "CT-011",
+        "CT-022",
+        "CT-036"
+      ],
+      "reason": "LEK logical analyst/default count."
+    },
+    {
+      "phase0a_reader_id": "P0A-R064",
+      "file": "utils/ai_report_generator.py",
+      "function": "generate_timeline",
+      "location": "utils/ai_report_generator.py::generate_timeline",
+      "query_purpose": "generate timeline",
+      "future_surface": "events_current",
+      "counting_basis": "LEK",
+      "migration_phase": "Phase 1B/3/4",
+      "risk": "high",
+      "required_regression_tests": [
+        "CT-018",
+        "CT-011",
+        "CT-022",
+        "CT-036"
+      ],
+      "reason": "LEK logical analyst/default count."
+    },
+    {
+      "phase0a_reader_id": "P0A-R065",
+      "file": "utils/ai_timeline_generator.py",
+      "function": "_fetch_tagged_events",
+      "location": "utils/ai_timeline_generator.py::_fetch_tagged_events",
+      "query_purpose": " fetch tagged events",
+      "future_surface": "events_current",
+      "counting_basis": "LEK",
+      "migration_phase": "Phase 1B/3/4",
+      "risk": "high",
+      "required_regression_tests": [
+        "CT-018",
+        "CT-011",
+        "CT-022",
+        "CT-036"
+      ],
+      "reason": "LEK logical analyst/default count."
+    },
+    {
+      "phase0a_reader_id": "P0A-R066",
+      "file": "utils/behavioral_profiler.py",
+      "function": "_calculate_system_profile",
+      "location": "utils/behavioral_profiler.py::_calculate_system_profile",
+      "query_purpose": " calculate system profile",
+      "future_surface": "events_current",
+      "counting_basis": "LEK",
+      "migration_phase": "Phase 6",
+      "risk": "high",
+      "required_regression_tests": [
+        "CT-018",
+        "CT-009",
+        "CT-010"
+      ],
+      "reason": "LEK logical analyst/default count."
+    },
+    {
+      "phase0a_reader_id": "P0A-R067",
+      "file": "utils/behavioral_profiler.py",
+      "function": "_calculate_user_profile",
+      "location": "utils/behavioral_profiler.py::_calculate_user_profile",
+      "query_purpose": " calculate user profile",
+      "future_surface": "events_current",
+      "counting_basis": "LEK",
+      "migration_phase": "Phase 6",
+      "risk": "high",
+      "required_regression_tests": [
+        "CT-018",
+        "CT-009",
+        "CT-010"
+      ],
+      "reason": "LEK logical analyst/default count."
+    },
+    {
+      "phase0a_reader_id": "P0A-R068",
+      "file": "utils/candidate_extractor.py",
+      "function": "_extract_events",
+      "location": "utils/candidate_extractor.py::_extract_events",
+      "query_purpose": " extract events",
+      "future_surface": "events_current",
+      "counting_basis": "LEK",
+      "migration_phase": "Phase 4/5",
+      "risk": "high",
+      "required_regression_tests": [
+        "CT-014",
+        "CT-015",
+        "CT-018"
+      ],
+      "reason": "LEK logical analyst/default count."
+    },
+    {
+      "phase0a_reader_id": "P0A-R069",
+      "file": "utils/candidate_extractor.py",
+      "function": "_extract_mitre_support_events",
+      "location": "utils/candidate_extractor.py::_extract_mitre_support_events",
+      "query_purpose": " extract mitre support events",
+      "future_surface": "events_current",
+      "counting_basis": "LEK",
+      "migration_phase": "Phase 4/5",
+      "risk": "high",
+      "required_regression_tests": [
+        "CT-014",
+        "CT-015",
+        "CT-018"
+      ],
+      "reason": "LEK logical analyst/default count."
+    },
+    {
+      "phase0a_reader_id": "P0A-R070",
+      "file": "utils/candidate_extractor.py",
+      "function": "_probe_anchor_exists",
+      "location": "utils/candidate_extractor.py::_probe_anchor_exists",
+      "query_purpose": " probe anchor exists",
+      "future_surface": "events_current",
+      "counting_basis": "LEK",
+      "migration_phase": "Phase 4/5",
+      "risk": "high",
+      "required_regression_tests": [
+        "CT-014",
+        "CT-015",
+        "CT-018"
+      ],
+      "reason": "LEK logical analyst/default count."
+    },
+    {
+      "phase0a_reader_id": "P0A-R071",
+      "file": "utils/chat_agent.py",
+      "function": "get_case_context",
+      "location": "utils/chat_agent.py::get_case_context",
+      "query_purpose": "get case context",
+      "future_surface": "events_current",
+      "counting_basis": "LEK",
+      "migration_phase": "Phase 1B/3/4",
+      "risk": "high",
+      "required_regression_tests": [
+        "CT-018",
+        "CT-011",
+        "CT-022",
+        "CT-036"
+      ],
+      "reason": "LEK logical analyst/default count."
+    },
+    {
+      "phase0a_reader_id": "P0A-R072",
+      "file": "utils/chat_tools.py",
+      "function": "_query_event_page",
+      "location": "utils/chat_tools.py::_query_event_page",
+      "query_purpose": " query event page",
+      "future_surface": "events_current",
+      "counting_basis": "LEK",
+      "migration_phase": "Phase 1B/3/4",
+      "risk": "high",
+      "required_regression_tests": [
+        "CT-018",
+        "CT-011",
+        "CT-022",
+        "CT-036"
+      ],
+      "reason": "LEK logical analyst/default count."
+    },
+    {
+      "phase0a_reader_id": "P0A-R073",
+      "file": "utils/chat_tools.py",
+      "function": "_top_values",
+      "location": "utils/chat_tools.py::_top_values",
+      "query_purpose": " top values",
+      "future_surface": "events_current",
+      "counting_basis": "LEK",
+      "migration_phase": "Phase 1B/3/4",
+      "risk": "high",
+      "required_regression_tests": [
+        "CT-018",
+        "CT-011",
+        "CT-022",
+        "CT-036"
+      ],
+      "reason": "LEK logical analyst/default count."
+    },
+    {
+      "phase0a_reader_id": "P0A-R074",
+      "file": "utils/chat_tools.py",
+      "function": "count_events",
+      "location": "utils/chat_tools.py::count_events",
+      "query_purpose": "count events",
+      "future_surface": "events_current",
+      "counting_basis": "LEK",
+      "migration_phase": "Phase 1B/3/4",
+      "risk": "high",
+      "required_regression_tests": [
+        "CT-018",
+        "CT-011",
+        "CT-022",
+        "CT-036"
+      ],
+      "reason": "LEK logical analyst/default count."
+    },
+    {
+      "phase0a_reader_id": "P0A-R075",
+      "file": "utils/chat_tools.py",
+      "function": "get_authentication_summary",
+      "location": "utils/chat_tools.py::get_authentication_summary",
+      "query_purpose": "get authentication summary",
+      "future_surface": "events_current",
+      "counting_basis": "LEK",
+      "migration_phase": "Phase 1B/3/4",
+      "risk": "high",
+      "required_regression_tests": [
+        "CT-018",
+        "CT-011",
+        "CT-022",
+        "CT-036"
+      ],
+      "reason": "LEK logical analyst/default count."
+    },
+    {
+      "phase0a_reader_id": "P0A-R076",
+      "file": "utils/chat_tools.py",
+      "function": "get_case_coverage",
+      "location": "utils/chat_tools.py::get_case_coverage",
+      "query_purpose": "get case coverage",
+      "future_surface": "events_current",
+      "counting_basis": "LEK",
+      "migration_phase": "Phase 1B/3/4",
+      "risk": "high",
+      "required_regression_tests": [
+        "CT-018",
+        "CT-011",
+        "CT-022",
+        "CT-036"
+      ],
+      "reason": "LEK logical analyst/default count."
+    },
+    {
+      "phase0a_reader_id": "P0A-R077",
+      "file": "utils/chat_tools.py",
+      "function": "get_entity_profile",
+      "location": "utils/chat_tools.py::get_entity_profile",
+      "query_purpose": "get entity profile",
+      "future_surface": "events_current",
+      "counting_basis": "LEK",
+      "migration_phase": "Phase 1B/3/4",
+      "risk": "high",
+      "required_regression_tests": [
+        "CT-018",
+        "CT-011",
+        "CT-022",
+        "CT-036"
+      ],
+      "reason": "LEK logical analyst/default count."
+    },
+    {
+      "phase0a_reader_id": "P0A-R078",
+      "file": "utils/chat_tools.py",
+      "function": "get_event_context",
+      "location": "utils/chat_tools.py::get_event_context",
+      "query_purpose": "get event context",
+      "future_surface": "events_current",
+      "counting_basis": "LEK",
+      "migration_phase": "Phase 1B/3/4",
+      "risk": "high",
+      "required_regression_tests": [
+        "CT-018",
+        "CT-011",
+        "CT-022",
+        "CT-036"
+      ],
+      "reason": "LEK logical analyst/default count."
+    },
+    {
+      "phase0a_reader_id": "P0A-R079",
+      "file": "utils/chat_tools.py",
+      "function": "get_processes",
+      "location": "utils/chat_tools.py::get_processes",
+      "query_purpose": "get processes",
+      "future_surface": "events_current",
+      "counting_basis": "LEK",
+      "migration_phase": "Phase 1B/3/4",
+      "risk": "high",
+      "required_regression_tests": [
+        "CT-018",
+        "CT-011",
+        "CT-022",
+        "CT-036"
+      ],
+      "reason": "LEK logical analyst/default count."
+    },
+    {
+      "phase0a_reader_id": "P0A-R080",
+      "file": "utils/chat_tools.py",
+      "function": "get_raw_event",
+      "location": "utils/chat_tools.py::get_raw_event",
+      "query_purpose": "get raw event",
+      "future_surface": "events_current",
+      "counting_basis": "LEK",
+      "migration_phase": "Phase 1B/3/4",
+      "risk": "high",
+      "required_regression_tests": [
+        "CT-018",
+        "CT-011",
+        "CT-022",
+        "CT-036"
+      ],
+      "reason": "LEK logical analyst/default count."
+    },
+    {
+      "phase0a_reader_id": "P0A-R081",
+      "file": "utils/chat_tools.py",
+      "function": "investigate_question",
+      "location": "utils/chat_tools.py::investigate_question",
+      "query_purpose": "investigate question",
+      "future_surface": "events_current",
+      "counting_basis": "LEK",
+      "migration_phase": "Phase 1B/3/4",
+      "risk": "high",
+      "required_regression_tests": [
+        "CT-018",
+        "CT-011",
+        "CT-022",
+        "CT-036"
+      ],
+      "reason": "LEK logical analyst/default count."
+    },
+    {
+      "phase0a_reader_id": "P0A-R082",
+      "file": "utils/chat_tools.py",
+      "function": "investigate_question::run_event_section",
+      "location": "utils/chat_tools.py::investigate_question::run_event_section",
+      "query_purpose": "investigate question / run event section",
+      "future_surface": "events_current",
+      "counting_basis": "LEK",
+      "migration_phase": "Phase 1B/3/4",
+      "risk": "high",
+      "required_regression_tests": [
+        "CT-018",
+        "CT-011",
+        "CT-022",
+        "CT-036"
+      ],
+      "reason": "LEK logical analyst/default count."
+    },
+    {
+      "phase0a_reader_id": "P0A-R083",
+      "file": "utils/chat_tools.py",
+      "function": "lookup_ioc",
+      "location": "utils/chat_tools.py::lookup_ioc",
+      "query_purpose": "lookup ioc",
+      "future_surface": "events_current",
+      "counting_basis": "LEK",
+      "migration_phase": "Phase 1B/3/4",
+      "risk": "high",
+      "required_regression_tests": [
+        "CT-018",
+        "CT-011",
+        "CT-022",
+        "CT-036"
+      ],
+      "reason": "LEK logical analyst/default count."
+    },
+    {
+      "phase0a_reader_id": "P0A-R084",
+      "file": "utils/chat_tools.py",
+      "function": "query_events",
+      "location": "utils/chat_tools.py::query_events",
+      "query_purpose": "query events",
+      "future_surface": "events_current",
+      "counting_basis": "LEK",
+      "migration_phase": "Phase 1B/3/4",
+      "risk": "high",
+      "required_regression_tests": [
+        "CT-018",
+        "CT-011",
+        "CT-022",
+        "CT-036"
+      ],
+      "reason": "LEK logical analyst/default count."
+    },
+    {
+      "phase0a_reader_id": "P0A-R085",
+      "file": "utils/clickhouse.py",
+      "function": "count_events",
+      "location": "utils/clickhouse.py::count_events",
+      "query_purpose": "count events",
+      "future_surface": "events",
+      "counting_basis": "OTHER",
+      "migration_phase": "Phase 4",
+      "risk": "high",
+      "required_regression_tests": [
+        "CT-018",
+        "CT-013"
+      ],
+      "reason": "Administrative/raw/helper; not a product default count."
+    },
+    {
+      "phase0a_reader_id": "P0A-R086",
+      "file": "utils/clickhouse.py",
+      "function": "count_file_events",
+      "location": "utils/clickhouse.py::count_file_events",
+      "query_purpose": "count file events",
+      "future_surface": "events",
+      "counting_basis": "OTHER",
+      "migration_phase": "Phase 4",
+      "risk": "high",
+      "required_regression_tests": [
+        "CT-018",
+        "CT-013"
+      ],
+      "reason": "Administrative/raw/helper; not a product default count."
+    },
+    {
+      "phase0a_reader_id": "P0A-R087",
+      "file": "utils/clickhouse.py",
+      "function": "get_event_by_evidence_record_key",
+      "location": "utils/clickhouse.py::get_event_by_evidence_record_key",
+      "query_purpose": "Resolve one event by ERK",
+      "future_surface": "event_observations_current",
+      "counting_basis": "ERK",
+      "migration_phase": "Phase 4",
+      "risk": "high",
+      "required_regression_tests": [
+        "CT-013",
+        "CT-019"
+      ],
+      "reason": "ERK physical provenance/support."
+    },
+    {
+      "phase0a_reader_id": "P0A-R088",
+      "file": "utils/clickhouse.py",
+      "function": "get_event_stats",
+      "location": "utils/clickhouse.py::get_event_stats",
+      "query_purpose": "get event stats",
+      "future_surface": "events",
+      "counting_basis": "OTHER",
+      "migration_phase": "Phase 4",
+      "risk": "high",
+      "required_regression_tests": [
+        "CT-018",
+        "CT-013"
+      ],
+      "reason": "Administrative/raw/helper; not a product default count."
+    },
+    {
+      "phase0a_reader_id": "P0A-R089",
+      "file": "utils/clickhouse.py",
+      "function": "query_events",
+      "location": "utils/clickhouse.py::query_events",
+      "query_purpose": "query events",
+      "future_surface": "events",
+      "counting_basis": "OTHER",
+      "migration_phase": "Phase 4",
+      "risk": "high",
+      "required_regression_tests": [
+        "CT-018",
+        "CT-013"
+      ],
+      "reason": "Administrative/raw/helper; not a product default count."
+    },
+    {
+      "phase0a_reader_id": "P0A-R090",
+      "file": "utils/deterministic_evidence_engine.py",
+      "function": "_check_coverage",
+      "location": "utils/deterministic_evidence_engine.py::_check_coverage",
+      "query_purpose": " check coverage",
+      "future_surface": "events_current",
+      "counting_basis": "LEK",
+      "migration_phase": "Phase 4/5",
+      "risk": "high",
+      "required_regression_tests": [
+        "CT-014",
+        "CT-015",
+        "CT-018"
+      ],
+      "reason": "LEK logical analyst/default count."
+    },
+    {
+      "phase0a_reader_id": "P0A-R091",
+      "file": "utils/deterministic_evidence_engine.py",
+      "function": "_check_coverage_batch",
+      "location": "utils/deterministic_evidence_engine.py::_check_coverage_batch",
+      "query_purpose": " check coverage batch",
+      "future_surface": "events_current",
+      "counting_basis": "LEK",
+      "migration_phase": "Phase 4/5",
+      "risk": "high",
+      "required_regression_tests": [
+        "CT-014",
+        "CT-015",
+        "CT-018"
+      ],
+      "reason": "LEK logical analyst/default count."
+    },
+    {
+      "phase0a_reader_id": "P0A-R092",
+      "file": "utils/deterministic_evidence_engine.py",
+      "function": "_detect_bursts",
+      "location": "utils/deterministic_evidence_engine.py::_detect_bursts",
+      "query_purpose": " detect bursts",
+      "future_surface": "events_current",
+      "counting_basis": "LEK",
+      "migration_phase": "Phase 4/5",
+      "risk": "high",
+      "required_regression_tests": [
+        "CT-014",
+        "CT-015",
+        "CT-018"
+      ],
+      "reason": "LEK logical analyst/default count."
+    },
+    {
+      "phase0a_reader_id": "P0A-R093",
+      "file": "utils/deterministic_evidence_engine.py",
+      "function": "_evaluate_spread",
+      "location": "utils/deterministic_evidence_engine.py::_evaluate_spread",
+      "query_purpose": " evaluate spread",
+      "future_surface": "events_current",
+      "counting_basis": "LEK",
+      "migration_phase": "Phase 4/5",
+      "risk": "high",
+      "required_regression_tests": [
+        "CT-014",
+        "CT-015",
+        "CT-018"
+      ],
+      "reason": "LEK logical analyst/default count."
+    },
+    {
+      "phase0a_reader_id": "P0A-R094",
+      "file": "utils/deterministic_evidence_engine.py",
+      "function": "_query_sequence_step",
+      "location": "utils/deterministic_evidence_engine.py::_query_sequence_step",
+      "query_purpose": " query sequence step",
+      "future_surface": "events_current",
+      "counting_basis": "LEK",
+      "migration_phase": "Phase 4/5",
+      "risk": "high",
+      "required_regression_tests": [
+        "CT-014",
+        "CT-015",
+        "CT-018"
+      ],
+      "reason": "LEK logical analyst/default count."
+    },
+    {
+      "phase0a_reader_id": "P0A-R095",
+      "file": "utils/event_analyst_state.py",
+      "function": "_count_matching",
+      "location": "utils/event_analyst_state.py::_count_matching",
+      "query_purpose": " count matching",
+      "future_surface": "event_observations_current",
+      "counting_basis": "ERK",
+      "migration_phase": "Phase 5",
+      "risk": "high",
+      "required_regression_tests": [
+        "CT-021",
+        "CT-013"
+      ],
+      "reason": "ERK physical provenance/support."
+    },
+    {
+      "phase0a_reader_id": "P0A-R096",
+      "file": "utils/event_analyst_state.py",
+      "function": "_fetch_prior_analyst_state",
+      "location": "utils/event_analyst_state.py::_fetch_prior_analyst_state",
+      "query_purpose": " fetch prior analyst state",
+      "future_surface": "event_observations_current",
+      "counting_basis": "ERK",
+      "migration_phase": "Phase 5",
+      "risk": "high",
+      "required_regression_tests": [
+        "CT-021",
+        "CT-013"
+      ],
+      "reason": "ERK physical provenance/support."
+    },
+    {
+      "phase0a_reader_id": "P0A-R097",
+      "file": "utils/event_deduplication.py",
+      "function": "count_duplicates_for_artifact",
+      "location": "utils/event_deduplication.py::count_duplicates_for_artifact",
+      "query_purpose": "count duplicates for artifact",
+      "future_surface": "events",
+      "counting_basis": "OTHER",
+      "migration_phase": "Phase 4.5",
+      "risk": "high",
+      "required_regression_tests": [
+        "CT-013",
+        "CT-014"
+      ],
+      "reason": "Administrative/raw/helper; not a product default count."
+    },
+    {
+      "phase0a_reader_id": "P0A-R098",
+      "file": "utils/event_deduplication.py",
+      "function": "count_eligible_events_for_artifact",
+      "location": "utils/event_deduplication.py::count_eligible_events_for_artifact",
+      "query_purpose": "count eligible events for artifact",
+      "future_surface": "events",
+      "counting_basis": "OTHER",
+      "migration_phase": "Phase 4.5",
+      "risk": "high",
+      "required_regression_tests": [
+        "CT-013",
+        "CT-014"
+      ],
+      "reason": "Administrative/raw/helper; not a product default count."
+    },
+    {
+      "phase0a_reader_id": "P0A-R099",
+      "file": "utils/event_deduplication.py",
+      "function": "deduplicate_artifact_type",
+      "location": "utils/event_deduplication.py::deduplicate_artifact_type",
+      "query_purpose": "deduplicate artifact type",
+      "future_surface": "events",
+      "counting_basis": "OTHER",
+      "migration_phase": "Phase 4.5",
+      "risk": "high",
+      "required_regression_tests": [
+        "CT-013",
+        "CT-014"
+      ],
+      "reason": "Administrative/raw/helper; not a product default count."
+    },
+    {
+      "phase0a_reader_id": "P0A-R100",
+      "file": "utils/event_deduplication.py",
+      "function": "deduplicate_case_events",
+      "location": "utils/event_deduplication.py::deduplicate_case_events",
+      "query_purpose": "deduplicate case events",
+      "future_surface": "events",
+      "counting_basis": "OTHER",
+      "migration_phase": "Phase 4.5",
+      "risk": "high",
+      "required_regression_tests": [
+        "CT-013",
+        "CT-014"
+      ],
+      "reason": "Administrative/raw/helper; not a product default count."
+    },
+    {
+      "phase0a_reader_id": "P0A-R101",
+      "file": "utils/event_deduplication.py",
+      "function": "get_dedup_force_requirements",
+      "location": "utils/event_deduplication.py::get_dedup_force_requirements",
+      "query_purpose": "get dedup force requirements",
+      "future_surface": "events",
+      "counting_basis": "OTHER",
+      "migration_phase": "Phase 4.5",
+      "risk": "high",
+      "required_regression_tests": [
+        "CT-013",
+        "CT-014"
+      ],
+      "reason": "Administrative/raw/helper; not a product default count."
+    },
+    {
+      "phase0a_reader_id": "P0A-R102",
+      "file": "utils/event_deduplication.py",
+      "function": "get_duplicate_summary",
+      "location": "utils/event_deduplication.py::get_duplicate_summary",
+      "query_purpose": "get duplicate summary",
+      "future_surface": "events",
+      "counting_basis": "OTHER",
+      "migration_phase": "Phase 4.5",
+      "risk": "high",
+      "required_regression_tests": [
+        "CT-013",
+        "CT-014"
+      ],
+      "reason": "Administrative/raw/helper; not a product default count."
+    },
+    {
+      "phase0a_reader_id": "P0A-R103",
+      "file": "utils/event_ioc_state.py",
+      "function": "_count_matching",
+      "location": "utils/event_ioc_state.py::_count_matching",
+      "query_purpose": " count matching",
+      "future_surface": "event_observations_current",
+      "counting_basis": "ERK",
+      "migration_phase": "Phase 3",
+      "risk": "high",
+      "required_regression_tests": [
+        "CT-019",
+        "CT-013"
+      ],
+      "reason": "ERK physical provenance/support."
+    },
+    {
+      "phase0a_reader_id": "P0A-R104",
+      "file": "utils/event_ioc_state.py",
+      "function": "insert_ioc_scan_matches",
+      "location": "utils/event_ioc_state.py::insert_ioc_scan_matches",
+      "query_purpose": "insert ioc scan matches",
+      "future_surface": "event_observations_current",
+      "counting_basis": "ERK",
+      "migration_phase": "Phase 3",
+      "risk": "high",
+      "required_regression_tests": [
+        "CT-019",
+        "CT-013"
+      ],
+      "reason": "ERK physical provenance/support."
+    },
+    {
+      "phase0a_reader_id": "P0A-R105",
+      "file": "utils/event_mitre_state.py",
+      "function": "_count_matching",
+      "location": "utils/event_mitre_state.py::_count_matching",
+      "query_purpose": " count matching",
+      "future_surface": "event_observations_current",
+      "counting_basis": "ERK",
+      "migration_phase": "Phase 5",
+      "risk": "medium",
+      "required_regression_tests": [
+        "CT-019",
+        "CT-013"
+      ],
+      "reason": "ERK physical provenance/support."
+    },
+    {
+      "phase0a_reader_id": "P0A-R106",
+      "file": "utils/event_mitre_state.py",
+      "function": "count_mitre_mapped_events",
+      "location": "utils/event_mitre_state.py::count_mitre_mapped_events",
+      "query_purpose": "count mitre mapped events",
+      "future_surface": "event_observations_current",
+      "counting_basis": "ERK",
+      "migration_phase": "Phase 5",
+      "risk": "medium",
+      "required_regression_tests": [
+        "CT-019",
+        "CT-013"
+      ],
+      "reason": "ERK physical provenance/support."
+    },
+    {
+      "phase0a_reader_id": "P0A-R107",
+      "file": "utils/event_mitre_state.py",
+      "function": "delete_hayabusa_matches_for_case_file",
+      "location": "utils/event_mitre_state.py::delete_hayabusa_matches_for_case_file",
+      "query_purpose": "delete hayabusa matches for case file",
+      "future_surface": "event_observations_current",
+      "counting_basis": "ERK",
+      "migration_phase": "Phase 5",
+      "risk": "medium",
+      "required_regression_tests": [
+        "CT-019",
+        "CT-013"
+      ],
+      "reason": "ERK physical provenance/support."
+    },
+    {
+      "phase0a_reader_id": "P0A-R108",
+      "file": "utils/event_mitre_state.py",
+      "function": "get_mitre_mapping_stats",
+      "location": "utils/event_mitre_state.py::get_mitre_mapping_stats",
+      "query_purpose": "get mitre mapping stats",
+      "future_surface": "event_observations_current",
+      "counting_basis": "ERK",
+      "migration_phase": "Phase 5",
+      "risk": "medium",
+      "required_regression_tests": [
+        "CT-019",
+        "CT-013"
+      ],
+      "reason": "ERK physical provenance/support."
+    },
+    {
+      "phase0a_reader_id": "P0A-R109",
+      "file": "utils/event_mitre_state.py",
+      "function": "insert_mitre_rule_matches",
+      "location": "utils/event_mitre_state.py::insert_mitre_rule_matches",
+      "query_purpose": "insert mitre rule matches",
+      "future_surface": "event_observations_current",
+      "counting_basis": "ERK",
+      "migration_phase": "Phase 5",
+      "risk": "medium",
+      "required_regression_tests": [
+        "CT-019",
+        "CT-013"
+      ],
+      "reason": "ERK physical provenance/support."
+    },
+    {
+      "phase0a_reader_id": "P0A-R110",
+      "file": "utils/event_noise_state.py",
+      "function": "_count_matching",
+      "location": "utils/event_noise_state.py::_count_matching",
+      "query_purpose": " count matching",
+      "future_surface": "event_observations_current",
+      "counting_basis": "ERK",
+      "migration_phase": "Phase 5",
+      "risk": "medium",
+      "required_regression_tests": [
+        "CT-013"
+      ],
+      "reason": "ERK physical provenance/support."
+    },
+    {
+      "phase0a_reader_id": "P0A-R111",
+      "file": "utils/event_noise_state.py",
+      "function": "_fetch_prior_noise_state",
+      "location": "utils/event_noise_state.py::_fetch_prior_noise_state",
+      "query_purpose": " fetch prior noise state",
+      "future_surface": "event_observations_current",
+      "counting_basis": "ERK",
+      "migration_phase": "Phase 5",
+      "risk": "medium",
+      "required_regression_tests": [
+        "CT-013"
+      ],
+      "reason": "ERK physical provenance/support."
+    },
+    {
+      "phase0a_reader_id": "P0A-R112",
+      "file": "utils/event_noise_state.py",
+      "function": "count_effective_noise_events",
+      "location": "utils/event_noise_state.py::count_effective_noise_events",
+      "query_purpose": "count effective noise events",
+      "future_surface": "event_observations_current",
+      "counting_basis": "ERK",
+      "migration_phase": "Phase 5",
+      "risk": "medium",
+      "required_regression_tests": [
+        "CT-013"
+      ],
+      "reason": "ERK physical provenance/support."
+    },
+    {
+      "phase0a_reader_id": "P0A-R113",
+      "file": "utils/event_noise_state.py",
+      "function": "insert_noise_scan_matches",
+      "location": "utils/event_noise_state.py::insert_noise_scan_matches",
+      "query_purpose": "insert noise scan matches",
+      "future_surface": "event_observations_current",
+      "counting_basis": "ERK",
+      "migration_phase": "Phase 5",
+      "risk": "medium",
+      "required_regression_tests": [
+        "CT-013"
+      ],
+      "reason": "ERK physical provenance/support."
+    },
+    {
+      "phase0a_reader_id": "P0A-R114",
+      "file": "utils/event_overlay_repair.py",
+      "function": "get_case_event_overlay_row_counts",
+      "location": "utils/event_overlay_repair.py::get_case_event_overlay_row_counts",
+      "query_purpose": "get case event overlay row counts",
+      "future_surface": "events",
+      "counting_basis": "OTHER",
+      "migration_phase": "administrative",
+      "risk": "medium",
+      "required_regression_tests": [
+        "CT-019"
+      ],
+      "reason": "Administrative/raw/helper; not a product default count."
+    },
+    {
+      "phase0a_reader_id": "P0A-R115",
+      "file": "utils/forensic_chat_sources.py",
+      "function": "build_event_corpus_coverage",
+      "location": "utils/forensic_chat_sources.py::build_event_corpus_coverage",
+      "query_purpose": "build event corpus coverage",
+      "future_surface": "events_current",
+      "counting_basis": "LEK",
+      "migration_phase": "Phase 1B/3/4",
+      "risk": "high",
+      "required_regression_tests": [
+        "CT-018",
+        "CT-011",
+        "CT-022",
+        "CT-036"
+      ],
+      "reason": "LEK logical analyst/default count."
+    },
+    {
+      "phase0a_reader_id": "P0A-R116",
+      "file": "utils/forensic_chat_sources.py",
+      "function": "get_browser_download_rows",
+      "location": "utils/forensic_chat_sources.py::get_browser_download_rows",
+      "query_purpose": "get browser download rows",
+      "future_surface": "events_current",
+      "counting_basis": "LEK",
+      "migration_phase": "Phase 1B/3/4",
+      "risk": "high",
+      "required_regression_tests": [
+        "CT-018",
+        "CT-011",
+        "CT-022",
+        "CT-036"
+      ],
+      "reason": "LEK logical analyst/default count."
+    },
+    {
+      "phase0a_reader_id": "P0A-R117",
+      "file": "utils/forensic_chat_sources.py",
+      "function": "get_unified_process_list",
+      "location": "utils/forensic_chat_sources.py::get_unified_process_list",
+      "query_purpose": "get unified process list",
+      "future_surface": "events_current",
+      "counting_basis": "LEK",
+      "migration_phase": "Phase 1B/3/4",
+      "risk": "high",
+      "required_regression_tests": [
+        "CT-018",
+        "CT-011",
+        "CT-022",
+        "CT-036"
+      ],
+      "reason": "LEK logical analyst/default count."
+    },
+    {
+      "phase0a_reader_id": "P0A-R118",
+      "file": "utils/forensic_chat_sources.py",
+      "function": "get_unified_process_tree::_children_from_events",
+      "location": "utils/forensic_chat_sources.py::get_unified_process_tree::_children_from_events",
+      "query_purpose": "get unified process tree /  children from events",
+      "future_surface": "events_current",
+      "counting_basis": "LEK",
+      "migration_phase": "Phase 1B/3/4",
+      "risk": "high",
+      "required_regression_tests": [
+        "CT-018",
+        "CT-011",
+        "CT-022",
+        "CT-036"
+      ],
+      "reason": "LEK logical analyst/default count."
+    },
+    {
+      "phase0a_reader_id": "P0A-R119",
+      "file": "utils/forensic_chat_sources.py",
+      "function": "get_unified_process_tree::_from_events",
+      "location": "utils/forensic_chat_sources.py::get_unified_process_tree::_from_events",
+      "query_purpose": "get unified process tree /  from events",
+      "future_surface": "events_current",
+      "counting_basis": "LEK",
+      "migration_phase": "Phase 1B/3/4",
+      "risk": "high",
+      "required_regression_tests": [
+        "CT-018",
+        "CT-011",
+        "CT-022",
+        "CT-036"
+      ],
+      "reason": "LEK logical analyst/default count."
+    },
+    {
+      "phase0a_reader_id": "P0A-R120",
+      "file": "utils/forensic_chat_sources.py",
+      "function": "search_artifacts",
+      "location": "utils/forensic_chat_sources.py::search_artifacts",
+      "query_purpose": "search artifacts",
+      "future_surface": "events_current",
+      "counting_basis": "LEK",
+      "migration_phase": "Phase 1B/3/4",
+      "risk": "high",
+      "required_regression_tests": [
+        "CT-018",
+        "CT-011",
+        "CT-022",
+        "CT-036"
+      ],
+      "reason": "LEK logical analyst/default count."
+    },
+    {
+      "phase0a_reader_id": "P0A-R121",
+      "file": "utils/graph_extractors.py",
+      "function": "<module>",
+      "location": "utils/graph_extractors.py::<module>",
+      "query_purpose": "<module>",
+      "future_surface": "event_observations_current",
+      "counting_basis": "ERK",
+      "migration_phase": "Phase 6",
+      "risk": "high",
+      "required_regression_tests": [
+        "CT-020",
+        "CT-026",
+        "CT-013"
+      ],
+      "reason": "ERK physical provenance/support."
+    },
+    {
+      "phase0a_reader_id": "P0A-R122",
+      "file": "utils/graph_materializer.py",
+      "function": "_graph_events_query",
+      "location": "utils/graph_materializer.py::_graph_events_query",
+      "query_purpose": " graph events query",
+      "future_surface": "event_observations_current",
+      "counting_basis": "ERK",
+      "migration_phase": "Phase 6",
+      "risk": "high",
+      "required_regression_tests": [
+        "CT-020",
+        "CT-026",
+        "CT-013"
+      ],
+      "reason": "ERK physical provenance/support."
+    },
+    {
+      "phase0a_reader_id": "P0A-R123",
+      "file": "utils/graph_materializer.py",
+      "function": "_next_eligible_timestamp_query",
+      "location": "utils/graph_materializer.py::_next_eligible_timestamp_query",
+      "query_purpose": " next eligible timestamp query",
+      "future_surface": "event_observations_current",
+      "counting_basis": "ERK",
+      "migration_phase": "Phase 6",
+      "risk": "high",
+      "required_regression_tests": [
+        "CT-020",
+        "CT-026",
+        "CT-013"
+      ],
+      "reason": "ERK physical provenance/support."
+    },
+    {
+      "phase0a_reader_id": "P0A-R124",
+      "file": "utils/graph_projection.py",
+      "function": "graph_eligible_probe",
+      "location": "utils/graph_projection.py::graph_eligible_probe",
+      "query_purpose": "graph eligible probe",
+      "future_surface": "event_observations_current",
+      "counting_basis": "ERK",
+      "migration_phase": "Phase 6",
+      "risk": "medium",
+      "required_regression_tests": [
+        "CT-020",
+        "CT-026",
+        "CT-013"
+      ],
+      "reason": "ERK physical provenance/support."
+    },
+    {
+      "phase0a_reader_id": "P0A-R125",
+      "file": "utils/graph_projection.py",
+      "function": "graph_stream_explain_sql",
+      "location": "utils/graph_projection.py::graph_stream_explain_sql",
+      "query_purpose": "graph stream explain sql",
+      "future_surface": "event_observations_current",
+      "counting_basis": "ERK",
+      "migration_phase": "Phase 6",
+      "risk": "medium",
+      "required_regression_tests": [
+        "CT-020",
+        "CT-026",
+        "CT-013"
+      ],
+      "reason": "ERK physical provenance/support."
+    },
+    {
+      "phase0a_reader_id": "P0A-R126",
+      "file": "utils/graph_query.py",
+      "function": "exact_evidence",
+      "location": "utils/graph_query.py::exact_evidence",
+      "query_purpose": "exact evidence",
+      "future_surface": "event_observations_current",
+      "counting_basis": "ERK",
+      "migration_phase": "Phase 6",
+      "risk": "medium",
+      "required_regression_tests": [
+        "CT-020",
+        "CT-026",
+        "CT-013"
+      ],
+      "reason": "ERK physical provenance/support."
+    },
+    {
+      "phase0a_reader_id": "P0A-R127",
+      "file": "utils/graph_support_lifecycle.py",
+      "function": "stream_case_file_evidence_record_keys",
+      "location": "utils/graph_support_lifecycle.py::stream_case_file_evidence_record_keys",
+      "query_purpose": "stream case file evidence record keys",
+      "future_surface": "event_observations_current",
+      "counting_basis": "ERK",
+      "migration_phase": "Phase 6",
+      "risk": "high",
+      "required_regression_tests": [
+        "CT-020",
+        "CT-026",
+        "CT-013"
+      ],
+      "reason": "ERK physical provenance/support."
+    },
+    {
+      "phase0a_reader_id": "P0A-R128",
+      "file": "utils/hayabusa_correlator.py",
+      "function": "_query_hayabusa_detections",
+      "location": "utils/hayabusa_correlator.py::_query_hayabusa_detections",
+      "query_purpose": " query hayabusa detections",
+      "future_surface": "events_current",
+      "counting_basis": "LEK",
+      "migration_phase": "Phase 4/5",
+      "risk": "high",
+      "required_regression_tests": [
+        "CT-014",
+        "CT-015",
+        "CT-018"
+      ],
+      "reason": "LEK logical analyst/default count."
+    },
+    {
+      "phase0a_reader_id": "P0A-R129",
+      "file": "utils/hayabusa_mitre_reenrichment.py",
+      "function": "_query_existing_events",
+      "location": "utils/hayabusa_mitre_reenrichment.py::_query_existing_events",
+      "query_purpose": " query existing events",
+      "future_surface": "event_observations_current",
+      "counting_basis": "ERK",
+      "migration_phase": "Phase 3/5",
+      "risk": "medium",
+      "required_regression_tests": [
+        "CT-019",
+        "CT-013"
+      ],
+      "reason": "ERK physical provenance/support."
+    },
+    {
+      "phase0a_reader_id": "P0A-R130",
+      "file": "utils/incident_storyline_detector.py",
+      "function": "_query_case_time_buckets",
+      "location": "utils/incident_storyline_detector.py::_query_case_time_buckets",
+      "query_purpose": " query case time buckets",
+      "future_surface": "events_current",
+      "counting_basis": "LEK",
+      "migration_phase": "Phase 4/5",
+      "risk": "high",
+      "required_regression_tests": [
+        "CT-014",
+        "CT-015",
+        "CT-018"
+      ],
+      "reason": "LEK logical analyst/default count."
+    },
+    {
+      "phase0a_reader_id": "P0A-R131",
+      "file": "utils/incident_storyline_detector.py",
+      "function": "_query_containment_events",
+      "location": "utils/incident_storyline_detector.py::_query_containment_events",
+      "query_purpose": " query containment events",
+      "future_surface": "events_current",
+      "counting_basis": "LEK",
+      "migration_phase": "Phase 4/5",
+      "risk": "high",
+      "required_regression_tests": [
+        "CT-014",
+        "CT-015",
+        "CT-018"
+      ],
+      "reason": "LEK logical analyst/default count."
+    },
+    {
+      "phase0a_reader_id": "P0A-R132",
+      "file": "utils/incident_storyline_detector.py",
+      "function": "_query_download_execution_pairs",
+      "location": "utils/incident_storyline_detector.py::_query_download_execution_pairs",
+      "query_purpose": " query download execution pairs",
+      "future_surface": "events_current",
+      "counting_basis": "LEK",
+      "migration_phase": "Phase 4/5",
+      "risk": "high",
+      "required_regression_tests": [
+        "CT-014",
+        "CT-015",
+        "CT-018"
+      ],
+      "reason": "LEK logical analyst/default count."
+    },
+    {
+      "phase0a_reader_id": "P0A-R133",
+      "file": "utils/investigation_context.py",
+      "function": "_fetch_logical_records",
+      "location": "utils/investigation_context.py::_fetch_logical_records",
+      "query_purpose": " fetch logical records",
+      "future_surface": "events_current",
+      "counting_basis": "LEK",
+      "migration_phase": "Phase 1B/4",
+      "risk": "high",
+      "required_regression_tests": [
+        "CT-011",
+        "CT-012",
+        "CT-018"
+      ],
+      "reason": "LEK logical analyst/default count."
+    },
+    {
+      "phase0a_reader_id": "P0A-R134",
+      "file": "utils/investigation_context.py",
+      "function": "_next_process_creation",
+      "location": "utils/investigation_context.py::_next_process_creation",
+      "query_purpose": " next process creation",
+      "future_surface": "events_current",
+      "counting_basis": "LEK",
+      "migration_phase": "Phase 1B/4",
+      "risk": "high",
+      "required_regression_tests": [
+        "CT-011",
+        "CT-012",
+        "CT-018"
+      ],
+      "reason": "LEK logical analyst/default count."
+    },
+    {
+      "phase0a_reader_id": "P0A-R135",
+      "file": "utils/investigation_context.py",
+      "function": "_process_termination",
+      "location": "utils/investigation_context.py::_process_termination",
+      "query_purpose": " process termination",
+      "future_surface": "events_current",
+      "counting_basis": "LEK",
+      "migration_phase": "Phase 1B/4",
+      "risk": "high",
+      "required_regression_tests": [
+        "CT-011",
+        "CT-012",
+        "CT-018"
+      ],
+      "reason": "LEK logical analyst/default count."
+    },
+    {
+      "phase0a_reader_id": "P0A-R136",
+      "file": "utils/investigation_context.py",
+      "function": "_resolve_anchor",
+      "location": "utils/investigation_context.py::_resolve_anchor",
+      "query_purpose": " resolve anchor",
+      "future_surface": "events_current",
+      "counting_basis": "LEK",
+      "migration_phase": "Phase 1B/4",
+      "risk": "high",
+      "required_regression_tests": [
+        "CT-011",
+        "CT-012",
+        "CT-018"
+      ],
+      "reason": "LEK logical analyst/default count."
+    },
+    {
+      "phase0a_reader_id": "P0A-R137",
+      "file": "utils/ioc_artifact_tagger.py",
+      "function": "get_matching_systems_for_ioc",
+      "location": "utils/ioc_artifact_tagger.py::get_matching_systems_for_ioc",
+      "query_purpose": "get matching systems for ioc",
+      "future_surface": "event_observations_current",
+      "counting_basis": "ERK",
+      "migration_phase": "Phase 3",
+      "risk": "high",
+      "required_regression_tests": [
+        "CT-019",
+        "CT-013"
+      ],
+      "reason": "ERK physical provenance/support."
+    },
+    {
+      "phase0a_reader_id": "P0A-R138",
+      "file": "utils/ioc_artifact_tagger.py",
+      "function": "search_artifacts_for_ioc",
+      "location": "utils/ioc_artifact_tagger.py::search_artifacts_for_ioc",
+      "query_purpose": "search artifacts for ioc",
+      "future_surface": "event_observations_current",
+      "counting_basis": "ERK",
+      "migration_phase": "Phase 3",
+      "risk": "high",
+      "required_regression_tests": [
+        "CT-019",
+        "CT-013"
+      ],
+      "reason": "ERK physical provenance/support."
+    },
+    {
+      "phase0a_reader_id": "P0A-R139",
+      "file": "utils/ioc_match_provenance.py",
+      "function": "_stream_ioc_matching_erks",
+      "location": "utils/ioc_match_provenance.py::_stream_ioc_matching_erks",
+      "query_purpose": " stream ioc matching erks",
+      "future_surface": "event_observations_current",
+      "counting_basis": "ERK",
+      "migration_phase": "Phase 3",
+      "risk": "high",
+      "required_regression_tests": [
+        "CT-019",
+        "CT-013"
+      ],
+      "reason": "ERK physical provenance/support."
+    },
+    {
+      "phase0a_reader_id": "P0A-R140",
+      "file": "utils/ioc_timeline_builder.py",
+      "function": "_find_ioc_events",
+      "location": "utils/ioc_timeline_builder.py::_find_ioc_events",
+      "query_purpose": " find ioc events",
+      "future_surface": "events_current",
+      "counting_basis": "LEK",
+      "migration_phase": "Phase 4/5",
+      "risk": "high",
+      "required_regression_tests": [
+        "CT-018",
+        "CT-019"
+      ],
+      "reason": "LEK logical analyst/default count."
+    },
+    {
+      "phase0a_reader_id": "P0A-R141",
+      "file": "utils/ioc_timeline_builder.py",
+      "function": "_get_host_context",
+      "location": "utils/ioc_timeline_builder.py::_get_host_context",
+      "query_purpose": " get host context",
+      "future_surface": "events_current",
+      "counting_basis": "LEK",
+      "migration_phase": "Phase 4/5",
+      "risk": "high",
+      "required_regression_tests": [
+        "CT-018",
+        "CT-019"
+      ],
+      "reason": "LEK logical analyst/default count."
+    },
+    {
+      "phase0a_reader_id": "P0A-R142",
+      "file": "utils/known_systems_discovery.py",
+      "function": "_get_destination_hosts_and_shares",
+      "location": "utils/known_systems_discovery.py::_get_destination_hosts_and_shares",
+      "query_purpose": " get destination hosts and shares",
+      "future_surface": "events_current",
+      "counting_basis": "LEK",
+      "migration_phase": "Phase 6",
+      "risk": "medium",
+      "required_regression_tests": [
+        "CT-018",
+        "CT-043"
+      ],
+      "reason": "LEK logical analyst/default count."
+    },
+    {
+      "phase0a_reader_id": "P0A-R143",
+      "file": "utils/known_systems_discovery.py",
+      "function": "_get_hostnames_from_events",
+      "location": "utils/known_systems_discovery.py::_get_hostnames_from_events",
+      "query_purpose": " get hostnames from events",
+      "future_surface": "events_current",
+      "counting_basis": "LEK",
+      "migration_phase": "Phase 6",
+      "risk": "medium",
+      "required_regression_tests": [
+        "CT-018",
+        "CT-043"
+      ],
+      "reason": "LEK logical analyst/default count."
+    },
+    {
+      "phase0a_reader_id": "P0A-R144",
+      "file": "utils/known_systems_discovery.py",
+      "function": "_get_remote_workstations_from_logon_events",
+      "location": "utils/known_systems_discovery.py::_get_remote_workstations_from_logon_events",
+      "query_purpose": " get remote workstations from logon events",
+      "future_surface": "events_current",
+      "counting_basis": "LEK",
+      "migration_phase": "Phase 6",
+      "risk": "medium",
+      "required_regression_tests": [
+        "CT-018",
+        "CT-043"
+      ],
+      "reason": "LEK logical analyst/default count."
+    },
+    {
+      "phase0a_reader_id": "P0A-R145",
+      "file": "utils/known_systems_discovery.py",
+      "function": "_get_system_details_from_events",
+      "location": "utils/known_systems_discovery.py::_get_system_details_from_events",
+      "query_purpose": " get system details from events",
+      "future_surface": "events_current",
+      "counting_basis": "LEK",
+      "migration_phase": "Phase 6",
+      "risk": "medium",
+      "required_regression_tests": [
+        "CT-018",
+        "CT-043"
+      ],
+      "reason": "LEK logical analyst/default count."
+    },
+    {
+      "phase0a_reader_id": "P0A-R146",
+      "file": "utils/known_systems_discovery.py",
+      "function": "discover_known_systems",
+      "location": "utils/known_systems_discovery.py::discover_known_systems",
+      "query_purpose": "discover known systems",
+      "future_surface": "events_current",
+      "counting_basis": "LEK",
+      "migration_phase": "Phase 6",
+      "risk": "medium",
+      "required_regression_tests": [
+        "CT-018",
+        "CT-043"
+      ],
+      "reason": "LEK logical analyst/default count."
+    },
+    {
+      "phase0a_reader_id": "P0A-R147",
+      "file": "utils/known_users_discovery.py",
+      "function": "_get_users_from_events",
+      "location": "utils/known_users_discovery.py::_get_users_from_events",
+      "query_purpose": " get users from events",
+      "future_surface": "events_current",
+      "counting_basis": "LEK",
+      "migration_phase": "Phase 6",
+      "risk": "medium",
+      "required_regression_tests": [
+        "CT-018",
+        "CT-043"
+      ],
+      "reason": "LEK logical analyst/default count."
+    },
+    {
+      "phase0a_reader_id": "P0A-R148",
+      "file": "utils/known_users_discovery.py",
+      "function": "_process_user",
+      "location": "utils/known_users_discovery.py::_process_user",
+      "query_purpose": " process user",
+      "future_surface": "events_current",
+      "counting_basis": "LEK",
+      "migration_phase": "Phase 6",
+      "risk": "medium",
+      "required_regression_tests": [
+        "CT-018",
+        "CT-043"
+      ],
+      "reason": "LEK logical analyst/default count."
+    },
+    {
+      "phase0a_reader_id": "P0A-R149",
+      "file": "utils/known_users_discovery.py",
+      "function": "discover_known_users",
+      "location": "utils/known_users_discovery.py::discover_known_users",
+      "query_purpose": "discover known users",
+      "future_surface": "events_current",
+      "counting_basis": "LEK",
+      "migration_phase": "Phase 6",
+      "risk": "medium",
+      "required_regression_tests": [
+        "CT-018",
+        "CT-043"
+      ],
+      "reason": "LEK logical analyst/default count."
+    },
+    {
+      "phase0a_reader_id": "P0A-R150",
+      "file": "utils/mitre_attack_sync.py",
+      "function": "_generate_alternate_auth_query",
+      "location": "utils/mitre_attack_sync.py::_generate_alternate_auth_query",
+      "query_purpose": " generate alternate auth query",
+      "future_surface": "events_current",
+      "counting_basis": "LEK",
+      "migration_phase": "Phase 4/5",
+      "risk": "high",
+      "required_regression_tests": [
+        "CT-014",
+        "CT-015",
+        "CT-018"
+      ],
+      "reason": "LEK logical analyst/default count."
+    },
+    {
+      "phase0a_reader_id": "P0A-R151",
+      "file": "utils/mitre_attack_sync.py",
+      "function": "_generate_brute_force_query",
+      "location": "utils/mitre_attack_sync.py::_generate_brute_force_query",
+      "query_purpose": " generate brute force query",
+      "future_surface": "events_current",
+      "counting_basis": "LEK",
+      "migration_phase": "Phase 4/5",
+      "risk": "high",
+      "required_regression_tests": [
+        "CT-014",
+        "CT-015",
+        "CT-018"
+      ],
+      "reason": "LEK logical analyst/default count."
+    },
+    {
+      "phase0a_reader_id": "P0A-R152",
+      "file": "utils/mitre_attack_sync.py",
+      "function": "_generate_credential_dump_query",
+      "location": "utils/mitre_attack_sync.py::_generate_credential_dump_query",
+      "query_purpose": " generate credential dump query",
+      "future_surface": "events_current",
+      "counting_basis": "LEK",
+      "migration_phase": "Phase 4/5",
+      "risk": "high",
+      "required_regression_tests": [
+        "CT-014",
+        "CT-015",
+        "CT-018"
+      ],
+      "reason": "LEK logical analyst/default count."
+    },
+    {
+      "phase0a_reader_id": "P0A-R153",
+      "file": "utils/mitre_attack_sync.py",
+      "function": "_generate_generic_query",
+      "location": "utils/mitre_attack_sync.py::_generate_generic_query",
+      "query_purpose": " generate generic query",
+      "future_surface": "events_current",
+      "counting_basis": "LEK",
+      "migration_phase": "Phase 4/5",
+      "risk": "high",
+      "required_regression_tests": [
+        "CT-014",
+        "CT-015",
+        "CT-018"
+      ],
+      "reason": "LEK logical analyst/default count."
+    },
+    {
+      "phase0a_reader_id": "P0A-R154",
+      "file": "utils/mitre_attack_sync.py",
+      "function": "_generate_kerberos_query",
+      "location": "utils/mitre_attack_sync.py::_generate_kerberos_query",
+      "query_purpose": " generate kerberos query",
+      "future_surface": "events_current",
+      "counting_basis": "LEK",
+      "migration_phase": "Phase 4/5",
+      "risk": "high",
+      "required_regression_tests": [
+        "CT-014",
+        "CT-015",
+        "CT-018"
+      ],
+      "reason": "LEK logical analyst/default count."
+    },
+    {
+      "phase0a_reader_id": "P0A-R155",
+      "file": "utils/mitre_attack_sync.py",
+      "function": "_generate_standard_query",
+      "location": "utils/mitre_attack_sync.py::_generate_standard_query",
+      "query_purpose": " generate standard query",
+      "future_surface": "events_current",
+      "counting_basis": "LEK",
+      "migration_phase": "Phase 4/5",
+      "risk": "high",
+      "required_regression_tests": [
+        "CT-014",
+        "CT-015",
+        "CT-018"
+      ],
+      "reason": "LEK logical analyst/default count."
+    },
+    {
+      "phase0a_reader_id": "P0A-R156",
+      "file": "utils/pattern_check_definitions.py",
+      "function": "<module>",
+      "location": "utils/pattern_check_definitions.py::<module>",
+      "query_purpose": "<module>",
+      "future_surface": "events_current",
+      "counting_basis": "LEK",
+      "migration_phase": "Phase 4/5",
+      "risk": "high",
+      "required_regression_tests": [
+        "CT-014",
+        "CT-015",
+        "CT-018"
+      ],
+      "reason": "LEK logical analyst/default count."
+    },
+    {
+      "phase0a_reader_id": "P0A-R157",
+      "file": "utils/privacy_aliases.py",
+      "function": "_scan_distinct_field",
+      "location": "utils/privacy_aliases.py::_scan_distinct_field",
+      "query_purpose": " scan distinct field",
+      "future_surface": "events",
+      "counting_basis": "OTHER",
+      "migration_phase": "Phase 1B",
+      "risk": "high",
+      "required_regression_tests": [
+        "CT-011",
+        "CT-012"
+      ],
+      "reason": "Administrative/raw/helper; not a product default count."
+    },
+    {
+      "phase0a_reader_id": "P0A-R158",
+      "file": "utils/privacy_aliases.py",
+      "function": "_scan_distinct_ip_field",
+      "location": "utils/privacy_aliases.py::_scan_distinct_ip_field",
+      "query_purpose": " scan distinct ip field",
+      "future_surface": "events",
+      "counting_basis": "OTHER",
+      "migration_phase": "Phase 1B",
+      "risk": "high",
+      "required_regression_tests": [
+        "CT-011",
+        "CT-012"
+      ],
+      "reason": "Administrative/raw/helper; not a product default count."
+    },
+    {
+      "phase0a_reader_id": "P0A-R159",
+      "file": "utils/privacy_aliases.py",
+      "function": "scan_clickhouse_case_alias_candidates",
+      "location": "utils/privacy_aliases.py::scan_clickhouse_case_alias_candidates",
+      "query_purpose": "scan clickhouse case alias candidates",
+      "future_surface": "events",
+      "counting_basis": "OTHER",
+      "migration_phase": "Phase 1B",
+      "risk": "high",
+      "required_regression_tests": [
+        "CT-011",
+        "CT-012"
+      ],
+      "reason": "Administrative/raw/helper; not a product default count."
+    },
+    {
+      "phase0a_reader_id": "P0A-R160",
+      "file": "utils/rag_embeddings.py",
+      "function": "embed_event_context",
+      "location": "utils/rag_embeddings.py::embed_event_context",
+      "query_purpose": "embed event context",
+      "future_surface": "events_current",
+      "counting_basis": "LEK",
+      "migration_phase": "Phase 1B/3/4",
+      "risk": "high",
+      "required_regression_tests": [
+        "CT-018",
+        "CT-011",
+        "CT-022",
+        "CT-036"
+      ],
+      "reason": "LEK logical analyst/default count."
+    },
+    {
+      "phase0a_reader_id": "P0A-R161",
+      "file": "utils/rag_llm.py",
+      "function": "analyze_pattern_match",
+      "location": "utils/rag_llm.py::analyze_pattern_match",
+      "query_purpose": "analyze pattern match",
+      "future_surface": "events_current",
+      "counting_basis": "LEK",
+      "migration_phase": "Phase 1B/3/4",
+      "risk": "high",
+      "required_regression_tests": [
+        "CT-018",
+        "CT-011",
+        "CT-022",
+        "CT-036"
+      ],
+      "reason": "LEK logical analyst/default count."
+    },
+    {
+      "phase0a_reader_id": "P0A-R162",
+      "file": "utils/sigma_converter.py",
+      "function": "_build_aggregation_query",
+      "location": "utils/sigma_converter.py::_build_aggregation_query",
+      "query_purpose": " build aggregation query",
+      "future_surface": "events_current",
+      "counting_basis": "LEK",
+      "migration_phase": "Phase 4/5",
+      "risk": "high",
+      "required_regression_tests": [
+        "CT-014",
+        "CT-015",
+        "CT-018"
+      ],
+      "reason": "LEK logical analyst/default count."
+    },
+    {
+      "phase0a_reader_id": "P0A-R163",
+      "file": "utils/sigma_converter.py",
+      "function": "_build_clickhouse_query",
+      "location": "utils/sigma_converter.py::_build_clickhouse_query",
+      "query_purpose": " build clickhouse query",
+      "future_surface": "events_current",
+      "counting_basis": "LEK",
+      "migration_phase": "Phase 4/5",
+      "risk": "high",
+      "required_regression_tests": [
+        "CT-014",
+        "CT-015",
+        "CT-018"
+      ],
+      "reason": "LEK logical analyst/default count."
+    },
+    {
+      "phase0a_reader_id": "P0A-R164",
+      "file": "utils/stateful_detectors/auth_events.py",
+      "function": "build_source_slot_query",
+      "location": "utils/stateful_detectors/auth_events.py::build_source_slot_query",
+      "query_purpose": "build source slot query",
+      "future_surface": "events_current",
+      "counting_basis": "LEK",
+      "migration_phase": "Phase 6",
+      "risk": "high",
+      "required_regression_tests": [
+        "CT-018",
+        "CT-009",
+        "CT-010"
+      ],
+      "reason": "LEK logical analyst/default count."
+    },
+    {
+      "phase0a_reader_id": "P0A-R165",
+      "file": "utils/stateful_detectors/auth_events.py",
+      "function": "build_successful_accounts_query",
+      "location": "utils/stateful_detectors/auth_events.py::build_successful_accounts_query",
+      "query_purpose": "build successful accounts query",
+      "future_surface": "events_current",
+      "counting_basis": "LEK",
+      "migration_phase": "Phase 6",
+      "risk": "high",
+      "required_regression_tests": [
+        "CT-018",
+        "CT-009",
+        "CT-010"
+      ],
+      "reason": "LEK logical analyst/default count."
+    },
+    {
+      "phase0a_reader_id": "P0A-R166",
+      "file": "utils/stateful_detectors/auth_events.py",
+      "function": "build_target_slot_query",
+      "location": "utils/stateful_detectors/auth_events.py::build_target_slot_query",
+      "query_purpose": "build target slot query",
+      "future_surface": "events_current",
+      "counting_basis": "LEK",
+      "migration_phase": "Phase 6",
+      "risk": "high",
+      "required_regression_tests": [
+        "CT-018",
+        "CT-009",
+        "CT-010"
+      ],
+      "reason": "LEK logical analyst/default count."
+    },
+    {
+      "phase0a_reader_id": "P0A-R167",
+      "file": "utils/temporal_baseline.py",
+      "function": "build_activity_day_query",
+      "location": "utils/temporal_baseline.py::build_activity_day_query",
+      "query_purpose": "build activity day query",
+      "future_surface": "events_current",
+      "counting_basis": "LEK",
+      "migration_phase": "Phase 6",
+      "risk": "high",
+      "required_regression_tests": [
+        "CT-018",
+        "CT-009",
+        "CT-010"
+      ],
+      "reason": "LEK logical analyst/default count."
+    }
+  ],
+  "embedded_query_libraries": [
+    {
+      "file": "models/pattern_rules.py",
+      "container": "*_ATTACK_PATTERNS detection_query",
+      "query_count": 75,
+      "owning_phase0a_reader_id": "P0A-R022",
+      "future_surface": "events_current",
+      "counting_basis": "LEK"
+    },
+    {
+      "file": "utils/pattern_check_definitions.py",
+      "container": "PATTERN_CHECKS query_template",
+      "query_count": "approximately 136",
+      "owning_phase0a_reader_id": "P0A-R156",
+      "future_surface": "events_current",
+      "counting_basis": "LEK"
+    },
+    {
+      "file": "models/rag.py",
+      "container": "CAMPAIGN_TEMPLATES detection_query",
+      "query_count": 16,
+      "owning_phase0a_reader_id": "P0A-R023",
+      "future_surface": "events_current",
+      "counting_basis": "LEK"
+    }
+  ]
+}

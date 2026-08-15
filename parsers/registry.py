@@ -10,11 +10,19 @@ import os
 import logging
 import time
 from datetime import datetime
-from typing import Dict, List, Type, Optional, Tuple
+from typing import Dict, List, Type, Optional, Tuple, Any
 from pathlib import Path
 from dataclasses import dataclass, field
 
 from parsers.base import BaseParser, ParsedEvent, ParseResult
+from utils.ingest_fence import (
+    IngestAdmissionDenied,
+    IngestExclusiveTimeout,
+    IngestFenceLost,
+    IngestFenceUnavailable,
+    shared_ingest_admission,
+)
+from utils.ingest_metrics import emit_metric, estimate_rows_bytes, timed_stage
 
 logger = logging.getLogger(__name__)
 
@@ -808,13 +816,14 @@ class BatchProcessor:
     
     DEFAULT_BATCH_SIZE = 10000
     
-    def __init__(self, clickhouse_client, batch_size: int = None, use_buffer: bool = True):
+    def __init__(self, clickhouse_client, batch_size: int = None, use_buffer: bool = False):
         """Initialize batch processor
         
         Args:
             clickhouse_client: ClickHouse client instance
             batch_size: Number of events per insert batch
-            use_buffer: Use events_buffer table for faster ingestion
+            use_buffer: Legacy Buffer destination. Production inserts target
+                ``events`` directly under shared ingest admission.
         """
         self.client = clickhouse_client
         self.batch_size = batch_size or self.DEFAULT_BATCH_SIZE
@@ -824,24 +833,24 @@ class BatchProcessor:
         self._columns = ParsedEvent.clickhouse_columns()
         self._total_inserted = 0
         self._alias_candidates = {}
+        self._batch_count = 0
+        self._alias_extract_duration_ms = 0.0
+
+    @staticmethod
+    def _alias_candidate_counts(candidates) -> Tuple[int, int]:
+        """Return observation and unique counts for Phase 0A alias metrics."""
+        observation_count = 0
+        for candidate in candidates.values():
+            observation_count += int(getattr(candidate, 'seen_count', None) or 1)
+        return observation_count, len(candidates)
     
     def add_event(self, event: ParsedEvent):
-        """Add an event to the batch
-        
-        Args:
-            event: ParsedEvent to add
-        """
-        try:
-            from utils.privacy_aliases import (
-                _merge_candidate_maps,
-                extract_alias_candidates_from_event_rows,
-            )
-            row = {name: getattr(event, name, None) for name in ParsedEvent.clickhouse_columns()}
-            candidates = extract_alias_candidates_from_event_rows([row])
-            _merge_candidate_maps(self._alias_candidates, candidates)
-        except Exception as exc:
-            logger.debug("Privacy alias ingest discovery skipped for event: %s", exc)
+        """Add an event to the batch.
 
+        Privacy alias extraction is intentionally absent from this hot path.
+        File-grained alias population runs after rows land via
+        ``populate_case_privacy_aliases(case_id, case_file_id=...)``.
+        """
         self._batch.append(event.to_clickhouse_row())
         
         if len(self._batch) >= self.batch_size:
@@ -852,39 +861,60 @@ class BatchProcessor:
         if not self._batch:
             return
         
+        row_count = len(self._batch)
+        estimated_bytes = estimate_rows_bytes(self._batch)
+        alias_candidate_count, unique_alias_candidate_count = self._alias_candidate_counts(
+            self._alias_candidates
+        )
+        alias_extract_duration_ms = self._alias_extract_duration_ms
+        batch_started = time.perf_counter()
         try:
-            self.client.insert(
-                self.table,
-                self._batch,
-                column_names=self._columns
+            case_id = None
+            try:
+                case_id = int(self._batch[0][0])
+            except (TypeError, ValueError, IndexError):
+                case_id = None
+            with shared_ingest_admission(
+                'events_insert',
+                case_id=case_id,
+                source_ref=f'table:{self.table}',
+            ):
+                self.client.insert(
+                    self.table,
+                    self._batch,
+                    column_names=self._columns
+                )
+            insert_duration_ms = (time.perf_counter() - batch_started) * 1000.0
+            self._total_inserted += row_count
+            self._batch_count += 1
+            emit_metric(
+                "clickhouse_insert_batch",
+                destination_table=self.table,
+                batch_row_count=row_count,
+                batch_count=self._batch_count,
+                estimated_bytes=estimated_bytes,
+                insert_duration_ms=insert_duration_ms,
+                rows_per_second=(row_count / (insert_duration_ms / 1000.0)) if insert_duration_ms > 0 else None,
+                mb_per_second=((estimated_bytes / (1024 * 1024)) / (insert_duration_ms / 1000.0)) if insert_duration_ms > 0 else None,
+                alias_candidate_count=alias_candidate_count,
+                unique_alias_candidate_count=unique_alias_candidate_count,
+                alias_extract_duration_ms=alias_extract_duration_ms,
             )
-            self._total_inserted += len(self._batch)
-            if self._alias_candidates:
-                try:
-                    from utils.privacy_aliases import upsert_alias_candidates
-
-                    case_ids = {row[self._columns.index('case_id')] for row in self._batch if row}
-                    if len(case_ids) == 1:
-                        upsert_alias_candidates(
-                            int(next(iter(case_ids))),
-                            self._alias_candidates,
-                            source='ingest_structured',
-                            commit_every=0,
-                        )
-                    else:
-                        logger.debug("Privacy alias ingest discovery skipped for mixed-case batch")
-                except Exception as exc:
-                    logger.warning("Privacy alias ingest discovery failed: %s", exc)
-                finally:
-                    self._alias_candidates = {}
-            logger.debug(f"Inserted {len(self._batch)} events (total: {self._total_inserted})")
+            logger.debug(f"Inserted {row_count} events (total: {self._total_inserted})")
         except Exception as e:
+            emit_metric(
+                "clickhouse_insert_batch_failed",
+                destination_table=self.table,
+                batch_row_count=row_count,
+                estimated_bytes=estimated_bytes,
+                error_type=e.__class__.__name__,
+            )
             logger.error(f"Failed to insert batch: {e}")
             raise
         finally:
             self._batch = []
-            if not self._batch:
-                self._alias_candidates = {}
+            self._alias_extract_duration_ms = 0.0
+            self._alias_candidates = {}
     
     @property
     def total_inserted(self) -> int:
@@ -909,6 +939,81 @@ def _get_registry():
     return _registry_instance
 
 
+def _populate_file_privacy_aliases(
+    *,
+    case_id: int,
+    case_file_id: int,
+    events_count: int,
+    clickhouse_client=None,
+) -> None:
+    """Run file-grained alias population after durable current-architecture insert."""
+    try:
+        from utils.privacy_aliases import populate_case_privacy_aliases
+
+        populate_case_privacy_aliases(
+            case_id,
+            case_file_id=int(case_file_id),
+            generation=None,
+            source='ingest_structured',
+            client=clickhouse_client,
+        )
+    except Exception as exc:
+        logger.warning(
+            "Privacy alias file-scoped population failed for case_file_id=%s (%s events): %s",
+            case_file_id,
+            events_count,
+            exc,
+        )
+
+
+def _cleanup_evtx_group_events_strict(
+    members: List[Any],
+    *,
+    clickhouse_client=None,
+    context: str = "evtx_group_cleanup",
+) -> List[int]:
+    """Synchronously remove grouped EVTX rows or raise before any retry/fallback.
+
+    This helper is intentionally scoped to grouped EVTX ingest. Legacy
+    single-file cleanup keeps its existing best-effort behavior.
+    """
+    from utils.clickhouse import delete_file_events
+    from utils.evtx_directory_mode import DirectoryModeError
+
+    cleaned_case_file_ids: List[int] = []
+    seen = set()
+    for member in members:
+        case_file_id = (
+            getattr(member, "case_file_id", None)
+            if not isinstance(member, dict)
+            else member.get("case_file_id")
+        )
+        if not case_file_id or case_file_id in seen:
+            continue
+        seen.add(case_file_id)
+        try:
+            with timed_stage(context, case_file_id=case_file_id):
+                delete_file_events(case_file_id, wait=True, client=clickhouse_client)
+        except (IngestFenceUnavailable, IngestAdmissionDenied, IngestExclusiveTimeout, IngestFenceLost):
+            logger.warning(
+                "EVTX group cleanup blocked by ingest fence for case_file_id=%s",
+                case_file_id,
+            )
+            raise
+        except Exception as cleanup_error:
+            logger.error(
+                "Strict EVTX group cleanup failed for case_file_id=%s: %s",
+                case_file_id,
+                cleanup_error,
+            )
+            raise DirectoryModeError(
+                "group_cleanup_failed",
+                f"EVTX group cleanup failed for case_file_id={case_file_id}: {cleanup_error}",
+            ) from cleanup_error
+        cleaned_case_file_ids.append(int(case_file_id))
+    return cleaned_case_file_ids
+
+
 def process_file(file_path: str, case_id: int, source_host: str = '',
                 case_file_id: Optional[int] = None, clickhouse_client=None,
                 batch_size: int = 10000, case_tz: str = 'UTC',
@@ -929,17 +1034,20 @@ def process_file(file_path: str, case_id: int, source_host: str = '',
         ParseResult with processing status
     """
     start_time = time.time()
-    registry = _get_registry()
-    
-    artifact_type, parser = registry.resolve_parser_for_file(
-        file_path=file_path,
-        case_id=case_id,
-        source_host=source_host,
-        case_file_id=case_file_id,
-        case_tz=case_tz,
-        parser_hints=parser_hints,
-        force_parser=force_parser,
-    )
+    file_size = os.path.getsize(file_path) if os.path.exists(file_path) else None
+    with timed_stage("parser_registry_init", case_id=case_id, case_file_id=case_file_id):
+        registry = _get_registry()
+
+    with timed_stage("parser_resolution", case_id=case_id, case_file_id=case_file_id):
+        artifact_type, parser = registry.resolve_parser_for_file(
+            file_path=file_path,
+            case_id=case_id,
+            source_host=source_host,
+            case_file_id=case_file_id,
+            case_tz=case_tz,
+            parser_hints=parser_hints,
+            force_parser=force_parser,
+        )
 
     if not parser or not artifact_type:
         detected_type = registry.detect_type(file_path)
@@ -978,7 +1086,8 @@ def process_file(file_path: str, case_id: int, source_host: str = '',
     # Get ClickHouse client
     if clickhouse_client is None:
         from utils.clickhouse import get_fresh_client
-        clickhouse_client = get_fresh_client()
+        with timed_stage("clickhouse_client_init", case_id=case_id, case_file_id=case_file_id):
+            clickhouse_client = get_fresh_client()
     
     # Process file
     events_count = 0
@@ -987,16 +1096,33 @@ def process_file(file_path: str, case_id: int, source_host: str = '',
     
     try:
         with BatchProcessor(clickhouse_client, batch_size=batch_size) as processor:
-            for event in parser.parse(file_path):
-                processor.add_event(event)
-                events_count += 1
+            with timed_stage(
+                "parser_stream",
+                case_id=case_id,
+                case_file_id=case_file_id,
+                artifact_type=artifact_type,
+                source_file_size=file_size,
+            ) as stream_metric:
+                for event in parser.parse(file_path):
+                    processor.add_event(event)
+                    events_count += 1
+                stream_metric["events_parsed"] = events_count
         
         # Get total after with block exits (flush is called in __exit__)
         events_count = processor.total_inserted
         errors = parser.errors
         warnings = parser.warnings
         success = len(errors) == 0
+        if events_count > 0 and case_file_id:
+            _populate_file_privacy_aliases(
+                case_id=case_id,
+                case_file_id=case_file_id,
+                events_count=events_count,
+                clickhouse_client=clickhouse_client,
+            )
         
+    except (IngestFenceUnavailable, IngestAdmissionDenied, IngestExclusiveTimeout, IngestFenceLost):
+        raise
     except Exception as e:
         logger.exception(f"Error processing file {file_path}")
         if case_file_id:
@@ -1013,6 +1139,20 @@ def process_file(file_path: str, case_id: int, source_host: str = '',
             errors.append(f'{exc_type}: {detail}' if detail else exc_type)
         success = False
     
+    duration_seconds = time.time() - start_time
+    emit_metric(
+        "process_file_total",
+        case_id=case_id,
+        case_file_id=case_file_id,
+        artifact_type=artifact_type,
+        source_file_size=file_size,
+        events_inserted=events_count,
+        duration_ms=duration_seconds * 1000.0,
+        events_per_second=(events_count / duration_seconds) if duration_seconds > 0 else None,
+        mb_per_second=((file_size or 0) / (1024 * 1024) / duration_seconds) if duration_seconds > 0 else None,
+        success=success,
+    )
+
     return ParseResult(
         success=success,
         file_path=file_path,
@@ -1020,8 +1160,205 @@ def process_file(file_path: str, case_id: int, source_host: str = '',
         events_count=events_count,
         errors=errors,
         warnings=warnings,
-        duration_seconds=time.time() - start_time
+        duration_seconds=duration_seconds
     )
+
+
+def process_evtx_group(members: List[Any], case_id: int, clickhouse_client=None,
+                       batch_size: int = 10000, case_tz: str = 'UTC') -> List[ParseResult]:
+    """Parse a bounded EVTX group with directory-mode tools, with per-file fallback.
+
+    This is a parser/tool execution optimization. CaseFile lifecycle is unchanged:
+    each member keeps its case_file_id, source_host, and source_file. Directory
+    failures fall back to process_file so unrelated valid files are not marked
+    failed merely because one group member is bad.
+    """
+    from utils.evtx_directory_mode import DirectoryModeError, EvtxGroupMember
+
+    group: List[EvtxGroupMember] = []
+    for item in members:
+        if isinstance(item, EvtxGroupMember):
+            group.append(item)
+        else:
+            group.append(EvtxGroupMember(
+                file_path=item['file_path'],
+                case_file_id=item.get('case_file_id'),
+                source_host=item.get('source_host') or '',
+                source_file=item.get('source_file') or '',
+            ))
+    if len(group) <= 1:
+        results = []
+        for member in group:
+            results.append(process_file(
+                file_path=member.file_path,
+                case_id=case_id,
+                source_host=member.source_host,
+                case_file_id=member.case_file_id,
+                clickhouse_client=clickhouse_client,
+                batch_size=batch_size,
+                case_tz=case_tz,
+                parser_hints=['evtx'],
+                force_parser=True,
+            ))
+        return results
+
+    if clickhouse_client is None:
+        from utils.clickhouse import get_fresh_client
+        clickhouse_client = get_fresh_client()
+
+    start_time = time.perf_counter()
+    parser = _get_registry().get_parser(
+        'evtx',
+        case_id=case_id,
+        source_host='',
+        case_file_id=None,
+        case_tz=case_tz,
+    )
+    if parser is None or not hasattr(parser, 'parse_directory_group'):
+        results = []
+        for member in group:
+            results.append(process_file(
+                file_path=member.file_path,
+                case_id=case_id,
+                source_host=member.source_host,
+                case_file_id=member.case_file_id,
+                clickhouse_client=clickhouse_client,
+                batch_size=batch_size,
+                case_tz=case_tz,
+                parser_hints=['evtx'],
+                force_parser=True,
+            ))
+        return results
+    counts = {member.case_file_id: 0 for member in group}
+    first_event_at = None
+    first_insert_at = None
+    try:
+        with BatchProcessor(clickhouse_client, batch_size=batch_size) as processor:
+            with timed_stage(
+                "parser_stream_directory_group",
+                case_id=case_id,
+                artifact_type='evtx',
+                group_size=len(group),
+            ) as stream_metric:
+                last_case_file_id = None
+                for event in parser.parse_directory_group(group):
+                    if first_event_at is None:
+                        first_event_at = time.perf_counter()
+                    # Flush at source-file boundaries so the first file becomes
+                    # searchable without waiting for the rest of the group JSONL.
+                    if last_case_file_id is not None and event.case_file_id != last_case_file_id:
+                        processor.flush()
+                        if first_insert_at is None and processor.total_inserted > 0:
+                            first_insert_at = time.perf_counter()
+                    last_case_file_id = event.case_file_id
+                    processor.add_event(event)
+                    if first_insert_at is None and processor.total_inserted > 0:
+                        first_insert_at = time.perf_counter()
+                    if event.case_file_id in counts:
+                        counts[event.case_file_id] += 1
+                    else:
+                        counts[event.case_file_id] = 1
+                stream_metric["events_parsed"] = sum(counts.values())
+            if first_insert_at is None and processor.total_inserted > 0:
+                first_insert_at = time.perf_counter()
+        for member in group:
+            inserted = counts.get(member.case_file_id, 0)
+            if inserted > 0 and member.case_file_id:
+                _populate_file_privacy_aliases(
+                    case_id=case_id,
+                    case_file_id=int(member.case_file_id),
+                    events_count=inserted,
+                    clickhouse_client=clickhouse_client,
+                )
+        duration = time.perf_counter() - start_time
+        emit_metric(
+            "process_evtx_group_total",
+            case_id=case_id,
+            events_inserted=sum(counts.values()),
+            duration_ms=duration * 1000.0,
+            group_size=len(group),
+            first_event_ms=None if first_event_at is None else (first_event_at - start_time) * 1000.0,
+            first_insert_ms=None if first_insert_at is None else (first_insert_at - start_time) * 1000.0,
+            success=len(parser.errors) == 0,
+            directory_mode=True,
+        )
+        results = []
+        for member in group:
+            results.append(ParseResult(
+                success=len(parser.errors) == 0,
+                file_path=member.file_path,
+                artifact_type='evtx',
+                events_count=counts.get(member.case_file_id, 0),
+                errors=list(parser.errors),
+                warnings=list(parser.warnings),
+                duration_seconds=duration,
+            ))
+        return results
+    except (IngestFenceUnavailable, IngestAdmissionDenied, IngestExclusiveTimeout, IngestFenceLost):
+        raise
+    except DirectoryModeError as exc:
+        logger.warning(
+            "EVTX directory mode failed (%s); falling back to per-file for %s members: %s",
+            exc.reason,
+            len(group),
+            exc,
+        )
+        if first_insert_at is not None:
+            _cleanup_evtx_group_events_strict(
+                group,
+                clickhouse_client=clickhouse_client,
+                context="evtx_group_fallback_cleanup",
+            )
+        results = []
+        for member in group:
+            result = process_file(
+                file_path=member.file_path,
+                case_id=case_id,
+                source_host=member.source_host,
+                case_file_id=member.case_file_id,
+                clickhouse_client=clickhouse_client,
+                batch_size=batch_size,
+                case_tz=case_tz,
+                parser_hints=['evtx'],
+                force_parser=True,
+            )
+            result.warnings.append(
+                f"Directory-mode fallback ({exc.reason}): {exc}"
+            )
+            results.append(result)
+        emit_metric(
+            "process_evtx_group_fallback",
+            case_id=case_id,
+            group_size=len(group),
+            reason=exc.reason,
+            success=all(item.success for item in results),
+        )
+        return results
+    except Exception as exc:
+        logger.exception("EVTX directory group failed; falling back to per-file")
+        wrapped = DirectoryModeError('tool_crash', str(exc)[:500])
+        if first_insert_at is not None:
+            _cleanup_evtx_group_events_strict(
+                group,
+                clickhouse_client=clickhouse_client,
+                context="evtx_group_fallback_cleanup",
+            )
+        results = []
+        for member in group:
+            result = process_file(
+                file_path=member.file_path,
+                case_id=case_id,
+                source_host=member.source_host,
+                case_file_id=member.case_file_id,
+                clickhouse_client=clickhouse_client,
+                batch_size=batch_size,
+                case_tz=case_tz,
+                parser_hints=['evtx'],
+                force_parser=True,
+            )
+            result.warnings.append(f"Directory-mode fallback (tool_crash): {exc}")
+            results.append(result)
+        return results
 
 
 def process_directory(dir_path: str, case_id: int, source_host: str = '',
@@ -1060,9 +1397,38 @@ def process_directory(dir_path: str, case_id: int, source_host: str = '',
     if file_extensions:
         ext_set = set(e.lower() for e in file_extensions)
         files = [f for f in files if os.path.splitext(f)[1].lower() in ext_set]
-    
-    # Process each file
+
+    from utils.evtx_directory_mode import EvtxGroupMember, is_evtx_path, plan_evtx_parse_units
+
+    evtx_members = []
+    other_files = []
     for file_path in files:
+        if is_evtx_path(file_path):
+            evtx_members.append(EvtxGroupMember(
+                file_path=file_path,
+                case_file_id=None,
+                source_host=source_host,
+            ))
+        else:
+            other_files.append(file_path)
+
+    for unit in plan_evtx_parse_units(evtx_members):
+        if unit.mode == "per_file":
+            result = process_file(
+                file_path=unit.members[0].file_path,
+                case_id=case_id,
+                source_host=source_host,
+                clickhouse_client=clickhouse_client,
+            )
+            results.append(result)
+        else:
+            results.extend(process_evtx_group(
+                list(unit.members),
+                case_id=case_id,
+                clickhouse_client=clickhouse_client,
+            ))
+
+    for file_path in other_files:
         result = process_file(
             file_path=file_path,
             case_id=case_id,

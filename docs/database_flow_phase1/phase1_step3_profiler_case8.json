@@ -1,0 +1,46 @@
+{
+  "generated_at": "2026-08-14T21:19:12.760994+00:00",
+  "case_id": 8,
+  "read_only": true,
+  "users_loaded": 26,
+  "systems_loaded": 5,
+  "legacy": {
+    "users_profiled": 3,
+    "systems_profiled": 2,
+    "clickhouse_statements": 32,
+    "clickhouse_query_wall_ms": 1477.579,
+    "rows_returned": 613467,
+    "wall_ms": 2888.331,
+    "user_digest": "1f0492d4f5f0a59b50b4e0af4188accaee9ad13dcf1beac5b24d604db19cf90d",
+    "system_digest": "3a13d0f390e9976cb0aa21a86064e51e24bdf6ae93535f1ae92ca0e1b7a026a3",
+    "users_skipped_below_min": 23,
+    "systems_skipped_below_min": 3
+  },
+  "set_based": {
+    "users_profiled": 3,
+    "systems_profiled": 2,
+    "clickhouse_statements": 2,
+    "clickhouse_query_wall_ms": 1590.7,
+    "rows_returned": 613587,
+    "wall_ms": 3126.572,
+    "user_digest": "1f0492d4f5f0a59b50b4e0af4188accaee9ad13dcf1beac5b24d604db19cf90d",
+    "system_digest": "3a13d0f390e9976cb0aa21a86064e51e24bdf6ae93535f1ae92ca0e1b7a026a3",
+    "expected_bounded_statements": 2,
+    "users_skipped_below_min": 23,
+    "systems_skipped_below_min": 3
+  },
+  "diff": {
+    "user_set_a_minus_b": [],
+    "user_set_b_minus_a": [],
+    "system_set_a_minus_b": [],
+    "system_set_b_minus_a": [],
+    "user_payload_mismatches": [],
+    "system_payload_mismatches": [],
+    "user_digest_equal": true,
+    "system_digest_equal": true,
+    "semantic_parity": true,
+    "existing_nondeterministic_top_n": true,
+    "top_n_compared_as_stable_core": true
+  },
+  "peak_rss_mb": 324.15
+}

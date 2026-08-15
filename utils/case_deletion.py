@@ -88,6 +88,7 @@ from models.system_settings import SettingKeys, SystemSettings
 from utils.clickhouse import delete_case_events, get_client as get_clickhouse_client
 from utils.event_overlay_repair import purge_case_legacy_overlay_rows
 from utils.artifact_paths import get_case_originals_root
+from utils.ingest_fence import exclusive_ingest_fence
 
 logger = logging.getLogger(__name__)
 
@@ -175,13 +176,14 @@ def delete_case_permanently(case: Case) -> Dict[str, int]:
     }
 
     try:
-        _flush_clickhouse_buffers()
-        delete_case_events(case_id, wait=True)
-        summary["clickhouse_commands_issued"] += 1
-        summary["clickhouse_mutations_completed"] += 1
-        legacy_overlay_purge = purge_case_legacy_overlay_rows(case_id, wait=True)
-        summary["clickhouse_commands_issued"] += legacy_overlay_purge["commands_issued"]
-        summary["clickhouse_mutations_completed"] += legacy_overlay_purge["mutations_completed"]
+        with exclusive_ingest_fence("case_permanent_deletion", case_id=case_id):
+            _flush_clickhouse_buffers()
+            delete_case_events(case_id, wait=True)
+            summary["clickhouse_commands_issued"] += 1
+            summary["clickhouse_mutations_completed"] += 1
+            legacy_overlay_purge = purge_case_legacy_overlay_rows(case_id, wait=True)
+            summary["clickhouse_commands_issued"] += legacy_overlay_purge["commands_issued"]
+            summary["clickhouse_mutations_completed"] += legacy_overlay_purge["mutations_completed"]
         for table_name, deleted_rows in legacy_overlay_purge["tables"].items():
             summary[f"{table_name}_rows_deleted"] = deleted_rows
         delete_case_logs(case_id, wait=True)

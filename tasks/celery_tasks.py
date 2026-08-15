@@ -11,6 +11,7 @@ import re
 import json
 import shutil
 import logging
+import time
 from datetime import datetime
 from typing import List, Dict, Any, Optional
 
@@ -22,6 +23,14 @@ from kombu import Queue
 from config import Config
 from parsers.evtx_parser import EvtxECmdParser
 from utils.archive_extraction import extract_zip_archive
+from utils.ingest_fence import (
+    IngestAdmissionDenied,
+    IngestExclusiveTimeout,
+    IngestFenceLost,
+    IngestFenceUnavailable,
+    exclusive_ingest_fence,
+)
+from utils.ingest_metrics import emit_metric, timed_stage
 from utils.retained_support_files import is_retained_support_file
 
 logger = logging.getLogger(__name__)
@@ -718,7 +727,8 @@ def _cleanup_case_file_events(case_file_id: Optional[int]):
 
     try:
         from utils.clickhouse import delete_file_events
-        delete_file_events(case_file_id, wait=True)
+        with timed_stage("pre_parse_cleanup", case_file_id=case_file_id):
+            delete_file_events(case_file_id, wait=True)
     except Exception as cleanup_error:
         logger.warning(
             f"Failed to clean partial ClickHouse rows for case_file_id={case_file_id}: {cleanup_error}"
@@ -843,7 +853,25 @@ def queue_case_files_for_parsing(case_id: int, case_uuid: str, case_files: List[
         init_progress(case_uuid, len(files_to_queue), case_file_ids=[case_file.id for case_file in files_to_queue])
 
     queued_tasks = []
+    from utils.evtx_directory_mode import EvtxGroupMember, is_evtx_path, plan_evtx_parse_units
+
+    evtx_files = []
+    other_files = []
     for case_file in files_to_queue:
+        name = case_file.filename or case_file.original_filename or case_file.file_path or ''
+        if is_evtx_path(case_file.file_path or '', name):
+            evtx_files.append(case_file)
+        else:
+            other_files.append(case_file)
+
+    def _dispatch_one(case_file):
+        emit_metric(
+            "queue_dispatch",
+            case_id=case_id,
+            case_file_id=case_file.id,
+            source_file_size=getattr(case_file, 'file_size', None),
+            artifact_type=getattr(case_file, 'file_type', None),
+        )
         task = parse_file_task.delay(
             file_path=case_file.file_path,
             case_id=case_id,
@@ -857,6 +885,52 @@ def queue_case_files_for_parsing(case_id: int, case_uuid: str, case_files: List[
             'file_id': case_file.id,
             'filename': case_file.filename,
         })
+
+    for case_file in other_files:
+        _dispatch_one(case_file)
+
+    evtx_members = [
+        EvtxGroupMember(
+            file_path=case_file.file_path,
+            case_file_id=case_file.id,
+            source_host=case_file.hostname or '',
+            source_file=case_file.filename or os.path.basename(case_file.file_path),
+            size_bytes=int(getattr(case_file, 'file_size', 0) or 0),
+        )
+        for case_file in evtx_files
+    ]
+    files_by_id = {case_file.id: case_file for case_file in evtx_files}
+    for unit in plan_evtx_parse_units(evtx_members):
+        if unit.mode == "per_file":
+            _dispatch_one(files_by_id[unit.members[0].case_file_id])
+            continue
+        payload = [
+            {
+                'file_path': member.file_path,
+                'case_file_id': member.case_file_id,
+                'source_host': member.source_host,
+                'source_file': member.source_file,
+            }
+            for member in unit.members
+        ]
+        for member in unit.members:
+            emit_metric(
+                "queue_dispatch",
+                case_id=case_id,
+                case_file_id=member.case_file_id,
+                source_file_size=member.size_bytes,
+                artifact_type='evtx',
+                directory_group=True,
+            )
+        task = parse_evtx_group_task.delay(case_id=case_id, members=payload)
+        for member in unit.members:
+            case_file = files_by_id[member.case_file_id]
+            queued_tasks.append({
+                'task_id': task.id,
+                'file_id': case_file.id,
+                'filename': case_file.filename,
+                'directory_group': True,
+            })
 
     return {
         'queued_count': len(queued_tasks),
@@ -960,7 +1034,16 @@ def parse_file_task(self, file_path: str, case_id: int, source_host: str = '',
     from utils.clickhouse import get_fresh_client
     from models.case import Case
     
+    task_started = time.perf_counter()
+    source_file_size = os.path.getsize(file_path) if file_path and os.path.exists(file_path) else None
     logger.info(f"Processing file: {file_path} for case {case_id}")
+    emit_metric(
+        "parse_file_task_received",
+        case_id=case_id,
+        case_file_id=case_file_id,
+        source_file_size=source_file_size,
+        task_id=getattr(self.request, 'id', None),
+    )
     
     # Cooperative case-level ingest cancel: skip queued files once requested.
     # Marking the file error keeps progress/completion accounting consistent,
@@ -982,10 +1065,11 @@ def parse_file_task(self, file_path: str, case_id: int, source_host: str = '',
     case_tz = 'UTC'  # Default
     try:
         app = get_flask_app()
-        with app.app_context():
-            case = Case.query.get(case_id)
-            if case and case.timezone:
-                case_tz = case.timezone
+        with timed_stage("case_timezone_lookup", case_id=case_id, case_file_id=case_file_id):
+            with app.app_context():
+                case = Case.query.get(case_id)
+                if case and case.timezone:
+                    case_tz = case.timezone
     except Exception as e:
         logger.warning(f"Could not fetch case timezone: {e}")
     
@@ -1052,37 +1136,43 @@ def parse_file_task(self, file_path: str, case_id: int, source_host: str = '',
             return {'success': True, 'events_count': 0, 'artifact_type': None, 'message': 'No parser available'}
         
         # Get fresh ClickHouse client for this task
-        client = get_fresh_client()
+        with timed_stage("clickhouse_client_init", case_id=case_id, case_file_id=case_file_id):
+            client = get_fresh_client()
         
         # acks_late redelivery safety: a hard-killed worker (OOM/SIGKILL) never
         # reaches the exception cleanup below, so purge any partially inserted
         # rows from a prior attempt before inserting to keep this task re-entrant.
         try:
             from utils.event_mitre_state import delete_hayabusa_matches_for_case_file
-            delete_hayabusa_matches_for_case_file(case_id, case_file_id, client=client)
+            with timed_stage("hayabusa_mitre_preparse_cleanup", case_id=case_id, case_file_id=case_file_id):
+                delete_hayabusa_matches_for_case_file(case_id, case_file_id, client=client)
         except Exception as e:
             logger.warning(f"Failed to clean Hayabusa MITRE matches for case_file_id={case_file_id}: {e}")
         _cleanup_case_file_events(case_file_id)
         
         # Process the file
-        result = process_file(
-            file_path=file_path,
-            case_id=case_id,
-            source_host=source_host,
-            case_file_id=case_file_id,
-            clickhouse_client=client,
-            case_tz=case_tz,
-            parser_hints=parser_hints,
-            force_parser=force_parser,
-        )
+        with timed_stage("process_file_call", case_id=case_id, case_file_id=case_file_id) as process_metric:
+            result = process_file(
+                file_path=file_path,
+                case_id=case_id,
+                source_host=source_host,
+                case_file_id=case_file_id,
+                clickhouse_client=client,
+                case_tz=case_tz,
+                parser_hints=parser_hints,
+                force_parser=force_parser,
+            )
+            process_metric["events_inserted"] = result.events_count
+            process_metric["artifact_type"] = result.artifact_type
 
         if result.success and result.artifact_type == 'evtx' and result.events_count > 0:
             try:
-                hayabusa_match_count = _insert_hayabusa_mitre_matches_for_case_file(
-                    case_id,
-                    case_file_id,
-                    client,
-                )
+                with timed_stage("hayabusa_mitre_match_insert", case_id=case_id, case_file_id=case_file_id):
+                    hayabusa_match_count = _insert_hayabusa_mitre_matches_for_case_file(
+                        case_id,
+                        case_file_id,
+                        client,
+                    )
                 result_dict = result.to_dict()
                 result_dict['hayabusa_mitre_matches'] = hayabusa_match_count
             except Exception as e:
@@ -1125,6 +1215,15 @@ def parse_file_task(self, file_path: str, case_id: int, source_host: str = '',
                     error_message=_join_error_messages(result.errors)
                 )
         
+        emit_metric(
+            "parse_file_task_total",
+            case_id=case_id,
+            case_file_id=case_file_id,
+            artifact_type=result_dict.get('artifact_type'),
+            events_inserted=result_dict.get('events_count'),
+            duration_ms=(time.perf_counter() - task_started) * 1000.0,
+            success=bool(result_dict.get('success')),
+        )
         return result_dict
         
     except SoftTimeLimitExceeded:
@@ -1137,7 +1236,36 @@ def parse_file_task(self, file_path: str, case_id: int, source_host: str = '',
                 ingestion_status='error',
                 error_message='Task timeout'
             )
+        emit_metric(
+            "parse_file_task_total",
+            case_id=case_id,
+            case_file_id=case_file_id,
+            duration_ms=(time.perf_counter() - task_started) * 1000.0,
+            success=False,
+            error_type="SoftTimeLimitExceeded",
+        )
         raise
+
+    except (IngestFenceUnavailable, IngestAdmissionDenied, IngestExclusiveTimeout, IngestFenceLost) as e:
+        logger.warning(
+            "Ingest fence denied or unavailable for %s; retrying without marking the file failed: %s",
+            file_path,
+            e,
+        )
+        emit_metric(
+            "parse_file_task_total",
+            case_id=case_id,
+            case_file_id=case_file_id,
+            duration_ms=(time.perf_counter() - task_started) * 1000.0,
+            success=False,
+            error_type=e.__class__.__name__,
+            fence_retry=True,
+        )
+        raise self.retry(
+            exc=e,
+            countdown=min(30, 2 ** max(int(getattr(self.request, 'retries', 0)), 0)),
+            max_retries=10,
+        )
         
     except Exception as e:
         logger.exception(f"Error processing file {file_path}")
@@ -1149,6 +1277,239 @@ def parse_file_task(self, file_path: str, case_id: int, source_host: str = '',
                 ingestion_status='error',
                 error_message=_format_error_message(e)
             )
+        emit_metric(
+            "parse_file_task_total",
+            case_id=case_id,
+            case_file_id=case_file_id,
+            duration_ms=(time.perf_counter() - task_started) * 1000.0,
+            success=False,
+            error_type=e.__class__.__name__,
+        )
+        raise
+
+
+@celery_app.task(bind=True, name='tasks.parse_evtx_group')
+def parse_evtx_group_task(self, case_id: int, members: List[Dict[str, Any]]) -> Dict[str, Any]:
+    """Parse a bounded EVTX group from one ingest queue invocation.
+
+    Directory-mode Hayabusa/EvtxECmd run once for the group. Failures fall back
+    to the existing per-file path inside process_evtx_group.
+    """
+    from parsers import process_evtx_group
+    from parsers.registry import _cleanup_evtx_group_events_strict
+    from utils.clickhouse import get_fresh_client
+    from utils.evtx_directory_mode import DirectoryModeError
+    from models.case import Case
+
+    task_started = time.perf_counter()
+    member_ids = [item.get('case_file_id') for item in members]
+    emit_metric(
+        "parse_evtx_group_task_received",
+        case_id=case_id,
+        group_size=len(members),
+        task_id=getattr(self.request, 'id', None),
+    )
+
+    from utils.async_cancellation import is_cancellation_requested
+    if is_cancellation_requested('case_ingest', case_id):
+        for item in members:
+            if item.get('case_file_id'):
+                _update_case_file_status(
+                    case_file_id=item['case_file_id'],
+                    status='error',
+                    ingestion_status='error',
+                    error_message='Cancelled by analyst',
+                )
+        return {'success': False, 'cancelled': True, 'error': 'Ingest cancelled'}
+
+    case_tz = 'UTC'
+    try:
+        app = get_flask_app()
+        with app.app_context():
+            case = Case.query.get(case_id)
+            if case and case.timezone:
+                case_tz = case.timezone
+    except Exception as e:
+        logger.warning(f"Could not fetch case timezone: {e}")
+
+    for item in members:
+        if item.get('case_file_id'):
+            _update_case_file_status(
+                case_file_id=item['case_file_id'],
+                status='ingesting',
+                ingestion_status='not_done',
+            )
+
+    try:
+        client = get_fresh_client()
+        for item in members:
+            case_file_id = item.get('case_file_id')
+            try:
+                from utils.event_mitre_state import delete_hayabusa_matches_for_case_file
+                delete_hayabusa_matches_for_case_file(case_id, case_file_id, client=client)
+            except Exception as e:
+                logger.warning(
+                    "Failed to clean Hayabusa MITRE matches for case_file_id=%s: %s",
+                    case_file_id,
+                    e,
+                )
+        _cleanup_evtx_group_events_strict(
+            members,
+            clickhouse_client=client,
+            context="evtx_group_pre_parse_cleanup",
+        )
+
+        results = process_evtx_group(
+            members,
+            case_id=case_id,
+            clickhouse_client=client,
+            case_tz=case_tz,
+        )
+        result_dicts = []
+        for item, result in zip(members, results):
+            case_file_id = item.get('case_file_id')
+            if result.success and result.artifact_type == 'evtx' and result.events_count > 0:
+                try:
+                    hayabusa_match_count = _insert_hayabusa_mitre_matches_for_case_file(
+                        case_id, case_file_id, client
+                    )
+                    payload = result.to_dict()
+                    payload['hayabusa_mitre_matches'] = hayabusa_match_count
+                except Exception as e:
+                    logger.warning(
+                        "Hayabusa MITRE match insertion failed for case_file_id=%s: %s",
+                        case_file_id,
+                        e,
+                    )
+                    payload = result.to_dict()
+                    payload['hayabusa_mitre_match_error'] = str(e)
+            else:
+                payload = result.to_dict()
+            result_dicts.append(payload)
+            if case_file_id:
+                if result.success:
+                    if result.artifact_type is None:
+                        ingestion_status = 'no_parser'
+                    elif result.warnings:
+                        ingestion_status = 'partial'
+                    elif result.events_count > 0:
+                        ingestion_status = 'full'
+                    else:
+                        ingestion_status = 'full'
+                    _update_case_file_status(
+                        case_file_id=case_file_id,
+                        status='done',
+                        ingestion_status=ingestion_status,
+                        events_count=result.events_count,
+                        parser_type=result.artifact_type,
+                        error_message=_join_warning_messages(result.warnings) if result.warnings else '',
+                    )
+                else:
+                    _update_case_file_status(
+                        case_file_id=case_file_id,
+                        status='error',
+                        ingestion_status='parse_error',
+                        events_count=result.events_count,
+                        parser_type=result.artifact_type,
+                        error_message=_join_error_messages(result.errors),
+                    )
+        emit_metric(
+            "parse_evtx_group_task_total",
+            case_id=case_id,
+            group_size=len(members),
+            events_inserted=sum(item.get('events_count') or 0 for item in result_dicts),
+            duration_ms=(time.perf_counter() - task_started) * 1000.0,
+            success=all(item.get('success') for item in result_dicts),
+        )
+        return {'success': all(item.get('success') for item in result_dicts), 'files': result_dicts}
+
+    except SoftTimeLimitExceeded:
+        cleanup_error_message = ''
+        try:
+            _cleanup_evtx_group_events_strict(
+                members,
+                clickhouse_client=locals().get('client'),
+                context="evtx_group_timeout_cleanup",
+            )
+        except (IngestFenceUnavailable, IngestAdmissionDenied, IngestExclusiveTimeout, IngestFenceLost):
+            raise
+        except Exception as cleanup_error:
+            cleanup_error_message = f"; cleanup failed: {_format_error_message(cleanup_error)}"
+            logger.error(
+                "Strict EVTX group timeout cleanup failed for case_id=%s: %s",
+                case_id,
+                cleanup_error,
+            )
+        for case_file_id in member_ids:
+            if case_file_id:
+                _update_case_file_status(
+                    case_file_id=case_file_id,
+                    status='error',
+                    ingestion_status='error',
+                    error_message=f'Task timeout{cleanup_error_message}',
+                )
+        raise
+
+    except DirectoryModeError as e:
+        logger.warning(
+            "EVTX group cleanup/fallback failed closed for case_id=%s; retrying without marking success: %s",
+            case_id,
+            e,
+        )
+        emit_metric(
+            "parse_evtx_group_task_total",
+            case_id=case_id,
+            group_size=len(members),
+            duration_ms=(time.perf_counter() - task_started) * 1000.0,
+            success=False,
+            error_type=e.__class__.__name__,
+            error_reason=getattr(e, 'reason', ''),
+            fail_closed=True,
+        )
+        raise self.retry(
+            exc=e,
+            countdown=min(30, 2 ** max(int(getattr(self.request, 'retries', 0)), 0)),
+            max_retries=10,
+        )
+
+    except (IngestFenceUnavailable, IngestAdmissionDenied, IngestExclusiveTimeout, IngestFenceLost) as e:
+        logger.warning(
+            "Ingest fence denied or unavailable for EVTX group case_id=%s; retrying: %s",
+            case_id,
+            e,
+        )
+        raise self.retry(
+            exc=e,
+            countdown=min(30, 2 ** max(int(getattr(self.request, 'retries', 0)), 0)),
+            max_retries=10,
+        )
+
+    except Exception as e:
+        logger.exception("Error processing EVTX group for case %s", case_id)
+        cleanup_error_message = ''
+        try:
+            _cleanup_evtx_group_events_strict(
+                members,
+                clickhouse_client=locals().get('client'),
+                context="evtx_group_exception_cleanup",
+            )
+        except (IngestFenceUnavailable, IngestAdmissionDenied, IngestExclusiveTimeout, IngestFenceLost):
+            raise
+        except Exception as cleanup_error:
+            cleanup_error_message = f"; cleanup failed: {_format_error_message(cleanup_error)}"
+            logger.error(
+                "Strict EVTX group exception cleanup failed for case_id=%s: %s",
+                case_id,
+                cleanup_error,
+            )
+        for case_file_id in member_ids:
+            if case_file_id:
+                _update_case_file_status(
+                    case_file_id=case_file_id,
+                    status='error',
+                    ingestion_status='error',
+                    error_message=f'{_format_error_message(e)}{cleanup_error_message}',
+                )
         raise
 
 
@@ -1813,54 +2174,73 @@ def case_indexing_complete_task(
         'errors': []
     }
     
-    # Step 1: Flush ClickHouse buffer table
+    # Step 1: Flush ClickHouse buffer table under exclusive admission, then
+    # nested exclusive dedup. Redis/fence failure must not skip into unfenced work.
     set_phase(case_uuid, 'buffer_flush')
     self.update_state(state='PROCESSING', meta={'stage': 'flushing_buffer'})
     try:
-        client = get_fresh_client()
-        # OPTIMIZE forces buffer flush to main table
-        client.command("OPTIMIZE TABLE events_buffer")
-        results['buffer_flushed'] = True
-        results['buffer_flush_status'] = 'completed'
-        logger.info(f"Flushed ClickHouse buffer for case {case_id}")
-    except Exception as e:
-        # Buffer table might not exist or be empty
-        logger.debug(f"Buffer flush skipped: {e}")
-        results['buffer_flushed'] = False
-        results['buffer_flush_status'] = 'skipped'
-        results['buffer_flush_note'] = str(e)
-    
-    # Step 1.5: Deduplicate events (remove duplicate events from overlapping sources)
-    set_phase(case_uuid, 'deduplication')
-    self.update_state(state='PROCESSING', meta={'stage': 'deduplicating_events'})
-    try:
-        from utils.event_deduplication import (
-            AUTO_DEDUP_MAX_ELIGIBLE_EVENTS,
-            deduplicate_case_events,
-        )
-        
-        dedup_result = deduplicate_case_events(
-            case_id=case_id,
-            case_uuid=case_uuid,
-            track_progress=True,
-            max_eligible_events_per_artifact=AUTO_DEDUP_MAX_ELIGIBLE_EVENTS,
-            rewrite_guard_behavior='skip',
-        )
-        results['duplicates_removed'] = dedup_result.get('total_duplicates_deleted', 0)
-        results['dedup_details'] = dedup_result.get('details', [])
-        results['dedup_skipped_details'] = dedup_result.get('skipped_details', [])
-        results['dedup_message'] = dedup_result.get('message', '')
-        
-        if dedup_result.get('total_duplicates_deleted', 0) > 0:
-            logger.info(f"Deduplication complete: {dedup_result.get('message', '')}")
-        elif dedup_result.get('skipped_details'):
-            logger.info(f"Deduplication safety skip: {dedup_result.get('message', '')}")
-        else:
-            logger.debug(f"Deduplication complete: no duplicates found")
-            
-    except Exception as e:
-        logger.warning(f"Deduplication failed: {e}")
-        results['errors'].append(f"Deduplication: {str(e)}")
+        with exclusive_ingest_fence('case_indexing_completion', case_id=case_id) as completion_lease:
+            try:
+                from migrations.add_events_table import _table_exists
+                with timed_stage("completion_clickhouse_client_init", case_id=case_id):
+                    client = get_fresh_client()
+                with timed_stage("completion_buffer_flush_optimize", case_id=case_id):
+                    if _table_exists(client, "events_buffer"):
+                        client.command("OPTIMIZE TABLE events_buffer")
+                        results['buffer_flushed'] = True
+                        results['buffer_flush_status'] = 'completed'
+                        logger.info(f"Flushed ClickHouse buffer for case {case_id}")
+                    else:
+                        results['buffer_flushed'] = False
+                        results['buffer_flush_status'] = 'not_required'
+                        logger.info(
+                            "events_buffer absent for case %s; completion Buffer OPTIMIZE not required",
+                            case_id,
+                        )
+            except (IngestFenceUnavailable, IngestExclusiveTimeout, IngestFenceLost):
+                raise
+            except Exception as e:
+                logger.debug(f"Buffer flush skipped: {e}")
+                results['buffer_flushed'] = False
+                results['buffer_flush_status'] = 'skipped'
+                results['buffer_flush_note'] = str(e)
+
+            completion_lease.assert_active()
+            set_phase(case_uuid, 'deduplication')
+            self.update_state(state='PROCESSING', meta={'stage': 'deduplicating_events'})
+            try:
+                from utils.event_deduplication import (
+                    AUTO_DEDUP_MAX_ELIGIBLE_EVENTS,
+                    deduplicate_case_events,
+                )
+
+                with timed_stage("completion_dedup", case_id=case_id):
+                    dedup_result = deduplicate_case_events(
+                        case_id=case_id,
+                        case_uuid=case_uuid,
+                        track_progress=True,
+                        max_eligible_events_per_artifact=AUTO_DEDUP_MAX_ELIGIBLE_EVENTS,
+                        rewrite_guard_behavior='error',
+                    )
+                results['duplicates_removed'] = dedup_result.get('total_duplicates_deleted', 0)
+                results['dedup_details'] = dedup_result.get('details', [])
+                results['dedup_skipped_details'] = dedup_result.get('skipped_details', [])
+                results['dedup_message'] = dedup_result.get('message', '')
+
+                if dedup_result.get('total_duplicates_deleted', 0) > 0:
+                    logger.info(f"Deduplication complete: {dedup_result.get('message', '')}")
+                elif dedup_result.get('skipped_details'):
+                    logger.info(f"Deduplication safety skip: {dedup_result.get('message', '')}")
+                else:
+                    logger.debug(f"Deduplication complete: no duplicates found")
+
+            except (IngestFenceUnavailable, IngestExclusiveTimeout, IngestFenceLost):
+                raise
+            except Exception as e:
+                logger.warning(f"Deduplication failed: {e}")
+                results['errors'].append(f"Deduplication: {str(e)}")
+    except (IngestFenceUnavailable, IngestExclusiveTimeout, IngestFenceLost):
+        raise
     
     # Step 2: Run known systems discovery (with progress tracking)
     self.update_state(state='PROCESSING', meta={'stage': 'discovering_systems'})
@@ -1869,12 +2249,13 @@ def case_indexing_complete_task(
         
         app = get_flask_app()
         with app.app_context():
-            systems_result = discover_known_systems(
-                case_id=case_id,
-                case_uuid=case_uuid,
-                username='system',
-                track_progress=True  # Enable progress tracking
-            )
+            with timed_stage("completion_known_systems_discovery", case_id=case_id):
+                systems_result = discover_known_systems(
+                    case_id=case_id,
+                    case_uuid=case_uuid,
+                    username='system',
+                    track_progress=True  # Enable progress tracking
+                )
             results['systems_discovered'] = systems_result.get('systems_created', 0) + systems_result.get('systems_updated', 0)
             logger.info(f"Systems discovery complete: {results['systems_discovered']} systems")
     except Exception as e:
@@ -1888,12 +2269,13 @@ def case_indexing_complete_task(
         
         app = get_flask_app()
         with app.app_context():
-            users_result = discover_known_users(
-                case_id=case_id,
-                case_uuid=case_uuid,
-                username='system',
-                track_progress=True  # Enable progress tracking
-            )
+            with timed_stage("completion_known_users_discovery", case_id=case_id):
+                users_result = discover_known_users(
+                    case_id=case_id,
+                    case_uuid=case_uuid,
+                    username='system',
+                    track_progress=True  # Enable progress tracking
+                )
             results['users_discovered'] = users_result.get('users_created', 0) + users_result.get('users_updated', 0)
             logger.info(f"Users discovery complete: {results['users_discovered']} users")
     except Exception as e:
@@ -2028,7 +2410,8 @@ def case_indexing_complete_task(
 
     # Step 5.5: Queue deterministic MITRE mapping after ingest completion
     try:
-        mitre_task_id = _queue_post_ingest_mitre_mapping(case_id)
+        with timed_stage("completion_mitre_queue", case_id=case_id):
+            mitre_task_id = _queue_post_ingest_mitre_mapping(case_id)
         results['mitre_mapping_queued'] = bool(mitre_task_id)
         results['mitre_mapping_task_id'] = mitre_task_id
     except Exception as e:
@@ -2039,12 +2422,13 @@ def case_indexing_complete_task(
     # Step 5.6: Queue automatic embedding for strong Hayabusa/Sigma detections
     try:
         results['auto_embedding_scope'] = 'high_priority'
-        results['auto_embedding_task_id'] = _queue_auto_event_embedding(
-            case_id=case_id,
-            case_uuid=case_uuid,
-            scope='high_priority',
-            source='post_ingest_completion',
-        )
+        with timed_stage("completion_embeddings_queue", case_id=case_id):
+            results['auto_embedding_task_id'] = _queue_auto_event_embedding(
+                case_id=case_id,
+                case_uuid=case_uuid,
+                scope='high_priority',
+                source='post_ingest_completion',
+            )
         results['auto_embedding_queued'] = True
     except Exception as e:
         logger.warning(f"Automatic high-priority event embedding queue failed: {e}")
@@ -2053,9 +2437,10 @@ def case_indexing_complete_task(
 
     # Step 5.7: Queue deterministic investigation graph materialization.
     try:
-        graph_task = materialize_case_graph_task.apply_async(
-            kwargs={'case_id': case_id, 'case_uuid': case_uuid, 'case_file_ids': case_file_ids}
-        )
+        with timed_stage("completion_graph_materialization_queue", case_id=case_id):
+            graph_task = materialize_case_graph_task.apply_async(
+                kwargs={'case_id': case_id, 'case_uuid': case_uuid, 'case_file_ids': case_file_ids}
+            )
         results['graph_materialization_queued'] = True
         results['graph_materialization_task_id'] = graph_task.id
     except Exception as e:

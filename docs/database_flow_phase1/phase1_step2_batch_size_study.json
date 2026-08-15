@@ -1,0 +1,271 @@
+{
+  "note": "Disposable measurement only. Production batch size remains 10000. Source generations are not implemented.",
+  "production_batch_size": 10000,
+  "runs": {
+    "10000_run1_stalled": {
+      "wall_time_seconds": 233.482,
+      "events_per_second": 474.305,
+      "source_mb_per_second": 0.315,
+      "peak_rss_mb": 229.74,
+      "insert_calls": 16,
+      "insert_duration_ms": 82037.089,
+      "batch_row_counts": [
+        10000,
+        2137,
+        488,
+        221,
+        1158,
+        5536,
+        10000,
+        10000,
+        9575,
+        10000,
+        10000,
+        10000,
+        10000,
+        10000,
+        10000,
+        1627
+      ],
+      "clickhouse_after_insert": {
+        "active_parts": 5,
+        "active_rows": 110742,
+        "active_bytes": 20117349,
+        "mutation_count": 0,
+        "by_part_type": {
+          "Compact": {
+            "parts": 1,
+            "rows": 1627,
+            "bytes_on_disk": 281002
+          },
+          "Wide": {
+            "parts": 4,
+            "rows": 109115,
+            "bytes_on_disk": 19836347
+          }
+        }
+      },
+      "erk_sha256": "6ad87fe76520d18bde4cfb421bbd4fce0b410c00d60abaf642769aa303515b7c",
+      "events_buffer_created": false,
+      "postgres_database": "phase0a_ingest_20260814200500",
+      "clickhouse_database": "phase0a_ingest_20260814200500"
+    },
+    "10000_run2_loaded": {
+      "wall_time_seconds": 196.734,
+      "events_per_second": 562.901,
+      "source_mb_per_second": 0.374,
+      "peak_rss_mb": 228.93,
+      "insert_calls": 16,
+      "insert_duration_ms": 6698.753,
+      "batch_row_counts": [
+        10000,
+        2137,
+        488,
+        221,
+        1158,
+        5536,
+        10000,
+        10000,
+        9575,
+        10000,
+        10000,
+        10000,
+        10000,
+        10000,
+        10000,
+        1627
+      ],
+      "clickhouse_after_insert": {
+        "active_parts": 5,
+        "active_rows": 110742,
+        "active_bytes": 20117345,
+        "mutation_count": 0,
+        "by_part_type": {
+          "Compact": {
+            "parts": 1,
+            "rows": 1627,
+            "bytes_on_disk": 281002
+          },
+          "Wide": {
+            "parts": 4,
+            "rows": 109115,
+            "bytes_on_disk": 19836343
+          }
+        }
+      },
+      "erk_sha256": "6ad87fe76520d18bde4cfb421bbd4fce0b410c00d60abaf642769aa303515b7c",
+      "events_buffer_created": false,
+      "postgres_database": "phase0a_ingest_20260814203000",
+      "clickhouse_database": "phase0a_ingest_20260814203000"
+    },
+    "10000_official": {
+      "wall_time_seconds": 152.325,
+      "events_per_second": 727.01,
+      "source_mb_per_second": 0.483,
+      "peak_rss_mb": 233.21,
+      "insert_calls": 16,
+      "insert_duration_ms": 5439.077,
+      "batch_row_counts": [
+        10000,
+        2137,
+        488,
+        221,
+        1158,
+        5536,
+        10000,
+        10000,
+        9575,
+        10000,
+        10000,
+        10000,
+        10000,
+        10000,
+        10000,
+        1627
+      ],
+      "clickhouse_after_insert": {
+        "active_parts": 5,
+        "active_rows": 110742,
+        "active_bytes": 20117343,
+        "mutation_count": 0,
+        "by_part_type": {
+          "Compact": {
+            "parts": 1,
+            "rows": 1627,
+            "bytes_on_disk": 281002
+          },
+          "Wide": {
+            "parts": 4,
+            "rows": 109115,
+            "bytes_on_disk": 19836341
+          }
+        }
+      },
+      "erk_sha256": "6ad87fe76520d18bde4cfb421bbd4fce0b410c00d60abaf642769aa303515b7c",
+      "events_buffer_created": false,
+      "postgres_database": "phase0a_ingest_20260814204500",
+      "clickhouse_database": "phase0a_ingest_20260814204500"
+    },
+    "25000": {
+      "wall_time_seconds": 153.941,
+      "events_per_second": 719.377,
+      "source_mb_per_second": 0.478,
+      "peak_rss_mb": 303.34,
+      "insert_calls": 10,
+      "insert_duration_ms": 5231.561,
+      "batch_row_counts": [
+        12137,
+        488,
+        221,
+        1158,
+        5536,
+        25000,
+        4575,
+        25000,
+        25000,
+        11627
+      ],
+      "clickhouse_after_insert": {
+        "active_parts": 3,
+        "active_rows": 110742,
+        "active_bytes": 20018579,
+        "mutation_count": 0,
+        "by_part_type": {
+          "Wide": {
+            "parts": 3,
+            "rows": 110742,
+            "bytes_on_disk": 20018579
+          }
+        }
+      },
+      "erk_sha256": "6ad87fe76520d18bde4cfb421bbd4fce0b410c00d60abaf642769aa303515b7c",
+      "events_buffer_created": false,
+      "postgres_database": "phase0a_ingest_batch25000_20260814",
+      "clickhouse_database": "phase0a_ingest_batch25000_20260814"
+    },
+    "50000": {
+      "wall_time_seconds": 152.838,
+      "events_per_second": 724.569,
+      "source_mb_per_second": 0.481,
+      "peak_rss_mb": 351.29,
+      "insert_calls": 8,
+      "insert_duration_ms": 5133.921,
+      "batch_row_counts": [
+        12137,
+        488,
+        221,
+        1158,
+        5536,
+        29575,
+        50000,
+        11627
+      ],
+      "clickhouse_after_insert": {
+        "active_parts": 8,
+        "active_rows": 110742,
+        "active_bytes": 19002367,
+        "mutation_count": 0,
+        "by_part_type": {
+          "Compact": {
+            "parts": 2,
+            "rows": 1379,
+            "bytes_on_disk": 242382
+          },
+          "Wide": {
+            "parts": 6,
+            "rows": 109363,
+            "bytes_on_disk": 18759985
+          }
+        }
+      },
+      "erk_sha256": "6ad87fe76520d18bde4cfb421bbd4fce0b410c00d60abaf642769aa303515b7c",
+      "events_buffer_created": false,
+      "postgres_database": "phase0a_ingest_batch50000_20260814",
+      "clickhouse_database": "phase0a_ingest_batch50000_20260814"
+    },
+    "100000": {
+      "wall_time_seconds": 153.634,
+      "events_per_second": 720.815,
+      "source_mb_per_second": 0.479,
+      "peak_rss_mb": 396.48,
+      "insert_calls": 7,
+      "insert_duration_ms": 4903.518,
+      "batch_row_counts": [
+        12137,
+        488,
+        221,
+        1158,
+        5536,
+        29575,
+        61627
+      ],
+      "clickhouse_after_insert": {
+        "active_parts": 7,
+        "active_rows": 110742,
+        "active_bytes": 18978341,
+        "mutation_count": 0,
+        "by_part_type": {
+          "Compact": {
+            "parts": 2,
+            "rows": 1379,
+            "bytes_on_disk": 242382
+          },
+          "Wide": {
+            "parts": 5,
+            "rows": 109363,
+            "bytes_on_disk": 18735959
+          }
+        }
+      },
+      "erk_sha256": "6ad87fe76520d18bde4cfb421bbd4fce0b410c00d60abaf642769aa303515b7c",
+      "events_buffer_created": false,
+      "postgres_database": "phase0a_ingest_batch100000_20260814",
+      "clickhouse_database": "phase0a_ingest_batch100000_20260814"
+    }
+  },
+  "recommendation_for_future_generation_aware_batching_contract": {
+    "keep_production_default": 10000,
+    "candidate_when_generations_exist": 25000,
+    "reason": "25k reduced insert calls from 16 to 10 and matched Step 1 wall (~154s) with RSS 303 MB. 50k was 1.1s faster with RSS 351 MB. 100k had no wall win and RSS 396 MB."
+  }
+}

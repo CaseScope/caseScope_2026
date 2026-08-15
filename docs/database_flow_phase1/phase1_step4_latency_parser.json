@@ -1,0 +1,1594 @@
+{
+  "captured_at": "2026-08-15T17:04:39.900332+00:00",
+  "kind": "parser_latency_study",
+  "pairs": 2,
+  "corpus_files": [
+    {
+      "name": "Application.evtx",
+      "bytes": 11603968
+    },
+    {
+      "name": "Microsoft-Windows-PowerShell-Operational.evtx",
+      "bytes": 15798272
+    },
+    {
+      "name": "Microsoft-Windows-TaskScheduler-Operational.evtx",
+      "bytes": 69632
+    },
+    {
+      "name": "Microsoft-Windows-TerminalServices-LocalSessionManager.evtx",
+      "bytes": 1118208
+    },
+    {
+      "name": "Microsoft-Windows-WMI-Activity-Operational.evtx",
+      "bytes": 1118208
+    },
+    {
+      "name": "Microsoft-Windows-Windows-Defender-Operational.evtx",
+      "bytes": 5312512
+    },
+    {
+      "name": "Security.evtx",
+      "bytes": 21041152
+    },
+    {
+      "name": "System.evtx",
+      "bytes": 21041152
+    }
+  ],
+  "group_fill_window_seconds": 0,
+  "summary": [
+    {
+      "policy": "g1_per_file",
+      "eager_first": false,
+      "target_files": 1,
+      "order": "queue",
+      "groups": [
+        {
+          "mode": "per_file",
+          "files": [
+            "Application.evtx"
+          ],
+          "bytes": 11603968
+        },
+        {
+          "mode": "per_file",
+          "files": [
+            "Microsoft-Windows-PowerShell-Operational.evtx"
+          ],
+          "bytes": 15798272
+        },
+        {
+          "mode": "per_file",
+          "files": [
+            "Microsoft-Windows-TaskScheduler-Operational.evtx"
+          ],
+          "bytes": 69632
+        },
+        {
+          "mode": "per_file",
+          "files": [
+            "Microsoft-Windows-TerminalServices-LocalSessionManager.evtx"
+          ],
+          "bytes": 1118208
+        },
+        {
+          "mode": "per_file",
+          "files": [
+            "Microsoft-Windows-WMI-Activity-Operational.evtx"
+          ],
+          "bytes": 1118208
+        },
+        {
+          "mode": "per_file",
+          "files": [
+            "Microsoft-Windows-Windows-Defender-Operational.evtx"
+          ],
+          "bytes": 5312512
+        },
+        {
+          "mode": "per_file",
+          "files": [
+            "Security.evtx"
+          ],
+          "bytes": 21041152
+        },
+        {
+          "mode": "per_file",
+          "files": [
+            "System.evtx"
+          ],
+          "bytes": 21041152
+        }
+      ],
+      "median_wall": 123.549,
+      "median_first_event": 5.779,
+      "median_second_group_searchable": 15.88,
+      "median_completion_tail": 117.77,
+      "median_rss_mb": 32.785,
+      "median_cpu_self": 62.584,
+      "median_cpu_children": 118.957,
+      "hayabusa_launches": 8,
+      "evtxecmd_launches": 8,
+      "events": 110742
+    },
+    {
+      "policy": "g2",
+      "eager_first": false,
+      "target_files": 2,
+      "order": "queue",
+      "groups": [
+        {
+          "mode": "directory",
+          "files": [
+            "Application.evtx",
+            "Microsoft-Windows-PowerShell-Operational.evtx"
+          ],
+          "bytes": 27402240
+        },
+        {
+          "mode": "directory",
+          "files": [
+            "Microsoft-Windows-TaskScheduler-Operational.evtx",
+            "Microsoft-Windows-TerminalServices-LocalSessionManager.evtx"
+          ],
+          "bytes": 1187840
+        },
+        {
+          "mode": "directory",
+          "files": [
+            "Microsoft-Windows-WMI-Activity-Operational.evtx",
+            "Microsoft-Windows-Windows-Defender-Operational.evtx"
+          ],
+          "bytes": 6430720
+        },
+        {
+          "mode": "directory",
+          "files": [
+            "Security.evtx",
+            "System.evtx"
+          ],
+          "bytes": 42082304
+        }
+      ],
+      "median_wall": 96.462,
+      "median_first_event": 6.619,
+      "median_second_group_searchable": 18.029,
+      "median_completion_tail": 89.843,
+      "median_rss_mb": 32.735,
+      "median_cpu_self": 56.08,
+      "median_cpu_children": 105.636,
+      "hayabusa_launches": 4,
+      "evtxecmd_launches": 4,
+      "events": 110742
+    },
+    {
+      "policy": "g4",
+      "eager_first": false,
+      "target_files": 4,
+      "order": "queue",
+      "groups": [
+        {
+          "mode": "directory",
+          "files": [
+            "Application.evtx",
+            "Microsoft-Windows-PowerShell-Operational.evtx",
+            "Microsoft-Windows-TaskScheduler-Operational.evtx",
+            "Microsoft-Windows-TerminalServices-LocalSessionManager.evtx"
+          ],
+          "bytes": 28590080
+        },
+        {
+          "mode": "directory",
+          "files": [
+            "Microsoft-Windows-WMI-Activity-Operational.evtx",
+            "Microsoft-Windows-Windows-Defender-Operational.evtx",
+            "Security.evtx",
+            "System.evtx"
+          ],
+          "bytes": 48513024
+        }
+      ],
+      "median_wall": 88.093,
+      "median_first_event": 6.662,
+      "median_second_group_searchable": 38.534,
+      "median_completion_tail": 81.431,
+      "median_rss_mb": 33.55,
+      "median_cpu_self": 56.618,
+      "median_cpu_children": 91.584,
+      "hayabusa_launches": 2,
+      "evtxecmd_launches": 2,
+      "events": 110742
+    },
+    {
+      "policy": "g8_current",
+      "eager_first": false,
+      "target_files": 8,
+      "order": "queue",
+      "groups": [
+        {
+          "mode": "directory",
+          "files": [
+            "Application.evtx",
+            "Microsoft-Windows-PowerShell-Operational.evtx",
+            "Microsoft-Windows-TaskScheduler-Operational.evtx",
+            "Microsoft-Windows-TerminalServices-LocalSessionManager.evtx",
+            "Microsoft-Windows-WMI-Activity-Operational.evtx",
+            "Microsoft-Windows-Windows-Defender-Operational.evtx",
+            "Security.evtx",
+            "System.evtx"
+          ],
+          "bytes": 77103104
+        }
+      ],
+      "median_wall": 84.046,
+      "median_first_event": 28.184,
+      "median_second_group_searchable": null,
+      "median_completion_tail": 55.862,
+      "median_rss_mb": 34.095,
+      "median_cpu_self": 56.561,
+      "median_cpu_children": 88.184,
+      "hayabusa_launches": 1,
+      "evtxecmd_launches": 1,
+      "events": 110742
+    },
+    {
+      "policy": "eager1_rest7",
+      "eager_first": true,
+      "target_files": 8,
+      "order": "queue",
+      "groups": [
+        {
+          "mode": "per_file",
+          "files": [
+            "Application.evtx"
+          ],
+          "bytes": 11603968
+        },
+        {
+          "mode": "directory",
+          "files": [
+            "Microsoft-Windows-PowerShell-Operational.evtx",
+            "Microsoft-Windows-TaskScheduler-Operational.evtx",
+            "Microsoft-Windows-TerminalServices-LocalSessionManager.evtx",
+            "Microsoft-Windows-WMI-Activity-Operational.evtx",
+            "Microsoft-Windows-Windows-Defender-Operational.evtx",
+            "Security.evtx",
+            "System.evtx"
+          ],
+          "bytes": 65499136
+        }
+      ],
+      "median_wall": 85.045,
+      "median_first_event": 5.564,
+      "median_second_group_searchable": 35.764,
+      "median_completion_tail": 79.481,
+      "median_rss_mb": 34.115,
+      "median_cpu_self": 54.169,
+      "median_cpu_children": 93.721,
+      "hayabusa_launches": 2,
+      "evtxecmd_launches": 2,
+      "events": 110742
+    },
+    {
+      "policy": "eager1_g2",
+      "eager_first": true,
+      "target_files": 2,
+      "order": "queue",
+      "groups": [
+        {
+          "mode": "per_file",
+          "files": [
+            "Application.evtx"
+          ],
+          "bytes": 11603968
+        },
+        {
+          "mode": "directory",
+          "files": [
+            "Microsoft-Windows-PowerShell-Operational.evtx",
+            "Microsoft-Windows-TaskScheduler-Operational.evtx"
+          ],
+          "bytes": 15867904
+        },
+        {
+          "mode": "directory",
+          "files": [
+            "Microsoft-Windows-TerminalServices-LocalSessionManager.evtx",
+            "Microsoft-Windows-WMI-Activity-Operational.evtx"
+          ],
+          "bytes": 2236416
+        },
+        {
+          "mode": "directory",
+          "files": [
+            "Microsoft-Windows-Windows-Defender-Operational.evtx",
+            "Security.evtx"
+          ],
+          "bytes": 26353664
+        },
+        {
+          "mode": "per_file",
+          "files": [
+            "System.evtx"
+          ],
+          "bytes": 21041152
+        }
+      ],
+      "median_wall": 93.02,
+      "median_first_event": 5.806,
+      "median_second_group_searchable": 15.784,
+      "median_completion_tail": 87.213,
+      "median_rss_mb": 34.12,
+      "median_cpu_self": 46.956,
+      "median_cpu_children": 97.596,
+      "hayabusa_launches": 5,
+      "evtxecmd_launches": 5,
+      "events": 110742
+    },
+    {
+      "policy": "eager1_g4",
+      "eager_first": true,
+      "target_files": 4,
+      "order": "queue",
+      "groups": [
+        {
+          "mode": "per_file",
+          "files": [
+            "Application.evtx"
+          ],
+          "bytes": 11603968
+        },
+        {
+          "mode": "directory",
+          "files": [
+            "Microsoft-Windows-PowerShell-Operational.evtx",
+            "Microsoft-Windows-TaskScheduler-Operational.evtx",
+            "Microsoft-Windows-TerminalServices-LocalSessionManager.evtx",
+            "Microsoft-Windows-WMI-Activity-Operational.evtx"
+          ],
+          "bytes": 18104320
+        },
+        {
+          "mode": "directory",
+          "files": [
+            "Microsoft-Windows-Windows-Defender-Operational.evtx",
+            "Security.evtx",
+            "System.evtx"
+          ],
+          "bytes": 47394816
+        }
+      ],
+      "median_wall": 91.115,
+      "median_first_event": 5.724,
+      "median_second_group_searchable": 15.659,
+      "median_completion_tail": 85.391,
+      "median_rss_mb": 34.12,
+      "median_cpu_self": 55.094,
+      "median_cpu_children": 97.388,
+      "hayabusa_launches": 3,
+      "evtxecmd_launches": 3,
+      "events": 110742
+    },
+    {
+      "policy": "small_first_g8",
+      "eager_first": false,
+      "target_files": 8,
+      "order": "smallest",
+      "groups": [
+        {
+          "mode": "directory",
+          "files": [
+            "Microsoft-Windows-TaskScheduler-Operational.evtx",
+            "Microsoft-Windows-TerminalServices-LocalSessionManager.evtx",
+            "Microsoft-Windows-WMI-Activity-Operational.evtx",
+            "Microsoft-Windows-Windows-Defender-Operational.evtx",
+            "Application.evtx",
+            "Microsoft-Windows-PowerShell-Operational.evtx",
+            "Security.evtx",
+            "System.evtx"
+          ],
+          "bytes": 77103104
+        }
+      ],
+      "median_wall": 85.753,
+      "median_first_event": 28.355,
+      "median_second_group_searchable": null,
+      "median_completion_tail": 57.398,
+      "median_rss_mb": 34.935,
+      "median_cpu_self": 58.167,
+      "median_cpu_children": 88.245,
+      "hayabusa_launches": 1,
+      "evtxecmd_launches": 1,
+      "events": 110742
+    },
+    {
+      "policy": "small_first_eager1_rest",
+      "eager_first": true,
+      "target_files": 8,
+      "order": "smallest",
+      "groups": [
+        {
+          "mode": "per_file",
+          "files": [
+            "Microsoft-Windows-TaskScheduler-Operational.evtx"
+          ],
+          "bytes": 69632
+        },
+        {
+          "mode": "directory",
+          "files": [
+            "Microsoft-Windows-TerminalServices-LocalSessionManager.evtx",
+            "Microsoft-Windows-WMI-Activity-Operational.evtx",
+            "Microsoft-Windows-Windows-Defender-Operational.evtx",
+            "Application.evtx",
+            "Microsoft-Windows-PowerShell-Operational.evtx",
+            "Security.evtx",
+            "System.evtx"
+          ],
+          "bytes": 77033472
+        }
+      ],
+      "median_wall": 89.868,
+      "median_first_event": 34.066,
+      "median_second_group_searchable": 34.066,
+      "median_completion_tail": 55.802,
+      "median_rss_mb": 34.955,
+      "median_cpu_self": 56.617,
+      "median_cpu_children": 98.138,
+      "hayabusa_launches": 2,
+      "evtxecmd_launches": 2,
+      "events": 110742
+    }
+  ],
+  "pairs_detail": [
+    {
+      "index": 1,
+      "runs": [
+        {
+          "policy": "g1_per_file",
+          "eager_first": false,
+          "target_files": 1,
+          "order": "queue",
+          "wall_seconds": 121.682,
+          "events": 110742,
+          "first_event_seconds": 5.607,
+          "second_group_searchable_seconds": 15.643,
+          "completion_tail_seconds": 116.075,
+          "peak_rss_mb": 29.75,
+          "cpu_self_seconds": 61.548,
+          "cpu_children_seconds": 117.023,
+          "errors": [],
+          "timeline": [
+            {
+              "unit_index": 0,
+              "mode": "per_file",
+              "files": [
+                "Application.evtx"
+              ],
+              "bytes": 11603968,
+              "events": 12137,
+              "first_event_seconds": 5.607,
+              "complete_seconds": 9.82,
+              "unit_wall_seconds": 9.82
+            },
+            {
+              "unit_index": 1,
+              "mode": "per_file",
+              "files": [
+                "Microsoft-Windows-PowerShell-Operational.evtx"
+              ],
+              "bytes": 15798272,
+              "events": 488,
+              "first_event_seconds": 15.643,
+              "complete_seconds": 15.923,
+              "unit_wall_seconds": 6.103
+            },
+            {
+              "unit_index": 2,
+              "mode": "per_file",
+              "files": [
+                "Microsoft-Windows-TaskScheduler-Operational.evtx"
+              ],
+              "bytes": 69632,
+              "events": 0,
+              "first_event_seconds": null,
+              "complete_seconds": 21.125,
+              "unit_wall_seconds": 5.202
+            },
+            {
+              "unit_index": 3,
+              "mode": "per_file",
+              "files": [
+                "Microsoft-Windows-TerminalServices-LocalSessionManager.evtx"
+              ],
+              "bytes": 1118208,
+              "events": 221,
+              "first_event_seconds": 26.327,
+              "complete_seconds": 26.403,
+              "unit_wall_seconds": 5.278
+            },
+            {
+              "unit_index": 4,
+              "mode": "per_file",
+              "files": [
+                "Microsoft-Windows-WMI-Activity-Operational.evtx"
+              ],
+              "bytes": 1118208,
+              "events": 1158,
+              "first_event_seconds": 31.827,
+              "complete_seconds": 32.311,
+              "unit_wall_seconds": 5.908
+            },
+            {
+              "unit_index": 5,
+              "mode": "per_file",
+              "files": [
+                "Microsoft-Windows-Windows-Defender-Operational.evtx"
+              ],
+              "bytes": 5312512,
+              "events": 5536,
+              "first_event_seconds": 37.976,
+              "complete_seconds": 40.136,
+              "unit_wall_seconds": 7.825
+            },
+            {
+              "unit_index": 6,
+              "mode": "per_file",
+              "files": [
+                "Security.evtx"
+              ],
+              "bytes": 21041152,
+              "events": 29575,
+              "first_event_seconds": 52.921,
+              "complete_seconds": 84.437,
+              "unit_wall_seconds": 44.301
+            },
+            {
+              "unit_index": 7,
+              "mode": "per_file",
+              "files": [
+                "System.evtx"
+              ],
+              "bytes": 21041152,
+              "events": 61627,
+              "first_event_seconds": 98.95,
+              "complete_seconds": 121.682,
+              "unit_wall_seconds": 37.245
+            }
+          ],
+          "hayabusa_launches": 8,
+          "hayabusa_wall_seconds": 46.066,
+          "evtxecmd_launches": 8,
+          "evtxecmd_wall_seconds": 43.738
+        },
+        {
+          "policy": "g2",
+          "eager_first": false,
+          "target_files": 2,
+          "order": "queue",
+          "wall_seconds": 96.052,
+          "events": 110742,
+          "first_event_seconds": 6.588,
+          "second_group_searchable_seconds": 17.926,
+          "completion_tail_seconds": 89.464,
+          "peak_rss_mb": 31.38,
+          "cpu_self_seconds": 55.972,
+          "cpu_children_seconds": 105.618,
+          "errors": [],
+          "timeline": [
+            {
+              "unit_index": 0,
+              "mode": "directory",
+              "files": [
+                "Application.evtx",
+                "Microsoft-Windows-PowerShell-Operational.evtx"
+              ],
+              "bytes": 27402240,
+              "events": 12625,
+              "first_event_seconds": 6.588,
+              "complete_seconds": 12.839,
+              "unit_wall_seconds": 12.839
+            },
+            {
+              "unit_index": 1,
+              "mode": "directory",
+              "files": [
+                "Microsoft-Windows-TaskScheduler-Operational.evtx",
+                "Microsoft-Windows-TerminalServices-LocalSessionManager.evtx"
+              ],
+              "bytes": 1187840,
+              "events": 221,
+              "first_event_seconds": 17.926,
+              "complete_seconds": 18.029,
+              "unit_wall_seconds": 5.19
+            },
+            {
+              "unit_index": 2,
+              "mode": "directory",
+              "files": [
+                "Microsoft-Windows-WMI-Activity-Operational.evtx",
+                "Microsoft-Windows-Windows-Defender-Operational.evtx"
+              ],
+              "bytes": 6430720,
+              "events": 6694,
+              "first_event_seconds": 23.94,
+              "complete_seconds": 27.497,
+              "unit_wall_seconds": 9.468
+            },
+            {
+              "unit_index": 3,
+              "mode": "directory",
+              "files": [
+                "Security.evtx",
+                "System.evtx"
+              ],
+              "bytes": 42082304,
+              "events": 91202,
+              "first_event_seconds": 50.755,
+              "complete_seconds": 96.052,
+              "unit_wall_seconds": 68.555
+            }
+          ],
+          "hayabusa_launches": 4,
+          "hayabusa_wall_seconds": 26.503,
+          "evtxecmd_launches": 4,
+          "evtxecmd_wall_seconds": 36.914
+        },
+        {
+          "policy": "g4",
+          "eager_first": false,
+          "target_files": 4,
+          "order": "queue",
+          "wall_seconds": 88.165,
+          "events": 110742,
+          "first_event_seconds": 6.563,
+          "second_group_searchable_seconds": 38.629,
+          "completion_tail_seconds": 81.602,
+          "peak_rss_mb": 33.01,
+          "cpu_self_seconds": 56.49,
+          "cpu_children_seconds": 91.298,
+          "errors": [],
+          "timeline": [
+            {
+              "unit_index": 0,
+              "mode": "directory",
+              "files": [
+                "Application.evtx",
+                "Microsoft-Windows-PowerShell-Operational.evtx",
+                "Microsoft-Windows-TaskScheduler-Operational.evtx",
+                "Microsoft-Windows-TerminalServices-LocalSessionManager.evtx"
+              ],
+              "bytes": 28590080,
+              "events": 12846,
+              "first_event_seconds": 6.563,
+              "complete_seconds": 12.876,
+              "unit_wall_seconds": 12.876
+            },
+            {
+              "unit_index": 1,
+              "mode": "directory",
+              "files": [
+                "Microsoft-Windows-WMI-Activity-Operational.evtx",
+                "Microsoft-Windows-Windows-Defender-Operational.evtx",
+                "Security.evtx",
+                "System.evtx"
+              ],
+              "bytes": 48513024,
+              "events": 97896,
+              "first_event_seconds": 38.629,
+              "complete_seconds": 88.165,
+              "unit_wall_seconds": 75.289
+            }
+          ],
+          "hayabusa_launches": 2,
+          "hayabusa_wall_seconds": 15.925,
+          "evtxecmd_launches": 2,
+          "evtxecmd_wall_seconds": 32.31
+        },
+        {
+          "policy": "g8_current",
+          "eager_first": false,
+          "target_files": 8,
+          "order": "queue",
+          "wall_seconds": 83.678,
+          "events": 110742,
+          "first_event_seconds": 28.014,
+          "second_group_searchable_seconds": null,
+          "completion_tail_seconds": 55.664,
+          "peak_rss_mb": 34.05,
+          "cpu_self_seconds": 56.358,
+          "cpu_children_seconds": 88.487,
+          "errors": [],
+          "timeline": [
+            {
+              "unit_index": 0,
+              "mode": "directory",
+              "files": [
+                "Application.evtx",
+                "Microsoft-Windows-PowerShell-Operational.evtx",
+                "Microsoft-Windows-TaskScheduler-Operational.evtx",
+                "Microsoft-Windows-TerminalServices-LocalSessionManager.evtx",
+                "Microsoft-Windows-WMI-Activity-Operational.evtx",
+                "Microsoft-Windows-Windows-Defender-Operational.evtx",
+                "Security.evtx",
+                "System.evtx"
+              ],
+              "bytes": 77103104,
+              "events": 110742,
+              "first_event_seconds": 28.014,
+              "complete_seconds": 83.678,
+              "unit_wall_seconds": 83.678
+            }
+          ],
+          "hayabusa_launches": 1,
+          "hayabusa_wall_seconds": 11.337,
+          "evtxecmd_launches": 1,
+          "evtxecmd_wall_seconds": 28.01
+        },
+        {
+          "policy": "eager1_rest7",
+          "eager_first": true,
+          "target_files": 8,
+          "order": "queue",
+          "wall_seconds": 84.863,
+          "events": 110742,
+          "first_event_seconds": 5.585,
+          "second_group_searchable_seconds": 35.582,
+          "completion_tail_seconds": 79.278,
+          "peak_rss_mb": 34.05,
+          "cpu_self_seconds": 54.177,
+          "cpu_children_seconds": 93.968,
+          "errors": [],
+          "timeline": [
+            {
+              "unit_index": 0,
+              "mode": "per_file",
+              "files": [
+                "Application.evtx"
+              ],
+              "bytes": 11603968,
+              "events": 12137,
+              "first_event_seconds": 5.585,
+              "complete_seconds": 9.687,
+              "unit_wall_seconds": 9.687
+            },
+            {
+              "unit_index": 1,
+              "mode": "directory",
+              "files": [
+                "Microsoft-Windows-PowerShell-Operational.evtx",
+                "Microsoft-Windows-TaskScheduler-Operational.evtx",
+                "Microsoft-Windows-TerminalServices-LocalSessionManager.evtx",
+                "Microsoft-Windows-WMI-Activity-Operational.evtx",
+                "Microsoft-Windows-Windows-Defender-Operational.evtx",
+                "Security.evtx",
+                "System.evtx"
+              ],
+              "bytes": 65499136,
+              "events": 98605,
+              "first_event_seconds": 35.582,
+              "complete_seconds": 84.863,
+              "unit_wall_seconds": 75.176
+            }
+          ],
+          "hayabusa_launches": 2,
+          "hayabusa_wall_seconds": 16.343,
+          "evtxecmd_launches": 2,
+          "evtxecmd_wall_seconds": 31.408
+        },
+        {
+          "policy": "eager1_g2",
+          "eager_first": true,
+          "target_files": 2,
+          "order": "queue",
+          "wall_seconds": 92.493,
+          "events": 110742,
+          "first_event_seconds": 5.754,
+          "second_group_searchable_seconds": 15.777,
+          "completion_tail_seconds": 86.739,
+          "peak_rss_mb": 34.05,
+          "cpu_self_seconds": 46.721,
+          "cpu_children_seconds": 97.388,
+          "errors": [],
+          "timeline": [
+            {
+              "unit_index": 0,
+              "mode": "per_file",
+              "files": [
+                "Application.evtx"
+              ],
+              "bytes": 11603968,
+              "events": 12137,
+              "first_event_seconds": 5.754,
+              "complete_seconds": 9.966,
+              "unit_wall_seconds": 9.966
+            },
+            {
+              "unit_index": 1,
+              "mode": "directory",
+              "files": [
+                "Microsoft-Windows-PowerShell-Operational.evtx",
+                "Microsoft-Windows-TaskScheduler-Operational.evtx"
+              ],
+              "bytes": 15867904,
+              "events": 488,
+              "first_event_seconds": 15.777,
+              "complete_seconds": 16.099,
+              "unit_wall_seconds": 6.132
+            },
+            {
+              "unit_index": 2,
+              "mode": "directory",
+              "files": [
+                "Microsoft-Windows-TerminalServices-LocalSessionManager.evtx",
+                "Microsoft-Windows-WMI-Activity-Operational.evtx"
+              ],
+              "bytes": 2236416,
+              "events": 1379,
+              "first_event_seconds": 21.54,
+              "complete_seconds": 22.221,
+              "unit_wall_seconds": 6.123
+            },
+            {
+              "unit_index": 3,
+              "mode": "directory",
+              "files": [
+                "Microsoft-Windows-Windows-Defender-Operational.evtx",
+                "Security.evtx"
+              ],
+              "bytes": 26353664,
+              "events": 35111,
+              "first_event_seconds": 36.36,
+              "complete_seconds": 54.677,
+              "unit_wall_seconds": 32.456
+            },
+            {
+              "unit_index": 4,
+              "mode": "per_file",
+              "files": [
+                "System.evtx"
+              ],
+              "bytes": 21041152,
+              "events": 61627,
+              "first_event_seconds": 70.061,
+              "complete_seconds": 92.493,
+              "unit_wall_seconds": 37.816
+            }
+          ],
+          "hayabusa_launches": 5,
+          "hayabusa_wall_seconds": 30.772,
+          "evtxecmd_launches": 5,
+          "evtxecmd_wall_seconds": 38.467
+        },
+        {
+          "policy": "eager1_g4",
+          "eager_first": true,
+          "target_files": 4,
+          "order": "queue",
+          "wall_seconds": 91.092,
+          "events": 110742,
+          "first_event_seconds": 5.773,
+          "second_group_searchable_seconds": 15.719,
+          "completion_tail_seconds": 85.318,
+          "peak_rss_mb": 34.05,
+          "cpu_self_seconds": 55.148,
+          "cpu_children_seconds": 97.306,
+          "errors": [],
+          "timeline": [
+            {
+              "unit_index": 0,
+              "mode": "per_file",
+              "files": [
+                "Application.evtx"
+              ],
+              "bytes": 11603968,
+              "events": 12137,
+              "first_event_seconds": 5.773,
+              "complete_seconds": 10.095,
+              "unit_wall_seconds": 10.095
+            },
+            {
+              "unit_index": 1,
+              "mode": "directory",
+              "files": [
+                "Microsoft-Windows-PowerShell-Operational.evtx",
+                "Microsoft-Windows-TaskScheduler-Operational.evtx",
+                "Microsoft-Windows-TerminalServices-LocalSessionManager.evtx",
+                "Microsoft-Windows-WMI-Activity-Operational.evtx"
+              ],
+              "bytes": 18104320,
+              "events": 1867,
+              "first_event_seconds": 15.719,
+              "complete_seconds": 16.723,
+              "unit_wall_seconds": 6.628
+            },
+            {
+              "unit_index": 2,
+              "mode": "directory",
+              "files": [
+                "Microsoft-Windows-Windows-Defender-Operational.evtx",
+                "Security.evtx",
+                "System.evtx"
+              ],
+              "bytes": 47394816,
+              "events": 96738,
+              "first_event_seconds": 42.012,
+              "complete_seconds": 91.092,
+              "unit_wall_seconds": 74.368
+            }
+          ],
+          "hayabusa_launches": 3,
+          "hayabusa_wall_seconds": 21.569,
+          "evtxecmd_launches": 3,
+          "evtxecmd_wall_seconds": 33.096
+        },
+        {
+          "policy": "small_first_g8",
+          "eager_first": false,
+          "target_files": 8,
+          "order": "smallest",
+          "wall_seconds": 84.212,
+          "events": 110742,
+          "first_event_seconds": 27.934,
+          "second_group_searchable_seconds": null,
+          "completion_tail_seconds": 56.278,
+          "peak_rss_mb": 34.05,
+          "cpu_self_seconds": 57.041,
+          "cpu_children_seconds": 87.894,
+          "errors": [],
+          "timeline": [
+            {
+              "unit_index": 0,
+              "mode": "directory",
+              "files": [
+                "Microsoft-Windows-TaskScheduler-Operational.evtx",
+                "Microsoft-Windows-TerminalServices-LocalSessionManager.evtx",
+                "Microsoft-Windows-WMI-Activity-Operational.evtx",
+                "Microsoft-Windows-Windows-Defender-Operational.evtx",
+                "Application.evtx",
+                "Microsoft-Windows-PowerShell-Operational.evtx",
+                "Security.evtx",
+                "System.evtx"
+              ],
+              "bytes": 77103104,
+              "events": 110742,
+              "first_event_seconds": 27.934,
+              "complete_seconds": 84.212,
+              "unit_wall_seconds": 84.212
+            }
+          ],
+          "hayabusa_launches": 1,
+          "hayabusa_wall_seconds": 11.439,
+          "evtxecmd_launches": 1,
+          "evtxecmd_wall_seconds": 27.93
+        },
+        {
+          "policy": "small_first_eager1_rest",
+          "eager_first": true,
+          "target_files": 8,
+          "order": "smallest",
+          "wall_seconds": 89.91,
+          "events": 110742,
+          "first_event_seconds": 33.98,
+          "second_group_searchable_seconds": 33.98,
+          "completion_tail_seconds": 55.93,
+          "peak_rss_mb": 34.09,
+          "cpu_self_seconds": 56.724,
+          "cpu_children_seconds": 97.522,
+          "errors": [],
+          "timeline": [
+            {
+              "unit_index": 0,
+              "mode": "per_file",
+              "files": [
+                "Microsoft-Windows-TaskScheduler-Operational.evtx"
+              ],
+              "bytes": 69632,
+              "events": 0,
+              "first_event_seconds": null,
+              "complete_seconds": 5.132,
+              "unit_wall_seconds": 5.132
+            },
+            {
+              "unit_index": 1,
+              "mode": "directory",
+              "files": [
+                "Microsoft-Windows-TerminalServices-LocalSessionManager.evtx",
+                "Microsoft-Windows-WMI-Activity-Operational.evtx",
+                "Microsoft-Windows-Windows-Defender-Operational.evtx",
+                "Application.evtx",
+                "Microsoft-Windows-PowerShell-Operational.evtx",
+                "Security.evtx",
+                "System.evtx"
+              ],
+              "bytes": 77033472,
+              "events": 110742,
+              "first_event_seconds": 33.98,
+              "complete_seconds": 89.91,
+              "unit_wall_seconds": 84.778
+            }
+          ],
+          "hayabusa_launches": 2,
+          "hayabusa_wall_seconds": 17.168,
+          "evtxecmd_launches": 2,
+          "evtxecmd_wall_seconds": 29.812
+        }
+      ]
+    },
+    {
+      "index": 2,
+      "runs": [
+        {
+          "policy": "g2",
+          "eager_first": false,
+          "target_files": 2,
+          "order": "queue",
+          "wall_seconds": 96.872,
+          "events": 110742,
+          "first_event_seconds": 6.65,
+          "second_group_searchable_seconds": 18.132,
+          "completion_tail_seconds": 90.222,
+          "peak_rss_mb": 34.09,
+          "cpu_self_seconds": 56.188,
+          "cpu_children_seconds": 105.653,
+          "errors": [],
+          "timeline": [
+            {
+              "unit_index": 0,
+              "mode": "directory",
+              "files": [
+                "Application.evtx",
+                "Microsoft-Windows-PowerShell-Operational.evtx"
+              ],
+              "bytes": 27402240,
+              "events": 12625,
+              "first_event_seconds": 6.65,
+              "complete_seconds": 12.936,
+              "unit_wall_seconds": 12.936
+            },
+            {
+              "unit_index": 1,
+              "mode": "directory",
+              "files": [
+                "Microsoft-Windows-TaskScheduler-Operational.evtx",
+                "Microsoft-Windows-TerminalServices-LocalSessionManager.evtx"
+              ],
+              "bytes": 1187840,
+              "events": 221,
+              "first_event_seconds": 18.132,
+              "complete_seconds": 18.234,
+              "unit_wall_seconds": 5.299
+            },
+            {
+              "unit_index": 2,
+              "mode": "directory",
+              "files": [
+                "Microsoft-Windows-WMI-Activity-Operational.evtx",
+                "Microsoft-Windows-Windows-Defender-Operational.evtx"
+              ],
+              "bytes": 6430720,
+              "events": 6694,
+              "first_event_seconds": 24.473,
+              "complete_seconds": 27.821,
+              "unit_wall_seconds": 9.587
+            },
+            {
+              "unit_index": 3,
+              "mode": "directory",
+              "files": [
+                "Security.evtx",
+                "System.evtx"
+              ],
+              "bytes": 42082304,
+              "events": 91202,
+              "first_event_seconds": 51.197,
+              "complete_seconds": 96.872,
+              "unit_wall_seconds": 69.051
+            }
+          ],
+          "hayabusa_launches": 4,
+          "hayabusa_wall_seconds": 26.4,
+          "evtxecmd_launches": 4,
+          "evtxecmd_wall_seconds": 37.496
+        },
+        {
+          "policy": "g4",
+          "eager_first": false,
+          "target_files": 4,
+          "order": "queue",
+          "wall_seconds": 88.021,
+          "events": 110742,
+          "first_event_seconds": 6.762,
+          "second_group_searchable_seconds": 38.439,
+          "completion_tail_seconds": 81.26,
+          "peak_rss_mb": 34.09,
+          "cpu_self_seconds": 56.747,
+          "cpu_children_seconds": 91.871,
+          "errors": [],
+          "timeline": [
+            {
+              "unit_index": 0,
+              "mode": "directory",
+              "files": [
+                "Application.evtx",
+                "Microsoft-Windows-PowerShell-Operational.evtx",
+                "Microsoft-Windows-TaskScheduler-Operational.evtx",
+                "Microsoft-Windows-TerminalServices-LocalSessionManager.evtx"
+              ],
+              "bytes": 28590080,
+              "events": 12846,
+              "first_event_seconds": 6.762,
+              "complete_seconds": 13.229,
+              "unit_wall_seconds": 13.229
+            },
+            {
+              "unit_index": 1,
+              "mode": "directory",
+              "files": [
+                "Microsoft-Windows-WMI-Activity-Operational.evtx",
+                "Microsoft-Windows-Windows-Defender-Operational.evtx",
+                "Security.evtx",
+                "System.evtx"
+              ],
+              "bytes": 48513024,
+              "events": 97896,
+              "first_event_seconds": 38.439,
+              "complete_seconds": 88.021,
+              "unit_wall_seconds": 74.792
+            }
+          ],
+          "hayabusa_launches": 2,
+          "hayabusa_wall_seconds": 16.527,
+          "evtxecmd_launches": 2,
+          "evtxecmd_wall_seconds": 31.966
+        },
+        {
+          "policy": "g8_current",
+          "eager_first": false,
+          "target_files": 8,
+          "order": "queue",
+          "wall_seconds": 84.413,
+          "events": 110742,
+          "first_event_seconds": 28.353,
+          "second_group_searchable_seconds": null,
+          "completion_tail_seconds": 56.06,
+          "peak_rss_mb": 34.14,
+          "cpu_self_seconds": 56.765,
+          "cpu_children_seconds": 87.882,
+          "errors": [],
+          "timeline": [
+            {
+              "unit_index": 0,
+              "mode": "directory",
+              "files": [
+                "Application.evtx",
+                "Microsoft-Windows-PowerShell-Operational.evtx",
+                "Microsoft-Windows-TaskScheduler-Operational.evtx",
+                "Microsoft-Windows-TerminalServices-LocalSessionManager.evtx",
+                "Microsoft-Windows-WMI-Activity-Operational.evtx",
+                "Microsoft-Windows-Windows-Defender-Operational.evtx",
+                "Security.evtx",
+                "System.evtx"
+              ],
+              "bytes": 77103104,
+              "events": 110742,
+              "first_event_seconds": 28.353,
+              "complete_seconds": 84.413,
+              "unit_wall_seconds": 84.413
+            }
+          ],
+          "hayabusa_launches": 1,
+          "hayabusa_wall_seconds": 11.331,
+          "evtxecmd_launches": 1,
+          "evtxecmd_wall_seconds": 28.35
+        },
+        {
+          "policy": "eager1_rest7",
+          "eager_first": true,
+          "target_files": 8,
+          "order": "queue",
+          "wall_seconds": 85.227,
+          "events": 110742,
+          "first_event_seconds": 5.544,
+          "second_group_searchable_seconds": 35.945,
+          "completion_tail_seconds": 79.683,
+          "peak_rss_mb": 34.18,
+          "cpu_self_seconds": 54.162,
+          "cpu_children_seconds": 93.474,
+          "errors": [],
+          "timeline": [
+            {
+              "unit_index": 0,
+              "mode": "per_file",
+              "files": [
+                "Application.evtx"
+              ],
+              "bytes": 11603968,
+              "events": 12137,
+              "first_event_seconds": 5.544,
+              "complete_seconds": 9.693,
+              "unit_wall_seconds": 9.693
+            },
+            {
+              "unit_index": 1,
+              "mode": "directory",
+              "files": [
+                "Microsoft-Windows-PowerShell-Operational.evtx",
+                "Microsoft-Windows-TaskScheduler-Operational.evtx",
+                "Microsoft-Windows-TerminalServices-LocalSessionManager.evtx",
+                "Microsoft-Windows-WMI-Activity-Operational.evtx",
+                "Microsoft-Windows-Windows-Defender-Operational.evtx",
+                "Security.evtx",
+                "System.evtx"
+              ],
+              "bytes": 65499136,
+              "events": 98605,
+              "first_event_seconds": 35.945,
+              "complete_seconds": 85.227,
+              "unit_wall_seconds": 75.534
+            }
+          ],
+          "hayabusa_launches": 2,
+          "hayabusa_wall_seconds": 16.192,
+          "evtxecmd_launches": 2,
+          "evtxecmd_wall_seconds": 31.732
+        },
+        {
+          "policy": "eager1_g2",
+          "eager_first": true,
+          "target_files": 2,
+          "order": "queue",
+          "wall_seconds": 93.547,
+          "events": 110742,
+          "first_event_seconds": 5.859,
+          "second_group_searchable_seconds": 15.79,
+          "completion_tail_seconds": 87.687,
+          "peak_rss_mb": 34.19,
+          "cpu_self_seconds": 47.19,
+          "cpu_children_seconds": 97.804,
+          "errors": [],
+          "timeline": [
+            {
+              "unit_index": 0,
+              "mode": "per_file",
+              "files": [
+                "Application.evtx"
+              ],
+              "bytes": 11603968,
+              "events": 12137,
+              "first_event_seconds": 5.859,
+              "complete_seconds": 10.059,
+              "unit_wall_seconds": 10.059
+            },
+            {
+              "unit_index": 1,
+              "mode": "directory",
+              "files": [
+                "Microsoft-Windows-PowerShell-Operational.evtx",
+                "Microsoft-Windows-TaskScheduler-Operational.evtx"
+              ],
+              "bytes": 15867904,
+              "events": 488,
+              "first_event_seconds": 15.79,
+              "complete_seconds": 16.103,
+              "unit_wall_seconds": 6.044
+            },
+            {
+              "unit_index": 2,
+              "mode": "directory",
+              "files": [
+                "Microsoft-Windows-TerminalServices-LocalSessionManager.evtx",
+                "Microsoft-Windows-WMI-Activity-Operational.evtx"
+              ],
+              "bytes": 2236416,
+              "events": 1379,
+              "first_event_seconds": 21.704,
+              "complete_seconds": 22.35,
+              "unit_wall_seconds": 6.247
+            },
+            {
+              "unit_index": 3,
+              "mode": "directory",
+              "files": [
+                "Microsoft-Windows-Windows-Defender-Operational.evtx",
+                "Security.evtx"
+              ],
+              "bytes": 26353664,
+              "events": 35111,
+              "first_event_seconds": 37.067,
+              "complete_seconds": 55.6,
+              "unit_wall_seconds": 33.25
+            },
+            {
+              "unit_index": 4,
+              "mode": "per_file",
+              "files": [
+                "System.evtx"
+              ],
+              "bytes": 21041152,
+              "events": 61627,
+              "first_event_seconds": 70.717,
+              "complete_seconds": 93.547,
+              "unit_wall_seconds": 37.946
+            }
+          ],
+          "hayabusa_launches": 5,
+          "hayabusa_wall_seconds": 31.051,
+          "evtxecmd_launches": 5,
+          "evtxecmd_wall_seconds": 38.94
+        },
+        {
+          "policy": "eager1_g4",
+          "eager_first": true,
+          "target_files": 4,
+          "order": "queue",
+          "wall_seconds": 91.139,
+          "events": 110742,
+          "first_event_seconds": 5.675,
+          "second_group_searchable_seconds": 15.598,
+          "completion_tail_seconds": 85.464,
+          "peak_rss_mb": 34.19,
+          "cpu_self_seconds": 55.041,
+          "cpu_children_seconds": 97.471,
+          "errors": [],
+          "timeline": [
+            {
+              "unit_index": 0,
+              "mode": "per_file",
+              "files": [
+                "Application.evtx"
+              ],
+              "bytes": 11603968,
+              "events": 12137,
+              "first_event_seconds": 5.675,
+              "complete_seconds": 9.892,
+              "unit_wall_seconds": 9.892
+            },
+            {
+              "unit_index": 1,
+              "mode": "directory",
+              "files": [
+                "Microsoft-Windows-PowerShell-Operational.evtx",
+                "Microsoft-Windows-TaskScheduler-Operational.evtx",
+                "Microsoft-Windows-TerminalServices-LocalSessionManager.evtx",
+                "Microsoft-Windows-WMI-Activity-Operational.evtx"
+              ],
+              "bytes": 18104320,
+              "events": 1867,
+              "first_event_seconds": 15.598,
+              "complete_seconds": 16.636,
+              "unit_wall_seconds": 6.744
+            },
+            {
+              "unit_index": 2,
+              "mode": "directory",
+              "files": [
+                "Microsoft-Windows-Windows-Defender-Operational.evtx",
+                "Security.evtx",
+                "System.evtx"
+              ],
+              "bytes": 47394816,
+              "events": 96738,
+              "first_event_seconds": 42.157,
+              "complete_seconds": 91.139,
+              "unit_wall_seconds": 74.503
+            }
+          ],
+          "hayabusa_launches": 3,
+          "hayabusa_wall_seconds": 21.16,
+          "evtxecmd_launches": 3,
+          "evtxecmd_wall_seconds": 33.791
+        },
+        {
+          "policy": "small_first_g8",
+          "eager_first": false,
+          "target_files": 8,
+          "order": "smallest",
+          "wall_seconds": 87.294,
+          "events": 110742,
+          "first_event_seconds": 28.775,
+          "second_group_searchable_seconds": null,
+          "completion_tail_seconds": 58.519,
+          "peak_rss_mb": 35.82,
+          "cpu_self_seconds": 59.293,
+          "cpu_children_seconds": 88.596,
+          "errors": [],
+          "timeline": [
+            {
+              "unit_index": 0,
+              "mode": "directory",
+              "files": [
+                "Microsoft-Windows-TaskScheduler-Operational.evtx",
+                "Microsoft-Windows-TerminalServices-LocalSessionManager.evtx",
+                "Microsoft-Windows-WMI-Activity-Operational.evtx",
+                "Microsoft-Windows-Windows-Defender-Operational.evtx",
+                "Application.evtx",
+                "Microsoft-Windows-PowerShell-Operational.evtx",
+                "Security.evtx",
+                "System.evtx"
+              ],
+              "bytes": 77103104,
+              "events": 110742,
+              "first_event_seconds": 28.775,
+              "complete_seconds": 87.294,
+              "unit_wall_seconds": 87.294
+            }
+          ],
+          "hayabusa_launches": 1,
+          "hayabusa_wall_seconds": 11.39,
+          "evtxecmd_launches": 1,
+          "evtxecmd_wall_seconds": 28.771
+        },
+        {
+          "policy": "small_first_eager1_rest",
+          "eager_first": true,
+          "target_files": 8,
+          "order": "smallest",
+          "wall_seconds": 89.825,
+          "events": 110742,
+          "first_event_seconds": 34.151,
+          "second_group_searchable_seconds": 34.151,
+          "completion_tail_seconds": 55.674,
+          "peak_rss_mb": 35.82,
+          "cpu_self_seconds": 56.51,
+          "cpu_children_seconds": 98.755,
+          "errors": [],
+          "timeline": [
+            {
+              "unit_index": 0,
+              "mode": "per_file",
+              "files": [
+                "Microsoft-Windows-TaskScheduler-Operational.evtx"
+              ],
+              "bytes": 69632,
+              "events": 0,
+              "first_event_seconds": null,
+              "complete_seconds": 5.264,
+              "unit_wall_seconds": 5.264
+            },
+            {
+              "unit_index": 1,
+              "mode": "directory",
+              "files": [
+                "Microsoft-Windows-TerminalServices-LocalSessionManager.evtx",
+                "Microsoft-Windows-WMI-Activity-Operational.evtx",
+                "Microsoft-Windows-Windows-Defender-Operational.evtx",
+                "Application.evtx",
+                "Microsoft-Windows-PowerShell-Operational.evtx",
+                "Security.evtx",
+                "System.evtx"
+              ],
+              "bytes": 77033472,
+              "events": 110742,
+              "first_event_seconds": 34.151,
+              "complete_seconds": 89.825,
+              "unit_wall_seconds": 84.561
+            }
+          ],
+          "hayabusa_launches": 2,
+          "hayabusa_wall_seconds": 17.355,
+          "evtxecmd_launches": 2,
+          "evtxecmd_wall_seconds": 29.839
+        },
+        {
+          "policy": "g1_per_file",
+          "eager_first": false,
+          "target_files": 1,
+          "order": "queue",
+          "wall_seconds": 125.415,
+          "events": 110742,
+          "first_event_seconds": 5.951,
+          "second_group_searchable_seconds": 16.118,
+          "completion_tail_seconds": 119.465,
+          "peak_rss_mb": 35.82,
+          "cpu_self_seconds": 63.619,
+          "cpu_children_seconds": 120.892,
+          "errors": [],
+          "timeline": [
+            {
+              "unit_index": 0,
+              "mode": "per_file",
+              "files": [
+                "Application.evtx"
+              ],
+              "bytes": 11603968,
+              "events": 12137,
+              "first_event_seconds": 5.951,
+              "complete_seconds": 10.397,
+              "unit_wall_seconds": 10.397
+            },
+            {
+              "unit_index": 1,
+              "mode": "per_file",
+              "files": [
+                "Microsoft-Windows-PowerShell-Operational.evtx"
+              ],
+              "bytes": 15798272,
+              "events": 488,
+              "first_event_seconds": 16.118,
+              "complete_seconds": 16.438,
+              "unit_wall_seconds": 6.041
+            },
+            {
+              "unit_index": 2,
+              "mode": "per_file",
+              "files": [
+                "Microsoft-Windows-TaskScheduler-Operational.evtx"
+              ],
+              "bytes": 69632,
+              "events": 0,
+              "first_event_seconds": null,
+              "complete_seconds": 21.802,
+              "unit_wall_seconds": 5.364
+            },
+            {
+              "unit_index": 3,
+              "mode": "per_file",
+              "files": [
+                "Microsoft-Windows-TerminalServices-LocalSessionManager.evtx"
+              ],
+              "bytes": 1118208,
+              "events": 221,
+              "first_event_seconds": 27.192,
+              "complete_seconds": 27.275,
+              "unit_wall_seconds": 5.472
+            },
+            {
+              "unit_index": 4,
+              "mode": "per_file",
+              "files": [
+                "Microsoft-Windows-WMI-Activity-Operational.evtx"
+              ],
+              "bytes": 1118208,
+              "events": 1158,
+              "first_event_seconds": 32.678,
+              "complete_seconds": 33.14,
+              "unit_wall_seconds": 5.866
+            },
+            {
+              "unit_index": 5,
+              "mode": "per_file",
+              "files": [
+                "Microsoft-Windows-Windows-Defender-Operational.evtx"
+              ],
+              "bytes": 5312512,
+              "events": 5536,
+              "first_event_seconds": 38.746,
+              "complete_seconds": 40.919,
+              "unit_wall_seconds": 7.778
+            },
+            {
+              "unit_index": 6,
+              "mode": "per_file",
+              "files": [
+                "Security.evtx"
+              ],
+              "bytes": 21041152,
+              "events": 29575,
+              "first_event_seconds": 54.081,
+              "complete_seconds": 87.307,
+              "unit_wall_seconds": 46.388
+            },
+            {
+              "unit_index": 7,
+              "mode": "per_file",
+              "files": [
+                "System.evtx"
+              ],
+              "bytes": 21041152,
+              "events": 61627,
+              "first_event_seconds": 102.527,
+              "complete_seconds": 125.415,
+              "unit_wall_seconds": 38.108
+            }
+          ],
+          "hayabusa_launches": 8,
+          "hayabusa_wall_seconds": 47.24,
+          "evtxecmd_launches": 8,
+          "evtxecmd_wall_seconds": 45.449
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,1569 @@
+{
+  "started_at": "2026-08-14T11:04:48.979928+00:00",
+  "corpus_dir": "/opt/casescope-benchmark/phase0a_evtx",
+  "python_executable": "/opt/casescope/venv/bin/python",
+  "postgres_database": "phase0a_ingest_20260814110448",
+  "clickhouse_database": "phase0a_ingest_20260814110448",
+  "source_files": [
+    {
+      "path": "/opt/casescope-benchmark/phase0a_evtx/Application.evtx",
+      "size_bytes": 11603968,
+      "sha256": "a9a10f634fb4409e765791c6eedc73346bbed6244a583f8f694c651c6931cbb1"
+    },
+    {
+      "path": "/opt/casescope-benchmark/phase0a_evtx/Microsoft-Windows-PowerShell-Operational.evtx",
+      "size_bytes": 15798272,
+      "sha256": "a0deb6a8e4c97a563e487fa2c96e0a2711566654ef77a28a4e7c7952bcb29a69"
+    },
+    {
+      "path": "/opt/casescope-benchmark/phase0a_evtx/Microsoft-Windows-TaskScheduler-Operational.evtx",
+      "size_bytes": 69632,
+      "sha256": "915c2c1ef94a010885c882cda0b52cfc26a1512d22f9133c1295e26087dcf499"
+    },
+    {
+      "path": "/opt/casescope-benchmark/phase0a_evtx/Microsoft-Windows-TerminalServices-LocalSessionManager.evtx",
+      "size_bytes": 1118208,
+      "sha256": "eba5bea0102201e553ad004ac1d9fb575067d270a6a2dce3e96740dad64593b8"
+    },
+    {
+      "path": "/opt/casescope-benchmark/phase0a_evtx/Microsoft-Windows-WMI-Activity-Operational.evtx",
+      "size_bytes": 1118208,
+      "sha256": "184b17c902cdaa684da76bb7b256a39a89a5cdb8438ff307714b2a767785f8e0"
+    },
+    {
+      "path": "/opt/casescope-benchmark/phase0a_evtx/Microsoft-Windows-Windows-Defender-Operational.evtx",
+      "size_bytes": 5312512,
+      "sha256": "b52d925a12d38422c6373416a11fe28565ffb4a872dc6318900e1756f8ef9ed0"
+    },
+    {
+      "path": "/opt/casescope-benchmark/phase0a_evtx/Security.evtx",
+      "size_bytes": 21041152,
+      "sha256": "f720ce8362f7f9c5b8ec7068f916026efb04e78499fd30859e3e6e172265244a"
+    },
+    {
+      "path": "/opt/casescope-benchmark/phase0a_evtx/System.evtx",
+      "size_bytes": 21041152,
+      "sha256": "1f4cef929100fc1398f440afc583222ef2e228e1a577c33c19f5a3a82b88699a"
+    }
+  ],
+  "case_id": 1,
+  "case_uuid": "8c1f1c46-d11c-431b-b60c-90f7b8de8381",
+  "case_file_ids": {
+    "/opt/casescope-benchmark/phase0a_evtx/Application.evtx": 1,
+    "/opt/casescope-benchmark/phase0a_evtx/Microsoft-Windows-PowerShell-Operational.evtx": 2,
+    "/opt/casescope-benchmark/phase0a_evtx/Microsoft-Windows-TaskScheduler-Operational.evtx": 3,
+    "/opt/casescope-benchmark/phase0a_evtx/Microsoft-Windows-TerminalServices-LocalSessionManager.evtx": 4,
+    "/opt/casescope-benchmark/phase0a_evtx/Microsoft-Windows-WMI-Activity-Operational.evtx": 5,
+    "/opt/casescope-benchmark/phase0a_evtx/Microsoft-Windows-Windows-Defender-Operational.evtx": 6,
+    "/opt/casescope-benchmark/phase0a_evtx/Security.evtx": 7,
+    "/opt/casescope-benchmark/phase0a_evtx/System.evtx": 8
+  },
+  "clickhouse_before": {
+    "active_parts": 0,
+    "active_rows": 0,
+    "mutation_count": 0
+  },
+  "completed_at": "2026-08-14T11:10:21.878854+00:00",
+  "wall_time_seconds": 332.884,
+  "file_count": 8,
+  "total_source_bytes": 77103104,
+  "total_source_mb": 73.531,
+  "events_inserted": 49115,
+  "events_parsed_before_dedup": 110742,
+  "events_per_second": 332.674,
+  "source_mb_per_second": 0.221,
+  "time_to_first_physical_row_seconds": 197.372,
+  "time_to_first_current_searchable_event_seconds": 197.372,
+  "current_searchable_note": "Current product search reads events; in this disposable process first searchable was treated as first observed events row in the disposable events table.",
+  "per_file": [
+    {
+      "path": "/opt/casescope-benchmark/phase0a_evtx/Application.evtx",
+      "case_file_id": 1,
+      "size_bytes": 11603968,
+      "events_inserted": 12137,
+      "success": true,
+      "artifact_type": "evtx",
+      "duration_seconds": 36.147,
+      "cleanup_delete_ms": 16.509,
+      "errors": [],
+      "warnings": []
+    },
+    {
+      "path": "/opt/casescope-benchmark/phase0a_evtx/Microsoft-Windows-PowerShell-Operational.evtx",
+      "case_file_id": 2,
+      "size_bytes": 15798272,
+      "events_inserted": 488,
+      "success": true,
+      "artifact_type": "evtx",
+      "duration_seconds": 20.433,
+      "cleanup_delete_ms": 13.983,
+      "errors": [],
+      "warnings": []
+    },
+    {
+      "path": "/opt/casescope-benchmark/phase0a_evtx/Microsoft-Windows-TaskScheduler-Operational.evtx",
+      "case_file_id": 3,
+      "size_bytes": 69632,
+      "events_inserted": 0,
+      "success": true,
+      "artifact_type": "evtx",
+      "duration_seconds": 5.144,
+      "cleanup_delete_ms": 15.557,
+      "errors": [],
+      "warnings": []
+    },
+    {
+      "path": "/opt/casescope-benchmark/phase0a_evtx/Microsoft-Windows-TerminalServices-LocalSessionManager.evtx",
+      "case_file_id": 4,
+      "size_bytes": 1118208,
+      "events_inserted": 221,
+      "success": true,
+      "artifact_type": "evtx",
+      "duration_seconds": 5.941,
+      "cleanup_delete_ms": 14.042,
+      "errors": [],
+      "warnings": []
+    },
+    {
+      "path": "/opt/casescope-benchmark/phase0a_evtx/Microsoft-Windows-WMI-Activity-Operational.evtx",
+      "case_file_id": 5,
+      "size_bytes": 1118208,
+      "events_inserted": 1158,
+      "success": true,
+      "artifact_type": "evtx",
+      "duration_seconds": 7.417,
+      "cleanup_delete_ms": 14.606,
+      "errors": [],
+      "warnings": []
+    },
+    {
+      "path": "/opt/casescope-benchmark/phase0a_evtx/Microsoft-Windows-Windows-Defender-Operational.evtx",
+      "case_file_id": 6,
+      "size_bytes": 5312512,
+      "events_inserted": 5536,
+      "success": true,
+      "artifact_type": "evtx",
+      "duration_seconds": 20.05,
+      "cleanup_delete_ms": 16.245,
+      "errors": [],
+      "warnings": []
+    },
+    {
+      "path": "/opt/casescope-benchmark/phase0a_evtx/Security.evtx",
+      "case_file_id": 7,
+      "size_bytes": 21041152,
+      "events_inserted": 29575,
+      "success": true,
+      "artifact_type": "evtx",
+      "duration_seconds": 98.085,
+      "cleanup_delete_ms": 18.012,
+      "errors": [],
+      "warnings": []
+    },
+    {
+      "path": "/opt/casescope-benchmark/phase0a_evtx/System.evtx",
+      "case_file_id": 8,
+      "size_bytes": 21041152,
+      "events_inserted": 61627,
+      "success": true,
+      "artifact_type": "evtx",
+      "duration_seconds": 132.196,
+      "cleanup_delete_ms": 1024.804,
+      "errors": [],
+      "warnings": []
+    }
+  ],
+  "completion": {
+    "buffer_optimize_ms": 2196.385,
+    "dedup": {
+      "success": true,
+      "case_id": 1,
+      "artifact_types_checked": 1,
+      "artifact_types_skipped": 0,
+      "total_duplicates_found": 0,
+      "total_duplicates_deleted": 0,
+      "details": [],
+      "skipped_details": [],
+      "errors": null,
+      "message": "No duplicates found"
+    },
+    "dedup_ms": 98.187,
+    "known_systems": {
+      "success": true,
+      "systems_created": 7,
+      "systems_updated": 0,
+      "aliases_added": 0,
+      "ips_added": 0,
+      "case_links_added": 0,
+      "hostnames_processed": 7,
+      "errors": []
+    },
+    "known_systems_ms": 971.908,
+    "known_users": {
+      "success": true,
+      "users_created": 2,
+      "users_updated": 1,
+      "aliases_added": 2,
+      "emails_added": 0,
+      "case_links_added": 0,
+      "users_processed": 3,
+      "errors": []
+    },
+    "known_users_ms": 47.136,
+    "mitre": "NOT REPRODUCED - parse_file harness does not run parse_file_task Hayabusa MITRE match insert/queue",
+    "embeddings": "NOT REPRODUCED - disposable harness does not enqueue embedding workers",
+    "graph": "NOT REPRODUCED - disposable harness does not enqueue graph materialization workers"
+  },
+  "metrics": [
+    {
+      "stage": "delete_file_events_command",
+      "duration_ms": 7.157,
+      "success": true,
+      "case_file_id": 1,
+      "table_name": "events",
+      "wait": true,
+      "existing_rows": null
+    },
+    {
+      "stage": "delete_file_events_command",
+      "duration_ms": 2.073,
+      "success": false,
+      "case_file_id": 1,
+      "table_name": "events_buffer",
+      "wait": true,
+      "existing_rows": null
+    },
+    {
+      "stage": "delete_file_events_buffer_mutation_skipped",
+      "case_file_id": 1,
+      "reason": "buffer_engine_no_mutations"
+    },
+    {
+      "stage": "delete_file_events_mutation_wait",
+      "duration_ms": 6.746,
+      "success": true,
+      "case_file_id": 1
+    },
+    {
+      "stage": "parser_registry_init",
+      "duration_ms": 27.552,
+      "success": true,
+      "case_id": 1,
+      "case_file_id": 1
+    },
+    {
+      "stage": "parser_resolution",
+      "duration_ms": 0.116,
+      "success": true,
+      "case_id": 1,
+      "case_file_id": 1
+    },
+    {
+      "stage": "evtxecmd_process",
+      "duration_ms": 6708.512,
+      "success": true,
+      "case_id": 1,
+      "case_file_id": 1
+    },
+    {
+      "stage": "hayabusa_process",
+      "duration_ms": 7344.679,
+      "success": true,
+      "case_id": 1,
+      "case_file_id": 1
+    },
+    {
+      "stage": "hayabusa_jsonl_consume",
+      "case_id": 1,
+      "case_file_id": 1,
+      "jsonl_rows_consumed": 0,
+      "outer_json_decode_ms": 0.0,
+      "detection_count": 0
+    },
+    {
+      "stage": "alias_pg_write",
+      "duration_ms": 1657.694,
+      "input_event_count": 10000,
+      "candidate_count": 73273,
+      "unique_candidate_count": 516
+    },
+    {
+      "stage": "clickhouse_insert_batch",
+      "destination_table": "events_buffer",
+      "batch_row_count": 10000,
+      "batch_count": 1,
+      "estimated_bytes": 23940113,
+      "insert_duration_ms": 398.452,
+      "rows_per_second": 25097.132,
+      "mb_per_second": 57.299,
+      "alias_candidate_count": 73273,
+      "unique_alias_candidate_count": 516,
+      "alias_extract_duration_ms": 14559.131
+    },
+    {
+      "stage": "evtx_jsonl_consume",
+      "case_id": 1,
+      "case_file_id": 1,
+      "jsonl_rows_consumed": 12137,
+      "duration_ms": 28279.583,
+      "outer_json_decode_ms": 231.844,
+      "nested_payload_json_decode_ms": 132.267,
+      "normalization_ms": 5199.031,
+      "search_blob_construction_ms": 99.529
+    },
+    {
+      "stage": "parser_stream",
+      "duration_ms": 35634.016,
+      "success": true,
+      "case_id": 1,
+      "case_file_id": 1,
+      "artifact_type": "evtx",
+      "source_file_size": 11603968,
+      "events_parsed": 12137
+    },
+    {
+      "stage": "alias_pg_write",
+      "duration_ms": 374.816,
+      "input_event_count": 2137,
+      "candidate_count": 2586,
+      "unique_candidate_count": 137
+    },
+    {
+      "stage": "clickhouse_insert_batch",
+      "destination_table": "events_buffer",
+      "batch_row_count": 2137,
+      "batch_count": 2,
+      "estimated_bytes": 4070023,
+      "insert_duration_ms": 60.415,
+      "rows_per_second": 35371.87,
+      "mb_per_second": 64.247,
+      "alias_candidate_count": 2586,
+      "unique_alias_candidate_count": 137,
+      "alias_extract_duration_ms": 1606.774
+    },
+    {
+      "stage": "process_file_total",
+      "case_id": 1,
+      "case_file_id": 1,
+      "artifact_type": "evtx",
+      "source_file_size": 11603968,
+      "events_inserted": 12137,
+      "duration_ms": 36124.658,
+      "events_per_second": 335.975,
+      "mb_per_second": 0.306,
+      "success": true
+    },
+    {
+      "stage": "delete_file_events_command",
+      "duration_ms": 6.888,
+      "success": true,
+      "case_file_id": 2,
+      "table_name": "events",
+      "wait": true,
+      "existing_rows": null
+    },
+    {
+      "stage": "delete_file_events_command",
+      "duration_ms": 1.834,
+      "success": false,
+      "case_file_id": 2,
+      "table_name": "events_buffer",
+      "wait": true,
+      "existing_rows": null
+    },
+    {
+      "stage": "delete_file_events_buffer_mutation_skipped",
+      "case_file_id": 2,
+      "reason": "buffer_engine_no_mutations"
+    },
+    {
+      "stage": "delete_file_events_mutation_wait",
+      "duration_ms": 4.831,
+      "success": true,
+      "case_file_id": 2
+    },
+    {
+      "stage": "parser_registry_init",
+      "duration_ms": 0.002,
+      "success": true,
+      "case_id": 1,
+      "case_file_id": 2
+    },
+    {
+      "stage": "parser_resolution",
+      "duration_ms": 0.106,
+      "success": true,
+      "case_id": 1,
+      "case_file_id": 2
+    },
+    {
+      "stage": "evtxecmd_process",
+      "duration_ms": 1967.738,
+      "success": true,
+      "case_id": 1,
+      "case_file_id": 2
+    },
+    {
+      "stage": "hayabusa_process",
+      "duration_ms": 5995.408,
+      "success": true,
+      "case_id": 1,
+      "case_file_id": 2
+    },
+    {
+      "stage": "hayabusa_jsonl_consume",
+      "case_id": 1,
+      "case_file_id": 2,
+      "jsonl_rows_consumed": 399,
+      "outer_json_decode_ms": 16.796,
+      "detection_count": 399
+    },
+    {
+      "stage": "evtx_jsonl_consume",
+      "case_id": 1,
+      "case_file_id": 2,
+      "jsonl_rows_consumed": 488,
+      "duration_ms": 14170.172,
+      "outer_json_decode_ms": 33.937,
+      "nested_payload_json_decode_ms": 13.589,
+      "normalization_ms": 206.98,
+      "search_blob_construction_ms": 7.915
+    },
+    {
+      "stage": "parser_stream",
+      "duration_ms": 20196.125,
+      "success": true,
+      "case_id": 1,
+      "case_file_id": 2,
+      "artifact_type": "evtx",
+      "source_file_size": 15798272,
+      "events_parsed": 488
+    },
+    {
+      "stage": "alias_pg_write",
+      "duration_ms": 41.136,
+      "input_event_count": 488,
+      "candidate_count": 2489,
+      "unique_candidate_count": 14
+    },
+    {
+      "stage": "clickhouse_insert_batch",
+      "destination_table": "events_buffer",
+      "batch_row_count": 488,
+      "batch_count": 1,
+      "estimated_bytes": 26967307,
+      "insert_duration_ms": 165.318,
+      "rows_per_second": 2951.878,
+      "mb_per_second": 155.567,
+      "alias_candidate_count": 2489,
+      "unique_alias_candidate_count": 14,
+      "alias_extract_duration_ms": 13663.867
+    },
+    {
+      "stage": "process_file_total",
+      "case_id": 1,
+      "case_file_id": 2,
+      "artifact_type": "evtx",
+      "source_file_size": 15798272,
+      "events_inserted": 488,
+      "duration_ms": 20413.292,
+      "events_per_second": 23.906,
+      "mb_per_second": 0.738,
+      "success": true
+    },
+    {
+      "stage": "delete_file_events_command",
+      "duration_ms": 7.046,
+      "success": true,
+      "case_file_id": 3,
+      "table_name": "events",
+      "wait": true,
+      "existing_rows": null
+    },
+    {
+      "stage": "delete_file_events_command",
+      "duration_ms": 2.566,
+      "success": false,
+      "case_file_id": 3,
+      "table_name": "events_buffer",
+      "wait": true,
+      "existing_rows": null
+    },
+    {
+      "stage": "delete_file_events_buffer_mutation_skipped",
+      "case_file_id": 3,
+      "reason": "buffer_engine_no_mutations"
+    },
+    {
+      "stage": "delete_file_events_mutation_wait",
+      "duration_ms": 5.372,
+      "success": true,
+      "case_file_id": 3
+    },
+    {
+      "stage": "parser_registry_init",
+      "duration_ms": 0.002,
+      "success": true,
+      "case_id": 1,
+      "case_file_id": 3
+    },
+    {
+      "stage": "parser_resolution",
+      "duration_ms": 0.146,
+      "success": true,
+      "case_id": 1,
+      "case_file_id": 3
+    },
+    {
+      "stage": "evtxecmd_process",
+      "duration_ms": 870.041,
+      "success": true,
+      "case_id": 1,
+      "case_file_id": 3
+    },
+    {
+      "stage": "hayabusa_process",
+      "duration_ms": 5119.756,
+      "success": true,
+      "case_id": 1,
+      "case_file_id": 3
+    },
+    {
+      "stage": "hayabusa_jsonl_consume",
+      "case_id": 1,
+      "case_file_id": 3,
+      "jsonl_rows_consumed": 0,
+      "outer_json_decode_ms": 0.0,
+      "detection_count": 0
+    },
+    {
+      "stage": "evtx_jsonl_consume",
+      "case_id": 1,
+      "case_file_id": 3,
+      "jsonl_rows_consumed": 0,
+      "duration_ms": 0.066,
+      "outer_json_decode_ms": 0.0,
+      "nested_payload_json_decode_ms": 0.0,
+      "normalization_ms": 0.0,
+      "search_blob_construction_ms": 0.0
+    },
+    {
+      "stage": "parser_stream",
+      "duration_ms": 5121.433,
+      "success": true,
+      "case_id": 1,
+      "case_file_id": 3,
+      "artifact_type": "evtx",
+      "source_file_size": 69632,
+      "events_parsed": 0
+    },
+    {
+      "stage": "process_file_total",
+      "case_id": 1,
+      "case_file_id": 3,
+      "artifact_type": "evtx",
+      "source_file_size": 69632,
+      "events_inserted": 0,
+      "duration_ms": 5121.927,
+      "events_per_second": 0.0,
+      "mb_per_second": 0.013,
+      "success": true
+    },
+    {
+      "stage": "delete_file_events_command",
+      "duration_ms": 7.008,
+      "success": true,
+      "case_file_id": 4,
+      "table_name": "events",
+      "wait": true,
+      "existing_rows": null
+    },
+    {
+      "stage": "delete_file_events_command",
+      "duration_ms": 1.713,
+      "success": false,
+      "case_file_id": 4,
+      "table_name": "events_buffer",
+      "wait": true,
+      "existing_rows": null
+    },
+    {
+      "stage": "delete_file_events_buffer_mutation_skipped",
+      "case_file_id": 4,
+      "reason": "buffer_engine_no_mutations"
+    },
+    {
+      "stage": "delete_file_events_mutation_wait",
+      "duration_ms": 4.933,
+      "success": true,
+      "case_file_id": 4
+    },
+    {
+      "stage": "parser_registry_init",
+      "duration_ms": 0.001,
+      "success": true,
+      "case_id": 1,
+      "case_file_id": 4
+    },
+    {
+      "stage": "parser_resolution",
+      "duration_ms": 0.097,
+      "success": true,
+      "case_id": 1,
+      "case_file_id": 4
+    },
+    {
+      "stage": "evtxecmd_process",
+      "duration_ms": 1234.168,
+      "success": true,
+      "case_id": 1,
+      "case_file_id": 4
+    },
+    {
+      "stage": "hayabusa_process",
+      "duration_ms": 5456.978,
+      "success": true,
+      "case_id": 1,
+      "case_file_id": 4
+    },
+    {
+      "stage": "hayabusa_jsonl_consume",
+      "case_id": 1,
+      "case_file_id": 4,
+      "jsonl_rows_consumed": 79,
+      "outer_json_decode_ms": 0.599,
+      "detection_count": 79
+    },
+    {
+      "stage": "evtx_jsonl_consume",
+      "case_id": 1,
+      "case_file_id": 4,
+      "jsonl_rows_consumed": 221,
+      "duration_ms": 409.219,
+      "outer_json_decode_ms": 3.452,
+      "nested_payload_json_decode_ms": 1.441,
+      "normalization_ms": 74.263,
+      "search_blob_construction_ms": 3.871
+    },
+    {
+      "stage": "parser_stream",
+      "duration_ms": 5868.896,
+      "success": true,
+      "case_id": 1,
+      "case_file_id": 4,
+      "artifact_type": "evtx",
+      "source_file_size": 1118208,
+      "events_parsed": 221
+    },
+    {
+      "stage": "alias_pg_write",
+      "duration_ms": 28.307,
+      "input_event_count": 221,
+      "candidate_count": 645,
+      "unique_candidate_count": 9
+    },
+    {
+      "stage": "clickhouse_insert_batch",
+      "destination_table": "events_buffer",
+      "batch_row_count": 221,
+      "batch_count": 1,
+      "estimated_bytes": 630960,
+      "insert_duration_ms": 21.415,
+      "rows_per_second": 10320.037,
+      "mb_per_second": 28.099,
+      "alias_candidate_count": 645,
+      "unique_alias_candidate_count": 9,
+      "alias_extract_duration_ms": 262.725
+    },
+    {
+      "stage": "process_file_total",
+      "case_id": 1,
+      "case_file_id": 4,
+      "artifact_type": "evtx",
+      "source_file_size": 1118208,
+      "events_inserted": 221,
+      "duration_ms": 5922.221,
+      "events_per_second": 37.317,
+      "mb_per_second": 0.18,
+      "success": true
+    },
+    {
+      "stage": "delete_file_events_command",
+      "duration_ms": 7.037,
+      "success": true,
+      "case_file_id": 5,
+      "table_name": "events",
+      "wait": true,
+      "existing_rows": null
+    },
+    {
+      "stage": "delete_file_events_command",
+      "duration_ms": 1.939,
+      "success": false,
+      "case_file_id": 5,
+      "table_name": "events_buffer",
+      "wait": true,
+      "existing_rows": null
+    },
+    {
+      "stage": "delete_file_events_buffer_mutation_skipped",
+      "case_file_id": 5,
+      "reason": "buffer_engine_no_mutations"
+    },
+    {
+      "stage": "delete_file_events_mutation_wait",
+      "duration_ms": 5.157,
+      "success": true,
+      "case_file_id": 5
+    },
+    {
+      "stage": "parser_registry_init",
+      "duration_ms": 0.002,
+      "success": true,
+      "case_id": 1,
+      "case_file_id": 5
+    },
+    {
+      "stage": "parser_resolution",
+      "duration_ms": 0.1,
+      "success": true,
+      "case_id": 1,
+      "case_file_id": 5
+    },
+    {
+      "stage": "evtxecmd_process",
+      "duration_ms": 1712.185,
+      "success": true,
+      "case_id": 1,
+      "case_file_id": 5
+    },
+    {
+      "stage": "hayabusa_process",
+      "duration_ms": 5554.212,
+      "success": true,
+      "case_id": 1,
+      "case_file_id": 5
+    },
+    {
+      "stage": "hayabusa_jsonl_consume",
+      "case_id": 1,
+      "case_file_id": 5,
+      "jsonl_rows_consumed": 323,
+      "outer_json_decode_ms": 3.286,
+      "detection_count": 323
+    },
+    {
+      "stage": "evtx_jsonl_consume",
+      "case_id": 1,
+      "case_file_id": 5,
+      "jsonl_rows_consumed": 1158,
+      "duration_ms": 1742.491,
+      "outer_json_decode_ms": 19.773,
+      "nested_payload_json_decode_ms": 12.082,
+      "normalization_ms": 377.914,
+      "search_blob_construction_ms": 5.329
+    },
+    {
+      "stage": "parser_stream",
+      "duration_ms": 7303.596,
+      "success": true,
+      "case_id": 1,
+      "case_file_id": 5,
+      "artifact_type": "evtx",
+      "source_file_size": 1118208,
+      "events_parsed": 1158
+    },
+    {
+      "stage": "alias_pg_write",
+      "duration_ms": 29.41,
+      "input_event_count": 1158,
+      "candidate_count": 1188,
+      "unique_candidate_count": 7
+    },
+    {
+      "stage": "clickhouse_insert_batch",
+      "destination_table": "events_buffer",
+      "batch_row_count": 1158,
+      "batch_count": 1,
+      "estimated_bytes": 2812396,
+      "insert_duration_ms": 49.818,
+      "rows_per_second": 23244.551,
+      "mb_per_second": 53.838,
+      "alias_candidate_count": 1188,
+      "unique_alias_candidate_count": 7,
+      "alias_extract_duration_ms": 988.442
+    },
+    {
+      "stage": "process_file_total",
+      "case_id": 1,
+      "case_file_id": 5,
+      "artifact_type": "evtx",
+      "source_file_size": 1118208,
+      "events_inserted": 1158,
+      "duration_ms": 7397.562,
+      "events_per_second": 156.538,
+      "mb_per_second": 0.144,
+      "success": true
+    },
+    {
+      "stage": "delete_file_events_command",
+      "duration_ms": 8.187,
+      "success": true,
+      "case_file_id": 6,
+      "table_name": "events",
+      "wait": true,
+      "existing_rows": null
+    },
+    {
+      "stage": "delete_file_events_command",
+      "duration_ms": 2.053,
+      "success": false,
+      "case_file_id": 6,
+      "table_name": "events_buffer",
+      "wait": true,
+      "existing_rows": null
+    },
+    {
+      "stage": "delete_file_events_buffer_mutation_skipped",
+      "case_file_id": 6,
+      "reason": "buffer_engine_no_mutations"
+    },
+    {
+      "stage": "delete_file_events_mutation_wait",
+      "duration_ms": 5.223,
+      "success": true,
+      "case_file_id": 6
+    },
+    {
+      "stage": "parser_registry_init",
+      "duration_ms": 0.002,
+      "success": true,
+      "case_id": 1,
+      "case_file_id": 6
+    },
+    {
+      "stage": "parser_resolution",
+      "duration_ms": 0.987,
+      "success": true,
+      "case_id": 1,
+      "case_file_id": 6
+    },
+    {
+      "stage": "hayabusa_process",
+      "duration_ms": 5678.955,
+      "success": true,
+      "case_id": 1,
+      "case_file_id": 6
+    },
+    {
+      "stage": "hayabusa_jsonl_consume",
+      "case_id": 1,
+      "case_file_id": 6,
+      "jsonl_rows_consumed": 106,
+      "outer_json_decode_ms": 2.317,
+      "detection_count": 106
+    },
+    {
+      "stage": "evtxecmd_process",
+      "duration_ms": 5754.724,
+      "success": true,
+      "case_id": 1,
+      "case_file_id": 6
+    },
+    {
+      "stage": "evtx_jsonl_consume",
+      "case_id": 1,
+      "case_file_id": 6,
+      "jsonl_rows_consumed": 5536,
+      "duration_ms": 13452.738,
+      "outer_json_decode_ms": 126.621,
+      "nested_payload_json_decode_ms": 90.246,
+      "normalization_ms": 1965.046,
+      "search_blob_construction_ms": 61.886
+    },
+    {
+      "stage": "parser_stream",
+      "duration_ms": 19211.96,
+      "success": true,
+      "case_id": 1,
+      "case_file_id": 6,
+      "artifact_type": "evtx",
+      "source_file_size": 5312512,
+      "events_parsed": 5536
+    },
+    {
+      "stage": "alias_pg_write",
+      "duration_ms": 575.759,
+      "input_event_count": 5536,
+      "candidate_count": 16759,
+      "unique_candidate_count": 159
+    },
+    {
+      "stage": "clickhouse_insert_batch",
+      "destination_table": "events_buffer",
+      "batch_row_count": 5536,
+      "batch_count": 1,
+      "estimated_bytes": 23376289,
+      "insert_duration_ms": 166.035,
+      "rows_per_second": 33342.401,
+      "mb_per_second": 134.269,
+      "alias_candidate_count": 16759,
+      "unique_alias_candidate_count": 159,
+      "alias_extract_duration_ms": 9663.036
+    },
+    {
+      "stage": "process_file_total",
+      "case_id": 1,
+      "case_file_id": 6,
+      "artifact_type": "evtx",
+      "source_file_size": 5312512,
+      "events_inserted": 5536,
+      "duration_ms": 20024.612,
+      "events_per_second": 276.46,
+      "mb_per_second": 0.253,
+      "success": true
+    },
+    {
+      "stage": "delete_file_events_command",
+      "duration_ms": 7.455,
+      "success": true,
+      "case_file_id": 7,
+      "table_name": "events",
+      "wait": true,
+      "existing_rows": null
+    },
+    {
+      "stage": "delete_file_events_command",
+      "duration_ms": 1.73,
+      "success": false,
+      "case_file_id": 7,
+      "table_name": "events_buffer",
+      "wait": true,
+      "existing_rows": null
+    },
+    {
+      "stage": "delete_file_events_buffer_mutation_skipped",
+      "case_file_id": 7,
+      "reason": "buffer_engine_no_mutations"
+    },
+    {
+      "stage": "delete_file_events_mutation_wait",
+      "duration_ms": 8.42,
+      "success": true,
+      "case_file_id": 7
+    },
+    {
+      "stage": "parser_registry_init",
+      "duration_ms": 0.001,
+      "success": true,
+      "case_id": 1,
+      "case_file_id": 7
+    },
+    {
+      "stage": "parser_resolution",
+      "duration_ms": 0.115,
+      "success": true,
+      "case_id": 1,
+      "case_file_id": 7
+    },
+    {
+      "stage": "hayabusa_process",
+      "duration_ms": 7350.789,
+      "success": true,
+      "case_id": 1,
+      "case_file_id": 7
+    },
+    {
+      "stage": "hayabusa_jsonl_consume",
+      "case_id": 1,
+      "case_file_id": 7,
+      "jsonl_rows_consumed": 6397,
+      "outer_json_decode_ms": 68.506,
+      "detection_count": 6397
+    },
+    {
+      "stage": "evtxecmd_process",
+      "duration_ms": 13254.217,
+      "success": true,
+      "case_id": 1,
+      "case_file_id": 7
+    },
+    {
+      "stage": "alias_pg_write",
+      "duration_ms": 1595.075,
+      "input_event_count": 10000,
+      "candidate_count": 149879,
+      "unique_candidate_count": 532
+    },
+    {
+      "stage": "clickhouse_insert_batch",
+      "destination_table": "events_buffer",
+      "batch_row_count": 10000,
+      "batch_count": 1,
+      "estimated_bytes": 42070065,
+      "insert_duration_ms": 235.197,
+      "rows_per_second": 42517.587,
+      "mb_per_second": 170.585,
+      "alias_candidate_count": 149879,
+      "unique_alias_candidate_count": 532,
+      "alias_extract_duration_ms": 19265.65
+    },
+    {
+      "stage": "alias_pg_write",
+      "duration_ms": 1854.093,
+      "input_event_count": 10000,
+      "candidate_count": 146349,
+      "unique_candidate_count": 634
+    },
+    {
+      "stage": "clickhouse_insert_batch",
+      "destination_table": "events_buffer",
+      "batch_row_count": 10000,
+      "batch_count": 2,
+      "estimated_bytes": 42449141,
+      "insert_duration_ms": 240.124,
+      "rows_per_second": 41645.104,
+      "mb_per_second": 168.59,
+      "alias_candidate_count": 146349,
+      "unique_alias_candidate_count": 634,
+      "alias_extract_duration_ms": 19732.71
+    },
+    {
+      "stage": "evtx_jsonl_consume",
+      "case_id": 1,
+      "case_file_id": 7,
+      "jsonl_rows_consumed": 29575,
+      "duration_ms": 82959.116,
+      "outer_json_decode_ms": 698.561,
+      "nested_payload_json_decode_ms": 429.788,
+      "normalization_ms": 10711.036,
+      "search_blob_construction_ms": 308.031
+    },
+    {
+      "stage": "parser_stream",
+      "duration_ms": 96227.788,
+      "success": true,
+      "case_id": 1,
+      "case_file_id": 7,
+      "artifact_type": "evtx",
+      "source_file_size": 21041152,
+      "events_parsed": 29575
+    },
+    {
+      "stage": "alias_pg_write",
+      "duration_ms": 1453.403,
+      "input_event_count": 9575,
+      "candidate_count": 143208,
+      "unique_candidate_count": 501
+    },
+    {
+      "stage": "clickhouse_insert_batch",
+      "destination_table": "events_buffer",
+      "batch_row_count": 9575,
+      "batch_count": 3,
+      "estimated_bytes": 40277955,
+      "insert_duration_ms": 237.038,
+      "rows_per_second": 40394.363,
+      "mb_per_second": 162.05,
+      "alias_candidate_count": 143208,
+      "unique_alias_candidate_count": 501,
+      "alias_extract_duration_ms": 18603.962
+    },
+    {
+      "stage": "process_file_total",
+      "case_id": 1,
+      "case_file_id": 7,
+      "artifact_type": "evtx",
+      "source_file_size": 21041152,
+      "events_inserted": 29575,
+      "duration_ms": 98060.019,
+      "events_per_second": 301.601,
+      "mb_per_second": 0.205,
+      "success": true
+    },
+    {
+      "stage": "delete_file_events_command",
+      "duration_ms": 7.499,
+      "success": true,
+      "case_file_id": 8,
+      "table_name": "events",
+      "wait": true,
+      "existing_rows": null
+    },
+    {
+      "stage": "delete_file_events_command",
+      "duration_ms": 4.229,
+      "success": false,
+      "case_file_id": 8,
+      "table_name": "events_buffer",
+      "wait": true,
+      "existing_rows": null
+    },
+    {
+      "stage": "delete_file_events_buffer_mutation_skipped",
+      "case_file_id": 8,
+      "reason": "buffer_engine_no_mutations"
+    },
+    {
+      "stage": "delete_file_events_mutation_wait",
+      "duration_ms": 1012.543,
+      "success": true,
+      "case_file_id": 8
+    },
+    {
+      "stage": "parser_registry_init",
+      "duration_ms": 0.001,
+      "success": true,
+      "case_id": 1,
+      "case_file_id": 8
+    },
+    {
+      "stage": "parser_resolution",
+      "duration_ms": 0.137,
+      "success": true,
+      "case_id": 1,
+      "case_file_id": 8
+    },
+    {
+      "stage": "hayabusa_process",
+      "duration_ms": 6758.425,
+      "success": true,
+      "case_id": 1,
+      "case_file_id": 8
+    },
+    {
+      "stage": "hayabusa_jsonl_consume",
+      "case_id": 1,
+      "case_file_id": 8,
+      "jsonl_rows_consumed": 132,
+      "outer_json_decode_ms": 1.882,
+      "detection_count": 132
+    },
+    {
+      "stage": "evtxecmd_process",
+      "duration_ms": 15906.865,
+      "success": true,
+      "case_id": 1,
+      "case_file_id": 8
+    },
+    {
+      "stage": "alias_pg_write",
+      "duration_ms": 80.576,
+      "input_event_count": 10000,
+      "candidate_count": 10280,
+      "unique_candidate_count": 31
+    },
+    {
+      "stage": "clickhouse_insert_batch",
+      "destination_table": "events_buffer",
+      "batch_row_count": 10000,
+      "batch_count": 1,
+      "estimated_bytes": 26680314,
+      "insert_duration_ms": 181.04,
+      "rows_per_second": 55236.393,
+      "mb_per_second": 140.545,
+      "alias_candidate_count": 10280,
+      "unique_alias_candidate_count": 31,
+      "alias_extract_duration_ms": 11746.201
+    },
+    {
+      "stage": "alias_pg_write",
+      "duration_ms": 47.318,
+      "input_event_count": 10000,
+      "candidate_count": 10062,
+      "unique_candidate_count": 25
+    },
+    {
+      "stage": "clickhouse_insert_batch",
+      "destination_table": "events_buffer",
+      "batch_row_count": 10000,
+      "batch_count": 2,
+      "estimated_bytes": 26773749,
+      "insert_duration_ms": 231.624,
+      "rows_per_second": 43173.438,
+      "mb_per_second": 110.237,
+      "alias_candidate_count": 10062,
+      "unique_alias_candidate_count": 25,
+      "alias_extract_duration_ms": 11691.913
+    },
+    {
+      "stage": "alias_pg_write",
+      "duration_ms": 61.847,
+      "input_event_count": 10000,
+      "candidate_count": 10081,
+      "unique_candidate_count": 34
+    },
+    {
+      "stage": "clickhouse_insert_batch",
+      "destination_table": "events_buffer",
+      "batch_row_count": 10000,
+      "batch_count": 3,
+      "estimated_bytes": 26795008,
+      "insert_duration_ms": 182.528,
+      "rows_per_second": 54786.265,
+      "mb_per_second": 139.999,
+      "alias_candidate_count": 10081,
+      "unique_alias_candidate_count": 34,
+      "alias_extract_duration_ms": 11934.629
+    },
+    {
+      "stage": "alias_pg_write",
+      "duration_ms": 51.962,
+      "input_event_count": 10000,
+      "candidate_count": 10076,
+      "unique_candidate_count": 30
+    },
+    {
+      "stage": "clickhouse_insert_batch",
+      "destination_table": "events_buffer",
+      "batch_row_count": 10000,
+      "batch_count": 4,
+      "estimated_bytes": 26758149,
+      "insert_duration_ms": 179.985,
+      "rows_per_second": 55560.202,
+      "mb_per_second": 141.782,
+      "alias_candidate_count": 10076,
+      "unique_alias_candidate_count": 30,
+      "alias_extract_duration_ms": 11742.845
+    },
+    {
+      "stage": "alias_pg_write",
+      "duration_ms": 67.408,
+      "input_event_count": 10000,
+      "candidate_count": 10096,
+      "unique_candidate_count": 35
+    },
+    {
+      "stage": "clickhouse_insert_batch",
+      "destination_table": "events_buffer",
+      "batch_row_count": 10000,
+      "batch_count": 5,
+      "estimated_bytes": 26751683,
+      "insert_duration_ms": 340.835,
+      "rows_per_second": 29339.725,
+      "mb_per_second": 74.853,
+      "alias_candidate_count": 10096,
+      "unique_alias_candidate_count": 35,
+      "alias_extract_duration_ms": 11582.293
+    },
+    {
+      "stage": "alias_pg_write",
+      "duration_ms": 182.657,
+      "input_event_count": 10000,
+      "candidate_count": 10446,
+      "unique_candidate_count": 86
+    },
+    {
+      "stage": "clickhouse_insert_batch",
+      "destination_table": "events_buffer",
+      "batch_row_count": 10000,
+      "batch_count": 6,
+      "estimated_bytes": 26572945,
+      "insert_duration_ms": 208.387,
+      "rows_per_second": 47987.557,
+      "mb_per_second": 121.61,
+      "alias_candidate_count": 10446,
+      "unique_alias_candidate_count": 86,
+      "alias_extract_duration_ms": 11893.036
+    },
+    {
+      "stage": "evtx_jsonl_consume",
+      "case_id": 1,
+      "case_file_id": 8,
+      "jsonl_rows_consumed": 61627,
+      "duration_ms": 115129.002,
+      "outer_json_decode_ms": 1082.578,
+      "nested_payload_json_decode_ms": 530.076,
+      "normalization_ms": 20426.771,
+      "search_blob_construction_ms": 444.753
+    },
+    {
+      "stage": "parser_stream",
+      "duration_ms": 131053.489,
+      "success": true,
+      "case_id": 1,
+      "case_file_id": 8,
+      "artifact_type": "evtx",
+      "source_file_size": 21041152,
+      "events_parsed": 61627
+    },
+    {
+      "stage": "alias_pg_write",
+      "duration_ms": 34.149,
+      "input_event_count": 1627,
+      "candidate_count": 1662,
+      "unique_candidate_count": 15
+    },
+    {
+      "stage": "clickhouse_insert_batch",
+      "destination_table": "events_buffer",
+      "batch_row_count": 1627,
+      "batch_count": 7,
+      "estimated_bytes": 4330812,
+      "insert_duration_ms": 56.263,
+      "rows_per_second": 28917.994,
+      "mb_per_second": 73.409,
+      "alias_candidate_count": 1662,
+      "unique_alias_candidate_count": 15,
+      "alias_extract_duration_ms": 1925.992
+    },
+    {
+      "stage": "process_file_total",
+      "case_id": 1,
+      "case_file_id": 8,
+      "artifact_type": "evtx",
+      "source_file_size": 21041152,
+      "events_inserted": 61627,
+      "duration_ms": 131165.274,
+      "events_per_second": 469.842,
+      "mb_per_second": 0.153,
+      "success": true
+    }
+  ],
+  "metric_summary": {
+    "alias_pg_write": {
+      "count": 16,
+      "duration_ms_total": 8135.61,
+      "duration_ms_median": 73.992,
+      "duration_ms_max": 1854.093,
+      "events_inserted": 0,
+      "events_parsed": 0,
+      "batch_rows": 0,
+      "estimated_bytes": 0,
+      "alias_extract_duration_ms": 0.0,
+      "jsonl_rows_consumed": 0,
+      "outer_json_decode_ms": 0.0,
+      "nested_payload_json_decode_ms": 0.0,
+      "normalization_ms": 0.0,
+      "search_blob_construction_ms": 0.0
+    },
+    "clickhouse_insert_batch": {
+      "count": 16,
+      "duration_ms_total": null,
+      "duration_ms_median": null,
+      "duration_ms_max": null,
+      "events_inserted": 0,
+      "events_parsed": 0,
+      "batch_rows": 110742,
+      "estimated_bytes": 371256909,
+      "alias_extract_duration_ms": 170863.206,
+      "jsonl_rows_consumed": 0,
+      "outer_json_decode_ms": 0.0,
+      "nested_payload_json_decode_ms": 0.0,
+      "normalization_ms": 0.0,
+      "search_blob_construction_ms": 0.0
+    },
+    "delete_file_events_buffer_mutation_skipped": {
+      "count": 8,
+      "duration_ms_total": null,
+      "duration_ms_median": null,
+      "duration_ms_max": null,
+      "events_inserted": 0,
+      "events_parsed": 0,
+      "batch_rows": 0,
+      "estimated_bytes": 0,
+      "alias_extract_duration_ms": 0.0,
+      "jsonl_rows_consumed": 0,
+      "outer_json_decode_ms": 0.0,
+      "nested_payload_json_decode_ms": 0.0,
+      "normalization_ms": 0.0,
+      "search_blob_construction_ms": 0.0
+    },
+    "delete_file_events_command": {
+      "count": 16,
+      "duration_ms_total": 76.414,
+      "duration_ms_median": 5.559,
+      "duration_ms_max": 8.187,
+      "events_inserted": 0,
+      "events_parsed": 0,
+      "batch_rows": 0,
+      "estimated_bytes": 0,
+      "alias_extract_duration_ms": 0.0,
+      "jsonl_rows_consumed": 0,
+      "outer_json_decode_ms": 0.0,
+      "nested_payload_json_decode_ms": 0.0,
+      "normalization_ms": 0.0,
+      "search_blob_construction_ms": 0.0
+    },
+    "delete_file_events_mutation_wait": {
+      "count": 8,
+      "duration_ms_total": 1053.225,
+      "duration_ms_median": 5.297,
+      "duration_ms_max": 1012.543,
+      "events_inserted": 0,
+      "events_parsed": 0,
+      "batch_rows": 0,
+      "estimated_bytes": 0,
+      "alias_extract_duration_ms": 0.0,
+      "jsonl_rows_consumed": 0,
+      "outer_json_decode_ms": 0.0,
+      "nested_payload_json_decode_ms": 0.0,
+      "normalization_ms": 0.0,
+      "search_blob_construction_ms": 0.0
+    },
+    "evtx_jsonl_consume": {
+      "count": 8,
+      "duration_ms_total": 256142.387,
+      "duration_ms_median": 13811.455,
+      "duration_ms_max": 115129.002,
+      "events_inserted": 0,
+      "events_parsed": 0,
+      "batch_rows": 0,
+      "estimated_bytes": 0,
+      "alias_extract_duration_ms": 0.0,
+      "jsonl_rows_consumed": 110742,
+      "outer_json_decode_ms": 2196.766,
+      "nested_payload_json_decode_ms": 1209.489,
+      "normalization_ms": 38961.041,
+      "search_blob_construction_ms": 931.314
+    },
+    "evtxecmd_process": {
+      "count": 8,
+      "duration_ms_total": 47408.45,
+      "duration_ms_median": 3861.231,
+      "duration_ms_max": 15906.865,
+      "events_inserted": 0,
+      "events_parsed": 0,
+      "batch_rows": 0,
+      "estimated_bytes": 0,
+      "alias_extract_duration_ms": 0.0,
+      "jsonl_rows_consumed": 0,
+      "outer_json_decode_ms": 0.0,
+      "nested_payload_json_decode_ms": 0.0,
+      "normalization_ms": 0.0,
+      "search_blob_construction_ms": 0.0
+    },
+    "hayabusa_jsonl_consume": {
+      "count": 8,
+      "duration_ms_total": null,
+      "duration_ms_median": null,
+      "duration_ms_max": null,
+      "events_inserted": 0,
+      "events_parsed": 0,
+      "batch_rows": 0,
+      "estimated_bytes": 0,
+      "alias_extract_duration_ms": 0.0,
+      "jsonl_rows_consumed": 7436,
+      "outer_json_decode_ms": 93.386,
+      "nested_payload_json_decode_ms": 0.0,
+      "normalization_ms": 0.0,
+      "search_blob_construction_ms": 0.0
+    },
+    "hayabusa_process": {
+      "count": 8,
+      "duration_ms_total": 49259.202,
+      "duration_ms_median": 5837.182,
+      "duration_ms_max": 7350.789,
+      "events_inserted": 0,
+      "events_parsed": 0,
+      "batch_rows": 0,
+      "estimated_bytes": 0,
+      "alias_extract_duration_ms": 0.0,
+      "jsonl_rows_consumed": 0,
+      "outer_json_decode_ms": 0.0,
+      "nested_payload_json_decode_ms": 0.0,
+      "normalization_ms": 0.0,
+      "search_blob_construction_ms": 0.0
+    },
+    "parser_registry_init": {
+      "count": 8,
+      "duration_ms_total": 27.563,
+      "duration_ms_median": 0.002,
+      "duration_ms_max": 27.552,
+      "events_inserted": 0,
+      "events_parsed": 0,
+      "batch_rows": 0,
+      "estimated_bytes": 0,
+      "alias_extract_duration_ms": 0.0,
+      "jsonl_rows_consumed": 0,
+      "outer_json_decode_ms": 0.0,
+      "nested_payload_json_decode_ms": 0.0,
+      "normalization_ms": 0.0,
+      "search_blob_construction_ms": 0.0
+    },
+    "parser_resolution": {
+      "count": 8,
+      "duration_ms_total": 1.804,
+      "duration_ms_median": 0.116,
+      "duration_ms_max": 0.987,
+      "events_inserted": 0,
+      "events_parsed": 0,
+      "batch_rows": 0,
+      "estimated_bytes": 0,
+      "alias_extract_duration_ms": 0.0,
+      "jsonl_rows_consumed": 0,
+      "outer_json_decode_ms": 0.0,
+      "nested_payload_json_decode_ms": 0.0,
+      "normalization_ms": 0.0,
+      "search_blob_construction_ms": 0.0
+    },
+    "parser_stream": {
+      "count": 8,
+      "duration_ms_total": 320617.303,
+      "duration_ms_median": 19704.042,
+      "duration_ms_max": 131053.489,
+      "events_inserted": 0,
+      "events_parsed": 110742,
+      "batch_rows": 0,
+      "estimated_bytes": 0,
+      "alias_extract_duration_ms": 0.0,
+      "jsonl_rows_consumed": 0,
+      "outer_json_decode_ms": 0.0,
+      "nested_payload_json_decode_ms": 0.0,
+      "normalization_ms": 0.0,
+      "search_blob_construction_ms": 0.0
+    },
+    "process_file_total": {
+      "count": 8,
+      "duration_ms_total": 324229.565,
+      "duration_ms_median": 20218.952,
+      "duration_ms_max": 131165.274,
+      "events_inserted": 110742,
+      "events_parsed": 0,
+      "batch_rows": 0,
+      "estimated_bytes": 0,
+      "alias_extract_duration_ms": 0.0,
+      "jsonl_rows_consumed": 0,
+      "outer_json_decode_ms": 0.0,
+      "nested_payload_json_decode_ms": 0.0,
+      "normalization_ms": 0.0,
+      "search_blob_construction_ms": 0.0
+    }
+  },
+  "peak_rss_mb": 237.36,
+  "clickhouse_after": {
+    "active_parts": 1,
+    "active_rows": 49115,
+    "mutation_count": 8
+  },
+  "errors": [],
+  "retries": 0,
+  "derived_phase0a_summary": {
+    "evtxecmd_wall_ms_total": 47408.45,
+    "hayabusa_wall_ms_total": 49259.202,
+    "evtx_jsonl_consume_wall_ms_total": 256142.387,
+    "evtx_outer_json_decode_ms_total": 2196.766,
+    "evtx_nested_payload_json_decode_ms_total": 1209.489,
+    "evtx_normalization_ms_total": 38961.041,
+    "evtx_search_blob_ms_total": 931.314,
+    "hayabusa_jsonl_rows_consumed": 7436,
+    "hayabusa_outer_json_decode_ms_total": 93.386,
+    "alias_extract_ms_total": 170863.206,
+    "alias_pg_write_ms_total": 8135.61,
+    "alias_pg_write_batches": 16,
+    "clickhouse_insert_ms_total": 2954.474,
+    "clickhouse_insert_batches": 16,
+    "clickhouse_insert_rows": 110742,
+    "clickhouse_insert_estimated_bytes": 371256909,
+    "cleanup_delete_ms_total": 1129.639,
+    "process_file_wall_ms_total": 324229.565
+  },
+  "py_spy": {
+    "tooling": "/tmp/casescope-phase0a-tools/bin/py-spy 0.4.2 isolated temporary venv",
+    "profile_output": "/opt/casescope/docs/database_flow_phase0/phase0a_ingest_profile.svg",
+    "top_samples_output": "/opt/casescope/docs/database_flow_phase0/phase0a_ingest_profile_top_samples.json",
+    "samples_reported_by_py_spy": 25893,
+    "errors_reported_by_py_spy": 6,
+    "wrapper_exit_note": "py-spy wrote the profile after child completion, then returned No child process; benchmark harness completed and wrote this JSON."
+  }
+}

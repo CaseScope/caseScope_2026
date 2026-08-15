@@ -1,0 +1,411 @@
+{
+  "phase": "0B",
+  "artifact": "contract_test_matrix",
+  "note": "Specification only. Phase 0B does not add schema/projections or executable production tests. No tests require DB writes.",
+  "tests": [
+    {
+      "id": "CT-001",
+      "scenario": "same source + retry -> same generation",
+      "contracts": [
+        "EVIDENCE_GENERATION_CONTRACT",
+        "INGEST_BATCH_CONTRACT"
+      ],
+      "type": "future_integration",
+      "required_before": "Phase 1B"
+    },
+    {
+      "id": "CT-002",
+      "scenario": "explicit reprocess allocates generation N+1; N remains ACTIVE during build",
+      "contracts": [
+        "EVIDENCE_GENERATION_CONTRACT"
+      ],
+      "type": "future_integration",
+      "required_before": "Phase 1B"
+    },
+    {
+      "id": "CT-003",
+      "scenario": "initial generation publishes durable batches progressively",
+      "contracts": [
+        "EVIDENCE_GENERATION_CONTRACT",
+        "CAPABILITY_WATERMARK_CONTRACT"
+      ],
+      "type": "future_integration",
+      "required_before": "Phase 1B"
+    },
+    {
+      "id": "CT-004",
+      "scenario": "replacement generation N+1 remains invisible until activation",
+      "contracts": [
+        "EVIDENCE_GENERATION_CONTRACT"
+      ],
+      "type": "future_integration",
+      "required_before": "Phase 1B"
+    },
+    {
+      "id": "CT-005",
+      "scenario": "failed replacement N+1 leaves old ACTIVE generation N visible",
+      "contracts": [
+        "EVIDENCE_GENERATION_CONTRACT"
+      ],
+      "type": "future_integration",
+      "required_before": "Phase 1B"
+    },
+    {
+      "id": "CT-006",
+      "scenario": "partial STAGED CH batch is not published",
+      "contracts": [
+        "INGEST_BATCH_CONTRACT"
+      ],
+      "type": "future_integration",
+      "required_before": "Phase 1B"
+    },
+    {
+      "id": "CT-007",
+      "scenario": "exact STAGED batch reconciles to DURABLE",
+      "contracts": [
+        "INGEST_BATCH_CONTRACT"
+      ],
+      "type": "future_integration",
+      "required_before": "Phase 1B"
+    },
+    {
+      "id": "CT-008",
+      "scenario": "hash mismatch fails closed",
+      "contracts": [
+        "INGEST_BATCH_CONTRACT"
+      ],
+      "type": "future_unit_integration",
+      "required_before": "Phase 1B"
+    },
+    {
+      "id": "CT-009",
+      "scenario": "out-of-order batches do not advance through holes",
+      "contracts": [
+        "CAPABILITY_WATERMARK_CONTRACT"
+      ],
+      "type": "future_unit",
+      "required_before": "Phase 1B"
+    },
+    {
+      "id": "CT-010",
+      "scenario": "late hole completion advances contiguous watermark",
+      "contracts": [
+        "CAPABILITY_WATERMARK_CONTRACT"
+      ],
+      "type": "future_unit",
+      "required_before": "Phase 1B"
+    },
+    {
+      "id": "CT-011",
+      "scenario": "AI freeze-then-verify blocks uncovered frozen batch",
+      "contracts": [
+        "CAPABILITY_WATERMARK_CONTRACT"
+      ],
+      "type": "future_integration",
+      "required_before": "Phase 1B"
+    },
+    {
+      "id": "CT-012",
+      "scenario": "new ingest after freeze does not alter the frozen AI request",
+      "contracts": [
+        "CAPABILITY_WATERMARK_CONTRACT"
+      ],
+      "type": "future_integration",
+      "required_before": "Phase 1B"
+    },
+    {
+      "id": "CT-013",
+      "scenario": "duplicate physical observations remain independently retrievable",
+      "contracts": [
+        "LEK_CONTRACT",
+        "COUNTING_BASIS_CONTRACT"
+      ],
+      "type": "future_integration",
+      "required_before": "Phase 4"
+    },
+    {
+      "id": "CT-014",
+      "scenario": "LEK logical count collapses valid duplicates",
+      "contracts": [
+        "LEK_CONTRACT",
+        "COUNTING_BASIS_CONTRACT"
+      ],
+      "type": "future_integration",
+      "required_before": "Phase 4"
+    },
+    {
+      "id": "CT-015",
+      "scenario": "LEK collisions are detected by recipe fixtures",
+      "contracts": [
+        "LEK_CONTRACT"
+      ],
+      "type": "future_unit",
+      "required_before": "Phase 4"
+    },
+    {
+      "id": "CT-016",
+      "scenario": "canonical representative is deterministic",
+      "contracts": [
+        "LEK_CONTRACT"
+      ],
+      "type": "future_unit",
+      "required_before": "Phase 4"
+    },
+    {
+      "id": "CT-017",
+      "scenario": "field conflicts are surfaced",
+      "contracts": [
+        "LEK_CONTRACT"
+      ],
+      "type": "future_integration",
+      "required_before": "Phase 4"
+    },
+    {
+      "id": "CT-018",
+      "scenario": "analyst default count uses LEK",
+      "contracts": [
+        "COUNTING_BASIS_CONTRACT",
+        "EVENT_SURFACE_MIGRATION"
+      ],
+      "type": "future_integration",
+      "required_before": "Phase 4"
+    },
+    {
+      "id": "CT-019",
+      "scenario": "IOC provenance uses ERK",
+      "contracts": [
+        "COUNTING_BASIS_CONTRACT"
+      ],
+      "type": "future_integration",
+      "required_before": "Phase 3"
+    },
+    {
+      "id": "CT-020",
+      "scenario": "graph topology/support counting remains distinct",
+      "contracts": [
+        "COUNTING_BASIS_CONTRACT",
+        "DERIVATION_CONTRACT"
+      ],
+      "type": "future_integration",
+      "required_before": "Phase 6"
+    },
+    {
+      "id": "CT-021",
+      "scenario": "selector ambiguity never silently selects an ERK",
+      "contracts": [
+        "ERK_API_CONTRACT"
+      ],
+      "type": "future_api",
+      "required_before": "Phase 3.0"
+    },
+    {
+      "id": "CT-022",
+      "scenario": "Qdrant unpublished/superseded publication_epoch cannot surface",
+      "contracts": [
+        "QDRANT_EVENT_IDENTITY_CONTRACT"
+      ],
+      "type": "future_integration",
+      "required_before": "Phase 3.0"
+    },
+    {
+      "id": "CT-023",
+      "scenario": "fence refuses correctness-sensitive operation if Redis unavailable",
+      "contracts": [
+        "INGEST_FENCE_CONTRACT"
+      ],
+      "type": "future_unit",
+      "required_before": "Phase 1.4a"
+    },
+    {
+      "id": "CT-024",
+      "scenario": "exclusive fence waits for active writers to drain",
+      "contracts": [
+        "INGEST_FENCE_CONTRACT"
+      ],
+      "type": "future_integration",
+      "required_before": "Phase 1.4a"
+    },
+    {
+      "id": "CT-025",
+      "scenario": "writer cannot enter after exclusive acquisition begins",
+      "contracts": [
+        "INGEST_FENCE_CONTRACT"
+      ],
+      "type": "future_integration",
+      "required_before": "Phase 1.4a"
+    },
+    {
+      "id": "CT-026",
+      "scenario": "Investigation Graph acceptance behavior is preserved",
+      "contracts": [
+        "DERIVATION_CONTRACT",
+        "COUNTING_BASIS_CONTRACT"
+      ],
+      "type": "existing_regression",
+      "required_before": "Any graph migration"
+    },
+    {
+      "id": "CT-027",
+      "scenario": "generation N never becomes BUILDING_REPLACEMENT",
+      "contracts": [
+        "EVIDENCE_GENERATION_CONTRACT"
+      ],
+      "type": "future_unit_integration",
+      "required_before": "Phase 1B"
+    },
+    {
+      "id": "CT-028",
+      "scenario": "atomic activation: N ACTIVE->SUPERSEDED and N+1 BUILDING_REPLACEMENT->ACTIVE in one PostgreSQL transaction",
+      "contracts": [
+        "EVIDENCE_GENERATION_CONTRACT"
+      ],
+      "type": "future_integration",
+      "required_before": "Phase 1B"
+    },
+    {
+      "id": "CT-029",
+      "scenario": "reconciler reconstructs batch_content_hash from CH ingest_row_ordinal + ingest_row_hash",
+      "contracts": [
+        "INGEST_BATCH_CONTRACT"
+      ],
+      "type": "future_unit_integration",
+      "required_before": "Phase 1B"
+    },
+    {
+      "id": "CT-030",
+      "scenario": "duplicate ordinal identical hash is retry-equivalent only after collapse proof",
+      "contracts": [
+        "INGEST_BATCH_CONTRACT"
+      ],
+      "type": "future_integration",
+      "required_before": "Phase 1B"
+    },
+    {
+      "id": "CT-031",
+      "scenario": "duplicate ordinal different hash fails closed",
+      "contracts": [
+        "INGEST_BATCH_CONTRACT"
+      ],
+      "type": "future_unit_integration",
+      "required_before": "Phase 1B"
+    },
+    {
+      "id": "CT-032",
+      "scenario": "missing ordinal fails closed",
+      "contracts": [
+        "INGEST_BATCH_CONTRACT"
+      ],
+      "type": "future_unit_integration",
+      "required_before": "Phase 1B"
+    },
+    {
+      "id": "CT-033",
+      "scenario": "extra ordinal fails closed",
+      "contracts": [
+        "INGEST_BATCH_CONTRACT"
+      ],
+      "type": "future_unit_integration",
+      "required_before": "Phase 1B"
+    },
+    {
+      "id": "CT-034",
+      "scenario": "IIS, firewall, SonicWall, and Huntress do not cross-source collapse",
+      "contracts": [
+        "LEK_CONTRACT"
+      ],
+      "type": "future_unit",
+      "required_before": "Phase 4"
+    },
+    {
+      "id": "CT-035",
+      "scenario": "EVTX recipe still collapses cross-CaseFile same record",
+      "contracts": [
+        "LEK_CONTRACT"
+      ],
+      "type": "future_unit",
+      "required_before": "Phase 4"
+    },
+    {
+      "id": "CT-036",
+      "scenario": "BUILDING_REPLACEMENT Qdrant writes do not overwrite the published point ID",
+      "contracts": [
+        "QDRANT_EVENT_IDENTITY_CONTRACT"
+      ],
+      "type": "future_integration",
+      "required_before": "Phase 3.0"
+    },
+    {
+      "id": "CT-037",
+      "scenario": "one Qdrant support superseded while another ACTIVE still surfaces the LEK",
+      "contracts": [
+        "QDRANT_EVENT_IDENTITY_CONTRACT"
+      ],
+      "type": "future_integration",
+      "required_before": "Phase 3.0"
+    },
+    {
+      "id": "CT-038",
+      "scenario": "one Qdrant support invalidated while another ACTIVE still surfaces the LEK",
+      "contracts": [
+        "QDRANT_EVENT_IDENTITY_CONTRACT"
+      ],
+      "type": "future_integration",
+      "required_before": "Phase 3.0"
+    },
+    {
+      "id": "CT-039",
+      "scenario": "representative source replacement updates Qdrant payload without dropping remaining support",
+      "contracts": [
+        "QDRANT_EVENT_IDENTITY_CONTRACT"
+      ],
+      "type": "future_integration",
+      "required_before": "Phase 3.0"
+    },
+    {
+      "id": "CT-040",
+      "scenario": "delete-file prunes only that source's Qdrant support",
+      "contracts": [
+        "QDRANT_EVENT_IDENTITY_CONTRACT"
+      ],
+      "type": "future_integration",
+      "required_before": "Phase 3.0"
+    },
+    {
+      "id": "CT-041",
+      "scenario": "delete-case removes all case event vectors",
+      "contracts": [
+        "QDRANT_EVENT_IDENTITY_CONTRACT"
+      ],
+      "type": "future_integration",
+      "required_before": "Phase 3.0"
+    },
+    {
+      "id": "CT-042",
+      "scenario": "re-embedding creates a new revision; old embedding_version is not default",
+      "contracts": [
+        "QDRANT_EVENT_IDENTITY_CONTRACT"
+      ],
+      "type": "future_integration",
+      "required_before": "Phase 3.0"
+    },
+    {
+      "id": "CT-043",
+      "scenario": "principal_key never includes KnownSystem.id",
+      "contracts": [
+        "PRINCIPAL_IDENTITY_CONTRACT"
+      ],
+      "type": "future_unit",
+      "required_before": "Phase 6"
+    },
+    {
+      "id": "CT-044",
+      "scenario": "phase0a / event_surface / counting_basis reader ID sets are equal with no duplicates",
+      "contracts": [
+        "EVENT_SURFACE_MIGRATION",
+        "COUNTING_BASIS_CONTRACT"
+      ],
+      "type": "future_unit",
+      "required_before": "Phase 4"
+    }
+  ]
+}

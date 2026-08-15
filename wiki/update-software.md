@@ -65,6 +65,54 @@ sudo -u casescope /opt/casescope/venv/bin/pip install -r /opt/casescope/requirem
 sudo -u casescope /opt/casescope/venv/bin/pip install volatility3
 ```
 
+### Version 4.18.6 / Phase 1 Runtime Activation Gate
+
+Version 4.18.6 promotes `EventData.KeyLength` to `events.key_length Nullable(UInt16)`. New 4.18.6 application code cannot safely run against an old ClickHouse `events` schema without that column, while old application code can continue to run after the nullable column is added.
+
+**NEW 4.18.6 RUNTIME MUST NOT BE STARTED UNTIL key_length EXISTS.**
+
+For a normal 4.3.0-or-later update to 4.18.6, it is acceptable to pull the release first so the migration file is present, provided the CaseScope services remain stopped and no new application runtime is started before the schema is verified. Use this order:
+
+1. Stop `casescope-web`.
+2. Stop `casescope-workers`.
+3. Stop `casescope-beat`.
+4. Pull the 4.18.6 code.
+5. Install requirements.
+6. Before restarting any CaseScope service, run and verify `migrations/add_event_key_length_column.py`.
+7. Also run the normal safe `migrations/add_events_table.py`.
+8. Verify `events.key_length Nullable(UInt16)`.
+9. Only then restart the new application services.
+
+Commands:
+
+```bash
+cd /opt/casescope
+sudo systemctl stop casescope-web
+sudo systemctl stop casescope-workers
+sudo systemctl stop casescope-beat
+
+sudo -u casescope git fetch --all --prune
+sudo -u casescope git pull --ff-only
+sudo apt install -y libcairo2
+sudo -u casescope /opt/casescope/venv/bin/pip install --upgrade pip
+sudo -u casescope /opt/casescope/venv/bin/pip install -r /opt/casescope/requirements.txt
+sudo -u casescope /opt/casescope/venv/bin/pip install volatility3
+
+sudo -u casescope bash -lc 'cd /opt/casescope && set -a && source /etc/casescope/casescope.env && set +a && /opt/casescope/venv/bin/python migrations/add_event_key_length_column.py'
+sudo -u casescope bash -lc 'cd /opt/casescope && set -a && source /etc/casescope/casescope.env && set +a && /opt/casescope/venv/bin/python migrations/add_events_table.py'
+clickhouse-client -q "DESCRIBE TABLE events" | awk '$1 == "key_length" { print $1, $2 }'
+```
+
+The verification command must show:
+
+```text
+key_length Nullable(UInt16)
+```
+
+`migrations/remove_events_buffer.py` is optional/deferred operator action. It is not required merely to start 4.18.6 because runtime Buffer dependency is zero. The migration is fence-protected and production-guarded; do not automatically drop the production Buffer during a routine update.
+
+`migrations/reset_events_wide_part_settings.py` is optional/deferred operator performance cleanup, not a runtime correctness prerequisite. Do not run an uncontrolled `OPTIMIZE FINAL`.
+
 Run the current safe migrations. `add_events_table.py` is safe to rerun and verifies the ClickHouse events schema. Run the network log migration too on hosts that use PCAP workflows:
 
 ```bash

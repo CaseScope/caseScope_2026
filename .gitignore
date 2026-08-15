@@ -97,3 +97,8 @@ claude-code/
 # Large helper archives kept local; GitHub rejects files over 100 MB
 downloads/kape.zip
 
+
+# Database-flow benchmark scratch/output
+docs/database_flow_phase1/phase1_step4_probe_*/
+docs/database_flow_phase1/*_legacy_events.jsonl
+docs/database_flow_phase1/*_legacy_detections.jsonl

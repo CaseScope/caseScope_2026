@@ -62,6 +62,7 @@ EVENTS_COLUMN_DEFINITIONS = {
     "workstation_name": "String DEFAULT ''",
     "auth_package": "LowCardinality(String) DEFAULT ''",
     "logon_process": "String DEFAULT ''",
+    "key_length": "Nullable(UInt16)",
     "elevated_token": "LowCardinality(String) DEFAULT ''",
     "process_name": "String DEFAULT ''",
     "process_path": "String DEFAULT ''",
@@ -129,9 +130,7 @@ ENGINE = MergeTree()
 PARTITION BY case_id
 ORDER BY (case_id, timestamp_utc, artifact_type, source_host, source_file, event_id)
 SETTINGS
-    index_granularity = 8192,
-    min_bytes_for_wide_part = 0,
-    min_rows_for_wide_part = 0;
+    index_granularity = 8192;
 """
 
 EVENTS_BUFFER_SCHEMA_TEMPLATE = """
@@ -396,7 +395,10 @@ def migrate_clickhouse():
     _add_missing_columns(client, "events")
     _ensure_evidence_record_key_index(client)
 
-    _ensure_events_buffer_schema(client)
+    if _table_exists(client, "events_buffer"):
+        print("- events_buffer already exists; leaving it in place until the controlled Buffer removal migration")
+    else:
+        print("- events_buffer is not required for fresh installs")
 
     result = client.query("DESCRIBE events")
     print(f"- Verified events table has {len(result.result_rows)} columns")

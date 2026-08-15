@@ -932,13 +932,13 @@ class MitreAttackSync:
                         source_host,
                         username,
                         timestamp,
-                        JSONExtractString(raw_json, 'EventData', 'KeyLength') as key_length
+                        if(key_length IS NULL, JSONExtractString(raw_json, 'EventData', 'KeyLength'), toString(key_length)) as key_length
                     FROM events
                     WHERE case_id = {case_id:UInt32}
                         AND event_id = '4624'
                         AND logon_type IN (3, 9)
                         AND search_blob LIKE '%NTLM%'
-                        AND JSONExtractString(raw_json, 'EventData', 'KeyLength') = '0'
+                        AND if(key_length IS NULL, JSONExtractString(raw_json, 'EventData', 'KeyLength') = '0', key_length = 0)
                 ),
                 kerberos_tgt AS (
                     SELECT DISTINCT username FROM events

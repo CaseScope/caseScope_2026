@@ -1,0 +1,5239 @@
+{
+  "manifest_path": "/opt/casescope-benchmark/phase0a_evtx/MANIFEST.txt",
+  "manifest_text": "CaseScope Database Flow Phase 0A Benchmark Corpus\n\nPurpose:\nControlled BEFORE ingestion benchmark and Python hot-path profiling.\n\nClassification:\nBenign lab/test Windows event logs.\n\nRetained CaseScope evidence:\nNO\n\nAuthorized for disposable benchmark processing:\nYES\n\nAuthorized for repeated benchmark ingestion:\nYES\n\nThese files are not associated with an active or historical CaseScope case.\n",
+  "file_count": 8,
+  "total_size_bytes": 77103104,
+  "files": [
+    {
+      "path": "/opt/casescope-benchmark/phase0a_evtx/Application.evtx",
+      "filename": "Application.evtx",
+      "sha256": "a9a10f634fb4409e765791c6eedc73346bbed6244a583f8f694c651c6931cbb1",
+      "size_bytes": 11603968,
+      "channel_guess": "Application",
+      "retained_casefile_matches": [
+        {
+          "id": 11703,
+          "case_uuid": "a580e5ce-4bb2-4912-b34b-8b63b4cf80cd",
+          "filename": "ATN82151.zip/C/Windows/System32/winevt/Logs/Application.evtx",
+          "original_filename": "Application.evtx",
+          "file_path": null,
+          "status": "done",
+          "file_size": 20975616
+        },
+        {
+          "id": 21658,
+          "case_uuid": "a580e5ce-4bb2-4912-b34b-8b63b4cf80cd",
+          "filename": "2026-05-06T203715_ATN82151_kape.zip/C/Windows/System32/winevt/logs/Application.evtx",
+          "original_filename": "Application.evtx",
+          "file_path": null,
+          "status": "done",
+          "file_size": 20975616
+        },
+        {
+          "id": 22957,
+          "case_uuid": "a580e5ce-4bb2-4912-b34b-8b63b4cf80cd",
+          "filename": "2026-05-06T203715_ATN82151_kape.zip/VSS2/Windows/System32/winevt/logs/Application.evtx",
+          "original_filename": "Application.evtx",
+          "file_path": null,
+          "status": "done",
+          "file_size": 20975616
+        },
+        {
+          "id": 25408,
+          "case_uuid": "7fb4e29e-d8d4-44d9-9502-1290e5d26cd1",
+          "filename": "CAMRDS.zip/C/Windows/System32/winevt/Logs/Application.evtx",
+          "original_filename": "Application.evtx",
+          "file_path": null,
+          "status": "done",
+          "file_size": 20975616
+        },
+        {
+          "id": 26179,
+          "case_uuid": "7fb4e29e-d8d4-44d9-9502-1290e5d26cd1",
+          "filename": "CSCI-DC.zip/C/Windows/System32/winevt/Logs/Application.evtx",
+          "original_filename": "Application.evtx",
+          "file_path": null,
+          "status": "done",
+          "file_size": 20975616
+        },
+        {
+          "id": 27078,
+          "case_uuid": "7fb4e29e-d8d4-44d9-9502-1290e5d26cd1",
+          "filename": "CAMRDG.zip/C/Windows/System32/winevt/Logs/Application.evtx",
+          "original_filename": "Application.evtx",
+          "file_path": null,
+          "status": "done",
+          "file_size": 20975616
+        },
+        {
+          "id": 28618,
+          "case_uuid": "7fb4e29e-d8d4-44d9-9502-1290e5d26cd1",
+          "filename": "ATN84014.zip/C/Windows/System32/winevt/Logs/Application.evtx",
+          "original_filename": "Application.evtx",
+          "file_path": null,
+          "status": "done",
+          "file_size": 20975616
+        },
+        {
+          "id": 34843,
+          "case_uuid": "7fb4e29e-d8d4-44d9-9502-1290e5d26cd1",
+          "filename": "CAMDC.zip/C/Windows/System32/winevt/Logs/Application.evtx",
+          "original_filename": "Application.evtx",
+          "file_path": null,
+          "status": "done",
+          "file_size": 20975616
+        },
+        {
+          "id": 36012,
+          "case_uuid": "ff362acc-a014-487b-a06b-364e40d1f961",
+          "filename": "ATN84794.zip/C/Windows/System32/winevt/Logs/Application.evtx",
+          "original_filename": "Application.evtx",
+          "file_path": null,
+          "status": "done",
+          "file_size": 20975616
+        },
+        {
+          "id": 37648,
+          "case_uuid": "0e055922-e3f3-4bfb-9068-acc81264e37f",
+          "filename": "ATN86863.zip/C/Windows/System32/winevt/Logs/Application.evtx",
+          "original_filename": "Application.evtx",
+          "file_path": null,
+          "status": "done",
+          "file_size": 20975616
+        },
+        {
+          "id": 39425,
+          "case_uuid": "0e055922-e3f3-4bfb-9068-acc81264e37f",
+          "filename": "ATN71830.zip/C/Windows/System32/winevt/Logs/Application.evtx",
+          "original_filename": "Application.evtx",
+          "file_path": null,
+          "status": "done",
+          "file_size": 20975616
+        },
+        {
+          "id": 41471,
+          "case_uuid": "0e055922-e3f3-4bfb-9068-acc81264e37f",
+          "filename": "ATN68830.zip/C/Windows/System32/winevt/Logs/Application.evtx",
+          "original_filename": "Application.evtx",
+          "file_path": null,
+          "status": "done",
+          "file_size": 20975616
+        },
+        {
+          "id": 43610,
+          "case_uuid": "0e055922-e3f3-4bfb-9068-acc81264e37f",
+          "filename": "ATN62290.zip/C/Windows/System32/winevt/Logs/Application.evtx",
+          "original_filename": "Application.evtx",
+          "file_path": null,
+          "status": "done",
+          "file_size": 20975616
+        },
+        {
+          "id": 45363,
+          "case_uuid": "0e055922-e3f3-4bfb-9068-acc81264e37f",
+          "filename": "FRIAR-VMHOST.zip/C/Windows/System32/winevt/Logs/Application.evtx",
+          "original_filename": "Application.evtx",
+          "file_path": null,
+          "status": "done",
+          "file_size": 13701120
+        },
+        {
+          "id": 46328,
+          "case_uuid": "0e055922-e3f3-4bfb-9068-acc81264e37f",
+          "filename": "FRIAR-DC01.zip/C/Windows/System32/winevt/Logs/Application.evtx",
+          "original_filename": "Application.evtx",
+          "file_path": null,
+          "status": "done",
+          "file_size": 20975616
+        },
+        {
+          "id": 47283,
+          "case_uuid": "0e055922-e3f3-4bfb-9068-acc81264e37f",
+          "filename": "FRIAR-APPS.zip/C/Windows/System32/winevt/Logs/Application.evtx",
+          "original_filename": "Application.evtx",
+          "file_path": null,
+          "status": "done",
+          "file_size": 20975616
+        },
+        {
+          "id": 48687,
+          "case_uuid": "0e055922-e3f3-4bfb-9068-acc81264e37f",
+          "filename": "LAPTOP-A00AEIGT.zip/C/Windows/System32/winevt/Logs/Application.evtx",
+          "original_filename": "Application.evtx",
+          "file_path": null,
+          "status": "done",
+          "file_size": 20975616
+        },
+        {
+          "id": 50622,
+          "case_uuid": "0e055922-e3f3-4bfb-9068-acc81264e37f",
+          "filename": "ATN83675.zip/C/Windows/System32/winevt/Logs/Application.evtx",
+          "original_filename": "Application.evtx",
+          "file_path": null,
+          "status": "done",
+          "file_size": 20975616
+        },
+        {
+          "id": 52610,
+          "case_uuid": "0e055922-e3f3-4bfb-9068-acc81264e37f",
+          "filename": "ATN80645.zip/C/Windows/System32/winevt/Logs/Application.evtx",
+          "original_filename": "Application.evtx",
+          "file_path": null,
+          "status": "done",
+          "file_size": 20975616
+        },
+        {
+          "id": 54543,
+          "case_uuid": "0e055922-e3f3-4bfb-9068-acc81264e37f",
+          "filename": "ATN80539.zip/C/Windows/System32/winevt/Logs/Application.evtx",
+          "original_filename": "Application.evtx",
+          "file_path": null,
+          "status": "done",
+          "file_size": 20975616
+        },
+        {
+          "id": 57022,
+          "case_uuid": "0e055922-e3f3-4bfb-9068-acc81264e37f",
+          "filename": "ATN78920.zip/C/Windows/System32/winevt/Logs/Application.evtx",
+          "original_filename": "Application.evtx",
+          "file_path": null,
+          "status": "done",
+          "file_size": 20975616
+        },
+        {
+          "id": 80148,
+          "case_uuid": "0e055922-e3f3-4bfb-9068-acc81264e37f",
+          "filename": "ATN77188.zip/C/Windows/System32/winevt/Logs/Application.evtx",
+          "original_filename": "Application.evtx",
+          "file_path": null,
+          "status": "done",
+          "file_size": 20975616
+        },
+        {
+          "id": 83015,
+          "case_uuid": "0e055922-e3f3-4bfb-9068-acc81264e37f",
+          "filename": "ATN76701.zip/C/Windows/System32/winevt/Logs/Application.evtx",
+          "original_filename": "Application.evtx",
+          "file_path": null,
+          "status": "done",
+          "file_size": 20975616
+        },
+        {
+          "id": 91705,
+          "case_uuid": "0e055922-e3f3-4bfb-9068-acc81264e37f",
+          "filename": "ATN75349.zip/C/Windows/System32/winevt/Logs/Application.evtx",
+          "original_filename": "Application.evtx",
+          "file_path": null,
+          "status": "done",
+          "file_size": 20975616
+        },
+        {
+          "id": 94816,
+          "case_uuid": "0e055922-e3f3-4bfb-9068-acc81264e37f",
+          "filename": "ATN71831.zip/C/Windows/System32/winevt/Logs/Application.evtx",
+          "original_filename": "Application.evtx",
+          "file_path": null,
+          "status": "done",
+          "file_size": 20975616
+        },
+        {
+          "id": 98664,
+          "case_uuid": "0e055922-e3f3-4bfb-9068-acc81264e37f",
+          "filename": "ATN71089.zip/C/Windows/System32/winevt/Logs/Application.evtx",
+          "original_filename": "Application.evtx",
+          "file_path": null,
+          "status": "done",
+          "file_size": 20975616
+        },
+        {
+          "id": 101739,
+          "case_uuid": "0e055922-e3f3-4bfb-9068-acc81264e37f",
+          "filename": "ATN67038.zip/C/Windows/System32/winevt/Logs/Application.evtx",
+          "original_filename": "Application.evtx",
+          "file_path": null,
+          "status": "done",
+          "file_size": 20975616
+        },
+        {
+          "id": 103950,
+          "case_uuid": "0e055922-e3f3-4bfb-9068-acc81264e37f",
+          "filename": "ATN62292.zip/C/Windows/System32/winevt/Logs/Application.evtx",
+          "original_filename": "Application.evtx",
+          "file_path": null,
+          "status": "done",
+          "file_size": 20975616
+        },
+        {
+          "id": 108543,
+          "case_uuid": "0e055922-e3f3-4bfb-9068-acc81264e37f",
+          "filename": "ATN62291.zip/C/Windows/System32/winevt/Logs/Application.evtx",
+          "original_filename": "Application.evtx",
+          "file_path": null,
+          "status": "done",
+          "file_size": 20975616
+        },
+        {
+          "id": 111040,
+          "case_uuid": "0e055922-e3f3-4bfb-9068-acc81264e37f",
+          "filename": "ATN62290.zip/C/Windows/System32/winevt/Logs/Application.evtx",
+          "original_filename": "Application.evtx",
+          "file_path": null,
+          "status": "done",
+          "file_size": 20975616
+        },
+        {
+          "id": 114313,
+          "case_uuid": "0e055922-e3f3-4bfb-9068-acc81264e37f",
+          "filename": "ATN62288.zip/C/Windows/System32/winevt/Logs/Application.evtx",
+          "original_filename": "Application.evtx",
+          "file_path": null,
+          "status": "done",
+          "file_size": 20975616
+        },
+        {
+          "id": 116537,
+          "case_uuid": "0e055922-e3f3-4bfb-9068-acc81264e37f",
+          "filename": "ATN62287.zip/C/Windows/System32/winevt/Logs/Application.evtx",
+          "original_filename": "Application.evtx",
+          "file_path": null,
+          "status": "done",
+          "file_size": 20975616
+        },
+        {
+          "id": 117776,
+          "case_uuid": "c93c5cab-5c6d-4037-bcef-e2bb06fe0654",
+          "filename": "LSG-DC01.zip/C/Windows/System32/winevt/Logs/Application.evtx",
+          "original_filename": "Application.evtx",
+          "file_path": null,
+          "status": "done",
+          "file_size": 20975616
+        },
+        {
+          "id": 118458,
+          "case_uuid": "c93c5cab-5c6d-4037-bcef-e2bb06fe0654",
+          "filename": "LSG-RDS01.zip/C/Windows/System32/winevt/Logs/Application.evtx",
+          "original_filename": "Application.evtx",
+          "file_path": null,
+          "status": "done",
+          "file_size": 20975616
+        },
+        {
+          "id": 119401,
+          "case_uuid": "c93c5cab-5c6d-4037-bcef-e2bb06fe0654",
+          "filename": "LSG-SQL01.zip/C/Windows/System32/winevt/Logs/Application.evtx",
+          "original_filename": "Application.evtx",
+          "file_path": null,
+          "status": "done",
+          "file_size": 20975616
+        },
+        {
+          "id": 120409,
+          "case_uuid": "c93c5cab-5c6d-4037-bcef-e2bb06fe0654",
+          "filename": "LSG-EXCH01.zip/C/Windows/System32/winevt/Logs/Application.evtx",
+          "original_filename": "Application.evtx",
+          "file_path": null,
+          "status": "done",
+          "file_size": 20975616
+        },
+        {
+          "id": 122484,
+          "case_uuid": "c93c5cab-5c6d-4037-bcef-e2bb06fe0654",
+          "filename": "ATN50517.zip/C/Windows/System32/winevt/Logs/Application.evtx",
+          "original_filename": "Application.evtx",
+          "file_path": null,
+          "status": "done",
+          "file_size": 20975616
+        },
+        {
+          "id": 124168,
+          "case_uuid": "c93c5cab-5c6d-4037-bcef-e2bb06fe0654",
+          "filename": "ATN65276.zip/C/Windows/System32/winevt/Logs/Application.evtx",
+          "original_filename": "Application.evtx",
+          "file_path": null,
+          "status": "done",
+          "file_size": 20975616
+        },
+        {
+          "id": 125522,
+          "case_uuid": "c93c5cab-5c6d-4037-bcef-e2bb06fe0654",
+          "filename": "ATN74805.zip/C/Windows/System32/winevt/Logs/Application.evtx",
+          "original_filename": "Application.evtx",
+          "file_path": null,
+          "status": "done",
+          "file_size": 1118208
+        },
+        {
+          "id": 128542,
+          "case_uuid": "c93c5cab-5c6d-4037-bcef-e2bb06fe0654",
+          "filename": "DESKTOP-JK2019.zip/C/Windows/System32/winevt/Logs/Application.evtx",
+          "original_filename": "Application.evtx",
+          "file_path": null,
+          "status": "done",
+          "file_size": 20975616
+        },
+        {
+          "id": 130774,
+          "case_uuid": "c93c5cab-5c6d-4037-bcef-e2bb06fe0654",
+          "filename": "DT-SC-0001.zip/C/Windows/System32/winevt/Logs/Application.evtx",
+          "original_filename": "Application.evtx",
+          "file_path": null,
+          "status": "done",
+          "file_size": 20975616
+        },
+        {
+          "id": 132051,
+          "case_uuid": "c93c5cab-5c6d-4037-bcef-e2bb06fe0654",
+          "filename": "LAPTOP-LVSSD6KH.zip/C/Windows/System32/winevt/Logs/Application.evtx",
+          "original_filename": "Application.evtx",
+          "file_path": null,
+          "status": "done",
+          "file_size": 20975616
+        },
+        {
+          "id": 134284,
+          "case_uuid": "c93c5cab-5c6d-4037-bcef-e2bb06fe0654",
+          "filename": "LSG-120.zip/C/Windows/System32/winevt/Logs/Application.evtx",
+          "original_filename": "Application.evtx",
+          "file_path": null,
+          "status": "done",
+          "file_size": 20975616
+        },
+        {
+          "id": 140448,
+          "case_uuid": "c93c5cab-5c6d-4037-bcef-e2bb06fe0654",
+          "filename": "LSG-121.zip/C/Windows/System32/winevt/Logs/Application.evtx",
+          "original_filename": "Application.evtx",
+          "file_path": null,
+          "status": "done",
+          "file_size": 20975616
+        },
+        {
+          "id": 142280,
+          "case_uuid": "c93c5cab-5c6d-4037-bcef-e2bb06fe0654",
+          "filename": "LSG-143.zip/C/Windows/System32/winevt/Logs/Application.evtx",
+          "original_filename": "Application.evtx",
+          "file_path": null,
+          "status": "done",
+          "file_size": 20975616
+        },
+        {
+          "id": 144411,
+          "case_uuid": "c93c5cab-5c6d-4037-bcef-e2bb06fe0654",
+          "filename": "LSG-152.zip/C/Windows/System32/winevt/Logs/Application.evtx",
+          "original_filename": "Application.evtx",
+          "file_path": null,
+          "status": "done",
+          "file_size": 20975616
+        },
+        {
+          "id": 148284,
+          "case_uuid": "c93c5cab-5c6d-4037-bcef-e2bb06fe0654",
+          "filename": "LSG-122.zip/C/Windows/System32/winevt/Logs/Application.evtx",
+          "original_filename": "Application.evtx",
+          "file_path": null,
+          "status": "done",
+          "file_size": 20975616
+        },
+        {
+          "id": 151513,
+          "case_uuid": "c93c5cab-5c6d-4037-bcef-e2bb06fe0654",
+          "filename": "LSG-148.zip/C/Windows/System32/winevt/Logs/Application.evtx",
+          "original_filename": "Application.evtx",
+          "file_path": null,
+          "status": "done",
+          "file_size": 20975616
+        },
+        {
+          "id": 153175,
+          "case_uuid": "c93c5cab-5c6d-4037-bcef-e2bb06fe0654",
+          "filename": "MARC5124.zip/C/Windows/System32/winevt/Logs/Application.evtx",
+          "original_filename": "Application.evtx",
+          "file_path": null,
+          "status": "done",
+          "file_size": 12652544
+        },
+        {
+          "id": 154774,
+          "case_uuid": "c93c5cab-5c6d-4037-bcef-e2bb06fe0654",
+          "filename": "LSG-VMHOST01.zip/C/Windows/System32/winevt/Logs/Application.evtx",
+          "original_filename": "Application.evtx",
+          "file_path": null,
+          "status": "done",
+          "file_size": 20975616
+        },
+        {
+          "id": 156812,
+          "case_uuid": "c93c5cab-5c6d-4037-bcef-e2bb06fe0654",
+          "filename": "LSG-149.zip/C/Windows/System32/winevt/Logs/Application.evtx",
+          "original_filename": "Application.evtx",
+          "file_path": null,
+          "status": "done",
+          "file_size": 20975616
+        },
+        {
+          "id": 159430,
+          "case_uuid": "c93c5cab-5c6d-4037-bcef-e2bb06fe0654",
+          "filename": "LSG-141.zip/C/Windows/System32/winevt/Logs/Application.evtx",
+          "original_filename": "Application.evtx",
+          "file_path": null,
+          "status": "done",
+          "file_size": 20975616
+        },
+        {
+          "id": 161366,
+          "case_uuid": "c93c5cab-5c6d-4037-bcef-e2bb06fe0654",
+          "filename": "LSG-155.zip/C/Windows/System32/winevt/Logs/Application.evtx",
+          "original_filename": "Application.evtx",
+          "file_path": null,
+          "status": "done",
+          "file_size": 20975616
+        },
+        {
+          "id": 164782,
+          "case_uuid": "c93c5cab-5c6d-4037-bcef-e2bb06fe0654",
+          "filename": "LSG-156.zip/C/Windows/System32/winevt/Logs/Application.evtx",
+          "original_filename": "Application.evtx",
+          "file_path": null,
+          "status": "done",
+          "file_size": 20975616
+        },
+        {
+          "id": 166867,
+          "case_uuid": "c93c5cab-5c6d-4037-bcef-e2bb06fe0654",
+          "filename": "LSG-165.zip/C/Windows/System32/winevt/Logs/Application.evtx",
+          "original_filename": "Application.evtx",
+          "file_path": null,
+          "status": "done",
+          "file_size": 20975616
+        },
+        {
+          "id": 168223,
+          "case_uuid": "c93c5cab-5c6d-4037-bcef-e2bb06fe0654",
+          "filename": "MIKE-UPSTAIRS.zip/C/Windows/System32/winevt/Logs/Application.evtx",
+          "original_filename": "Application.evtx",
+          "file_path": null,
+          "status": "done",
+          "file_size": 20975616
+        },
+        {
+          "id": 170731,
+          "case_uuid": "c93c5cab-5c6d-4037-bcef-e2bb06fe0654",
+          "filename": "LSG-150X.zip/C/Windows/System32/winevt/Logs/Application.evtx",
+          "original_filename": "Application.evtx",
+          "file_path": null,
+          "status": "done",
+          "file_size": 20975616
+        },
+        {
+          "id": 174211,
+          "case_uuid": "2ecd5b89-9245-4945-850a-2e9611a337e4",
+          "filename": "ATN81971.zip/C/Windows/System32/winevt/Logs/Application.evtx",
+          "original_filename": "Application.evtx",
+          "file_path": null,
+          "status": "done",
+          "file_size": 20975616
+        },
+        {
+          "id": 176099,
+          "case_uuid": "6356c35a-4833-498f-9cba-a8d0b8fe26eb",
+          "filename": "ATN81108.zip/C/Windows/System32/winevt/Logs/Application.evtx",
+          "original_filename": "Application.evtx",
+          "file_path": null,
+          "status": "done",
+          "file_size": 20975616
+        },
+        {
+          "id": 182466,
+          "case_uuid": "6356c35a-4833-498f-9cba-a8d0b8fe26eb",
+          "filename": "2026-06-03T141400_ATN81108_kape.zip/C/Windows/System32/winevt/logs/Application.evtx",
+          "original_filename": "Application.evtx",
+          "file_path": null,
+          "status": "done",
+          "file_size": 20975616
+        },
+        {
+          "id": 185321,
+          "case_uuid": "253ee90c-5dcc-429f-abbf-b719389d8b41",
+          "filename": "HOBBYTYMESALES.zip/C/Windows/System32/winevt/Logs/Application.evtx",
+          "original_filename": "Application.evtx",
+          "file_path": null,
+          "status": "done",
+          "file_size": 20975616
+        },
+        {
+          "id": 196418,
+          "case_uuid": "4a0019f4-8ba9-4bdd-b853-40cde5f67e65",
+          "filename": "ATN67524.zip/C/Windows/System32/winevt/Logs/Application.evtx",
+          "original_filename": "Application.evtx",
+          "file_path": null,
+          "status": "done",
+          "file_size": 20975616
+        },
+        {
+          "id": 211444,
+          "case_uuid": "4a0019f4-8ba9-4bdd-b853-40cde5f67e65",
+          "filename": "2026-06-09T022701_ATN67524_kape.zip/C/Windows/System32/winevt/logs/Application.evtx",
+          "original_filename": "Application.evtx",
+          "file_path": null,
+          "status": "done",
+          "file_size": 20975616
+        },
+        {
+          "id": 212111,
+          "case_uuid": "4a0019f4-8ba9-4bdd-b853-40cde5f67e65",
+          "filename": "2026-06-09T022701_ATN67524_kape.zip/VSS55/Windows/System32/winevt/logs/Application.evtx",
+          "original_filename": "Application.evtx",
+          "file_path": null,
+          "status": "done",
+          "file_size": 20975616
+        },
+        {
+          "id": 213205,
+          "case_uuid": "e27fd66c-7599-46f5-95a1-6b0f396cd46d",
+          "filename": "BDALENE.zip/C/Windows/System32/winevt/Logs/Application.evtx",
+          "original_filename": "Application.evtx",
+          "file_path": null,
+          "status": "done",
+          "file_size": 20975616
+        },
+        {
+          "id": 216574,
+          "case_uuid": "e27fd66c-7599-46f5-95a1-6b0f396cd46d",
+          "filename": "2026-04-28T225916_BDALENE_kape.zip/C/Windows/System32/winevt/logs/Application.evtx",
+          "original_filename": "Application.evtx",
+          "file_path": null,
+          "status": "done",
+          "file_size": 20975616
+        },
+        {
+          "id": 217747,
+          "case_uuid": "e27fd66c-7599-46f5-95a1-6b0f396cd46d",
+          "filename": "2026-04-28T225916_BDALENE_kape.zip/VSS354/Windows/System32/winevt/logs/Application.evtx",
+          "original_filename": "Application.evtx",
+          "file_path": null,
+          "status": "done",
+          "file_size": 20975616
+        },
+        {
+          "id": 218072,
+          "case_uuid": "e27fd66c-7599-46f5-95a1-6b0f396cd46d",
+          "filename": "2026-04-28T225916_BDALENE_kape.zip/VSS352/Windows/System32/winevt/logs/Application.evtx",
+          "original_filename": "Application.evtx",
+          "file_path": null,
+          "status": "done",
+          "file_size": 20975616
+        },
+        {
+          "id": 218550,
+          "case_uuid": "e27fd66c-7599-46f5-95a1-6b0f396cd46d",
+          "filename": "2026-04-28T225916_BDALENE_kape.zip/VSS351/Windows/System32/winevt/logs/Application.evtx",
+          "original_filename": "Application.evtx",
+          "file_path": null,
+          "status": "done",
+          "file_size": 20975616
+        },
+        {
+          "id": 222115,
+          "case_uuid": "dc095682-ce84-47a1-9e2d-ea52b249d34d",
+          "filename": "ATN80575.zip/C/Windows/System32/winevt/Logs/Application.evtx",
+          "original_filename": "Application.evtx",
+          "file_path": null,
+          "status": "done",
+          "file_size": 20975616
+        },
+        {
+          "id": 224058,
+          "case_uuid": "b644de5f-47ae-4e61-8a2d-d88927118db2",
+          "filename": "ATN83518.zip/C/Windows/System32/winevt/Logs/Application.evtx",
+          "original_filename": "Application.evtx",
+          "file_path": null,
+          "status": "done",
+          "file_size": 20975616
+        },
+        {
+          "id": 225723,
+          "case_uuid": "b644de5f-47ae-4e61-8a2d-d88927118db2",
+          "filename": "QUALITYPC2.zip/C/Windows/System32/winevt/Logs/Application.evtx",
+          "original_filename": "Application.evtx",
+          "file_path": null,
+          "status": "done",
+          "file_size": 20975616
+        },
+        {
+          "id": 228755,
+          "case_uuid": "b644de5f-47ae-4e61-8a2d-d88927118db2",
+          "filename": "CCASTOR.zip/C/Windows/System32/winevt/Logs/Application.evtx",
+          "original_filename": "Application.evtx",
+          "file_path": null,
+          "status": "done",
+          "file_size": 20975616
+        },
+        {
+          "id": 231426,
+          "case_uuid": "b644de5f-47ae-4e61-8a2d-d88927118db2",
+          "filename": "ATN55915.zip/C/Windows/System32/winevt/Logs/Application.evtx",
+          "original_filename": "Application.evtx",
+          "file_path": null,
+          "status": "done",
+          "file_size": 20975616
+        },
+        {
+          "id": 233710,
+          "case_uuid": "b644de5f-47ae-4e61-8a2d-d88927118db2",
+          "filename": "ATN83607.zip/C/Windows/System32/winevt/Logs/Application.evtx",
+          "original_filename": "Application.evtx",
+          "file_path": null,
+          "status": "done",
+          "file_size": 19992576
+        },
+        {
+          "id": 236223,
+          "case_uuid": "b644de5f-47ae-4e61-8a2d-d88927118db2",
+          "filename": "ATN71459.zip/C/Windows/System32/winevt/Logs/Application.evtx",
+          "original_filename": "Application.evtx",
+          "file_path": null,
+          "status": "done",
+          "file_size": 20975616
+        },
+        {
+          "id": 240298,
+          "case_uuid": "b644de5f-47ae-4e61-8a2d-d88927118db2",
+          "filename": "DESKTOP-P86DFTL.zip/C/Windows/System32/winevt/Logs/Application.evtx",
+          "original_filename": "Application.evtx",
+          "file_path": null,
+          "status": "done",
+          "file_size": 6361088
+        },
+        {
+          "id": 242902,
+          "case_uuid": "b644de5f-47ae-4e61-8a2d-d88927118db2",
+          "filename": "CM-VMHOST.zip/C/Windows/System32/winevt/Logs/Application.evtx",
+          "original_filename": "Application.evtx",
+          "file_path": null,
+          "status": "done",
+          "file_size": 20975616
+        },
+        {
+          "id": 243773,
+          "case_uuid": "b644de5f-47ae-4e61-8a2d-d88927118db2",
+          "filename": "CM-APP01.zip/C/Windows/System32/winevt/Logs/Application.evtx",
+          "original_filename": "Application.evtx",
+          "file_path": null,
+          "status": "done",
+          "file_size": 20975616
+        },
+        {
+          "id": 244261,
+          "case_uuid": "b644de5f-47ae-4e61-8a2d-d88927118db2",
+          "filename": "ATN59736.zip/C/Windows/System32/winevt/Logs/Application.evtx",
+          "original_filename": "Application.evtx",
+          "file_path": null,
+          "status": "done",
+          "file_size": 20975616
+        },
+        {
+          "id": 248770,
+          "case_uuid": "b644de5f-47ae-4e61-8a2d-d88927118db2",
+          "filename": "ATN71401.zip/C/Windows/System32/winevt/Logs/Application.evtx",
+          "original_filename": "Application.evtx",
+          "file_path": null,
+          "status": "done",
+          "file_size": 20975616
+        },
+        {
+          "id": 251573,
+          "case_uuid": "b644de5f-47ae-4e61-8a2d-d88927118db2",
+          "filename": "ATN65900.zip/C/Windows/System32/winevt/Logs/Application.evtx",
+          "original_filename": "Application.evtx",
+          "file_path": null,
+          "status": "done",
+          "file_size": 20975616
+        },
+        {
+          "id": 254402,
+          "case_uuid": "b644de5f-47ae-4e61-8a2d-d88927118db2",
+          "filename": "ATN71575.zip/C/Windows/System32/winevt/Logs/Application.evtx",
+          "original_filename": "Application.evtx",
+          "file_path": null,
+          "status": "done",
+          "file_size": 20975616
+        },
+        {
+          "id": 256511,
+          "case_uuid": "b644de5f-47ae-4e61-8a2d-d88927118db2",
+          "filename": "ATN82198.zip/C/Windows/System32/winevt/Logs/Application.evtx",
+          "original_filename": "Application.evtx",
+          "file_path": null,
+          "status": "done",
+          "file_size": 20975616
+        },
+        {
+          "id": 366700,
+          "case_uuid": "bb37164b-22af-423f-9251-f30c12ce8d97",
+          "filename": "2026-06-19T110418_WIN11-T4VM_kape.zip/VSS6/Windows/System32/winevt/logs/Application.evtx",
+          "original_filename": "Application.evtx",
+          "file_path": null,
+          "status": "done",
+          "file_size": 20975616
+        },
+        {
+          "id": 368609,
+          "case_uuid": "bb37164b-22af-423f-9251-f30c12ce8d97",
+          "filename": "2026-06-19T110418_WIN11-T4VM_kape.zip/C/Windows/System32/winevt/logs/Application.evtx",
+          "original_filename": "Application.evtx",
+          "file_path": null,
+          "status": "done",
+          "file_size": 20975616
+        },
+        {
+          "id": 369435,
+          "case_uuid": "bb37164b-22af-423f-9251-f30c12ce8d97",
+          "filename": "2026-06-19T110418_WIN11-T4VM_kape.zip/VSS4/Windows/System32/winevt/logs/Application.evtx",
+          "original_filename": "Application.evtx",
+          "file_path": null,
+          "status": "done",
+          "file_size": 20975616
+        },
+        {
+          "id": 369583,
+          "case_uuid": "bb37164b-22af-423f-9251-f30c12ce8d97",
+          "filename": "2026-06-19T110418_WIN11-T4VM_kape.zip/VSS5/Windows/System32/winevt/logs/Application.evtx",
+          "original_filename": "Application.evtx",
+          "file_path": null,
+          "status": "done",
+          "file_size": 20975616
+        },
+        {
+          "id": 386570,
+          "case_uuid": "a794d777-156c-4af3-8c51-d13f2a1250e4",
+          "filename": "ATN69435.zip/C/Windows/System32/winevt/Logs/Application.evtx",
+          "original_filename": "Application.evtx",
+          "file_path": null,
+          "status": "done",
+          "file_size": 20975616
+        },
+        {
+          "id": 393721,
+          "case_uuid": "0616868f-75db-4b61-a4b1-6ab552875a4b",
+          "filename": "LCI-DC3.zip/C/Windows/System32/winevt/Logs/Application.evtx",
+          "original_filename": "Application.evtx",
+          "file_path": null,
+          "status": "done",
+          "file_size": 20975616
+        },
+        {
+          "id": 395248,
+          "case_uuid": "0616868f-75db-4b61-a4b1-6ab552875a4b",
+          "filename": "LCI-FS1.zip/C/Windows/System32/winevt/Logs/Application.evtx",
+          "original_filename": "Application.evtx",
+          "file_path": null,
+          "status": "done",
+          "file_size": 20975616
+        },
+        {
+          "id": 395934,
+          "case_uuid": "0616868f-75db-4b61-a4b1-6ab552875a4b",
+          "filename": "ADAMG-PC.zip/C/Windows/System32/winevt/Logs/Application.evtx",
+          "original_filename": "Application.evtx",
+          "file_path": null,
+          "status": "done",
+          "file_size": 20975616
+        },
+        {
+          "id": 396164,
+          "case_uuid": "0616868f-75db-4b61-a4b1-6ab552875a4b",
+          "filename": "ADMIN-DELL.zip/C/Windows/System32/winevt/Logs/Application.evtx",
+          "original_filename": "Application.evtx",
+          "file_path": null,
+          "status": "done",
+          "file_size": 20975616
+        },
+        {
+          "id": 396416,
+          "case_uuid": "0616868f-75db-4b61-a4b1-6ab552875a4b",
+          "filename": "ADMIN-PC.zip/C/Windows/System32/winevt/Logs/Application.evtx",
+          "original_filename": "Application.evtx",
+          "file_path": null,
+          "status": "done",
+          "file_size": 20975616
+        },
+        {
+          "id": 396744,
+          "case_uuid": "0616868f-75db-4b61-a4b1-6ab552875a4b",
+          "filename": "ANNB-PC.zip/C/Windows/System32/winevt/Logs/Application.evtx",
+          "original_filename": "Application.evtx",
+          "file_path": null,
+          "status": "done",
+          "file_size": 20975616
+        },
+        {
+          "id": 402689,
+          "case_uuid": "0616868f-75db-4b61-a4b1-6ab552875a4b",
+          "filename": "ATN71463.zip/C/Windows/System32/winevt/Logs/Application.evtx",
+          "original_filename": "Application.evtx",
+          "file_path": null,
+          "status": "done",
+          "file_size": 20975616
+        },
+        {
+          "id": 404952,
+          "case_uuid": "0616868f-75db-4b61-a4b1-6ab552875a4b",
+          "filename": "ATN71888.zip/C/Windows/System32/winevt/Logs/Application.evtx",
+          "original_filename": "Application.evtx",
+          "file_path": null,
+          "status": "done",
+          "file_size": 20975616
+        },
+        {
+          "id": 409978,
+          "case_uuid": "0616868f-75db-4b61-a4b1-6ab552875a4b",
+          "filename": "ATN71920.zip/C/Windows/System32/winevt/Logs/Application.evtx",
+          "original_filename": "Application.evtx",
+          "file_path": null,
+          "status": "done",
+          "file_size": 20975616
+        },
+        {
+          "id": 416967,
+          "case_uuid": "0616868f-75db-4b61-a4b1-6ab552875a4b",
+          "filename": "ATN77371.zip/C/Windows/System32/winevt/Logs/Application.evtx",
+          "original_filename": "Application.evtx",
+          "file_path": null,
+          "status": "done",
+          "file_size": 20975616
+        },
+        {
+          "id": 419278,
+          "case_uuid": "0616868f-75db-4b61-a4b1-6ab552875a4b",
+          "filename": "ATN77602.zip/C/Windows/System32/winevt/Logs/Application.evtx",
+          "original_filename": "Application.evtx",
+          "file_path": null,
+          "status": "done",
+          "file_size": 20975616
+        },
+        {
+          "id": 422385,
+          "case_uuid": "0616868f-75db-4b61-a4b1-6ab552875a4b",
+          "filename": "ATN77604.zip/C/Windows/System32/winevt/Logs/Application.evtx",
+          "original_filename": "Application.evtx",
+          "file_path": null,
+          "status": "done",
+          "file_size": 20975616
+        },
+        {
+          "id": 426361,
+          "case_uuid": "0616868f-75db-4b61-a4b1-6ab552875a4b",
+          "filename": "ATN78183.zip/C/Windows/System32/winevt/Logs/Application.evtx",
+          "original_filename": "Application.evtx",
+          "file_path": null,
+          "status": "done",
+          "file_size": 20975616
+        },
+        {
+          "id": 430030,
+          "case_uuid": "0616868f-75db-4b61-a4b1-6ab552875a4b",
+          "filename": "ATN78700.zip/C/Windows/System32/winevt/Logs/Application.evtx",
+          "original_filename": "Application.evtx",
+          "file_path": null,
+          "status": "done",
+          "file_size": 20975616
+        },
+        {
+          "id": 433739,
+          "case_uuid": "0616868f-75db-4b61-a4b1-6ab552875a4b",
+          "filename": "ATN78703.zip/C/Windows/System32/winevt/Logs/Application.evtx",
+          "original_filename": "Application.evtx",
+          "file_path": null,
+          "status": "done",
+          "file_size": 20975616
+        },
+        {
+          "id": 437364,
+          "case_uuid": "0616868f-75db-4b61-a4b1-6ab552875a4b",
+          "filename": "ATN78702.zip/C/Windows/System32/winevt/Logs/Application.evtx",
+          "original_filename": "Application.evtx",
+          "file_path": null,
+          "status": "done",
+          "file_size": 20975616
+        },
+        {
+          "id": 440123,
+          "case_uuid": "0616868f-75db-4b61-a4b1-6ab552875a4b",
+          "filename": "ATN78860.zip/C/Windows/System32/winevt/Logs/Application.evtx",
+          "original_filename": "Application.evtx",
+          "file_path": null,
+          "status": "done",
+          "file_size": 20975616
+        },
+        {
+          "id": 450182,
+          "case_uuid": "0616868f-75db-4b61-a4b1-6ab552875a4b",
+          "filename": "ATN83066.zip/C/Windows/System32/winevt/Logs/Application.evtx",
+          "original_filename": "Application.evtx",
+          "file_path": null,
+          "status": "done",
+          "file_size": 20975616
+        },
+        {
+          "id": 452798,
+          "case_uuid": "0616868f-75db-4b61-a4b1-6ab552875a4b",
+          "filename": "ATN83526.zip/C/Windows/System32/winevt/Logs/Application.evtx",
+          "original_filename": "Application.evtx",
+          "file_path": null,
+          "status": "done",
+          "file_size": 20975616
+        },
+        {
+          "id": 455007,
+          "case_uuid": "0616868f-75db-4b61-a4b1-6ab552875a4b",
+          "filename": "ATN83924.zip/C/Windows/System32/winevt/Logs/Application.evtx",
+          "original_filename": "Application.evtx",
+          "file_path": null,
+          "status": "done",
+          "file_size": 20975616
+        },
+        {
+          "id": 457689,
+          "case_uuid": "0616868f-75db-4b61-a4b1-6ab552875a4b",
+          "filename": "ATN83948.zip/C/Windows/System32/winevt/Logs/Application.evtx",
+          "original_filename": "Application.evtx",
+          "file_path": null,
+          "status": "done",
+          "file_size": 20975616
+        },
+        {
+          "id": 461489,
+          "case_uuid": "0616868f-75db-4b61-a4b1-6ab552875a4b",
+          "filename": "LCI-CS3-PC.zip/C/Windows/System32/winevt/Logs/Application.evtx",
+          "original_filename": "Application.evtx",
+          "file_path": null,
+          "status": "done",
+          "file_size": 20975616
+        },
+        {
+          "id": 464618,
+          "case_uuid": "0616868f-75db-4b61-a4b1-6ab552875a4b",
+          "filename": "CANHH-PC.zip/C/Windows/System32/winevt/Logs/Application.evtx",
+          "original_filename": "Application.evtx",
+          "file_path": null,
+          "status": "done",
+          "file_size": 20975616
+        },
+        {
+          "id": 469067,
+          "case_uuid": "0616868f-75db-4b61-a4b1-6ab552875a4b",
+          "filename": "COLLEENH-PC.zip/C/Windows/System32/winevt/Logs/Application.evtx",
+          "original_filename": "Application.evtx",
+          "file_path": null,
+          "status": "done",
+          "file_size": 20975616
+        },
+        {
+          "id": 472400,
+          "case_uuid": "0616868f-75db-4b61-a4b1-6ab552875a4b",
+          "filename": "LCI-VMHOST.zip/C/Windows/System32/winevt/Logs/Application.evtx",
+          "original_filename": "Application.evtx",
+          "file_path": null,
+          "status": "done",
+          "file_size": 20975616
+        },
+        {
+          "id": 475530,
+          "case_uuid": "0616868f-75db-4b61-a4b1-6ab552875a4b",
+          "filename": "AVAST.zip/C/Windows/System32/winevt/Logs/Application.evtx",
+          "original_filename": "Application.evtx",
+          "file_path": null,
+          "status": "done",
+          "file_size": 20975616
+        },
+        {
+          "id": 477344,
+          "case_uuid": "0616868f-75db-4b61-a4b1-6ab552875a4b",
+          "filename": "PROCESSING10-PC.zip/C/Windows/System32/winevt/Logs/Application.evtx",
+          "original_filename": "Application.evtx",
+          "file_path": null,
+          "status": "done",
+          "file_size": 20975616
+        },
+        {
+          "id": 478039,
+          "case_uuid": "0616868f-75db-4b61-a4b1-6ab552875a4b",
+          "filename": "CA4K.zip/C/Windows/System32/winevt/Logs/Application.evtx",
+          "original_filename": "Application.evtx",
+          "file_path": null,
+          "status": "done",
+          "file_size": 20975616
+        },
+        {
+          "id": 480964,
+          "case_uuid": "0616868f-75db-4b61-a4b1-6ab552875a4b",
+          "filename": "HENRYG-PC.zip/C/Windows/System32/winevt/Logs/Application.evtx",
+          "original_filename": "Application.evtx",
+          "file_path": null,
+          "status": "done",
+          "file_size": 20975616
+        },
+        {
+          "id": 486613,
+          "case_uuid": "0616868f-75db-4b61-a4b1-6ab552875a4b",
+          "filename": "ROSEN-PC.zip/C/Windows/System32/winevt/Logs/Application.evtx",
+          "original_filename": "Application.evtx",
+          "file_path": null,
+          "status": "done",
+          "file_size": 20975616
+        },
+        {
+          "id": 492418,
+          "case_uuid": "0616868f-75db-4b61-a4b1-6ab552875a4b",
+          "filename": "DELL1-PC.zip/C/Windows/System32/winevt/Logs/Application.evtx",
+          "original_filename": "Application.evtx",
+          "file_path": null,
+          "status": "done",
+          "file_size": 20975616
+        },
+        {
+          "id": 492865,
+          "case_uuid": "0616868f-75db-4b61-a4b1-6ab552875a4b",
+          "filename": "DDS-17210090.zip/C/Windows/System32/winevt/Logs/Application.evtx",
+          "original_filename": "Application.evtx",
+          "file_path": null,
+          "status": "done",
+          "file_size": 20975616
+        },
+        {
+          "id": 493709,
+          "case_uuid": "0616868f-75db-4b61-a4b1-6ab552875a4b",
+          "filename": "PATG-PC.zip/C/Windows/System32/winevt/Logs/Application.evtx",
+          "original_filename": "Application.evtx",
+          "file_path": null,
+          "status": "done",
+          "file_size": 20975616
+        },
+        {
+          "id": 493932,
+          "case_uuid": "0616868f-75db-4b61-a4b1-6ab552875a4b",
+          "filename": "CAROLYND-PC.zip/C/Windows/System32/winevt/Logs/Application.evtx",
+          "original_filename": "Application.evtx",
+          "file_path": null,
+          "status": "done",
+          "file_size": 20975616
+        },
+        {
+          "id": 494063,
+          "case_uuid": "0616868f-75db-4b61-a4b1-6ab552875a4b",
+          "filename": "PROCESSING3-PC.zip/C/Windows/System32/winevt/Logs/Application.evtx",
+          "original_filename": "Application.evtx",
+          "file_path": null,
+          "status": "done",
+          "file_size": 20975616
+        },
+        {
+          "id": 494750,
+          "case_uuid": "0616868f-75db-4b61-a4b1-6ab552875a4b",
+          "filename": "LCI-SQL1.zip/C/Windows/System32/winevt/Logs/Application.evtx",
+          "original_filename": "Application.evtx",
+          "file_path": null,
+          "status": "done",
+          "file_size": 20975616
+        },
+        {
+          "id": 498620,
+          "case_uuid": "0616868f-75db-4b61-a4b1-6ab552875a4b",
+          "filename": "PROJM1-PC.zip/C/Windows/System32/winevt/Logs/Application.evtx",
+          "original_filename": "Application.evtx",
+          "file_path": null,
+          "status": "done",
+          "file_size": 20975616
+        },
+        {
+          "id": 511536,
+          "case_uuid": "0616868f-75db-4b61-a4b1-6ab552875a4b",
+          "filename": "PROCESSING9-PC.zip/C/Windows/System32/winevt/Logs/Application.evtx",
+          "original_filename": "Application.evtx",
+          "file_path": null,
+          "status": "done",
+          "file_size": 20975616
+        },
+        {
+          "id": 513077,
+          "case_uuid": "0616868f-75db-4b61-a4b1-6ab552875a4b",
+          "filename": "KEITHW-PC.zip/C/Windows/System32/winevt/Logs/Application.evtx",
+          "original_filename": "Application.evtx",
+          "file_path": null,
+          "status": "done",
+          "file_size": 20975616
+        },
+        {
+          "id": 514555,
+          "case_uuid": "0616868f-75db-4b61-a4b1-6ab552875a4b",
+          "filename": "PROCESSING8-PC.zip/C/Windows/System32/winevt/Logs/Application.evtx",
+          "original_filename": "Application.evtx",
+          "file_path": null,
+          "status": "done",
+          "file_size": 20975616
+        },
+        {
+          "id": 517174,
+          "case_uuid": "0616868f-75db-4b61-a4b1-6ab552875a4b",
+          "filename": "BR-DELL.zip/C/Windows/System32/winevt/Logs/Application.evtx",
+          "original_filename": "Application.evtx",
+          "file_path": null,
+          "status": "done",
+          "file_size": 20975616
+        },
+        {
+          "id": 518227,
+          "case_uuid": "0616868f-75db-4b61-a4b1-6ab552875a4b",
+          "filename": "LCI-CS1-PC.zip/C/Windows/System32/winevt/Logs/Application.evtx",
+          "original_filename": "Application.evtx",
+          "file_path": null,
+          "status": "done",
+          "file_size": 20975616
+        },
+        {
+          "id": 522740,
+          "case_uuid": "0616868f-75db-4b61-a4b1-6ab552875a4b",
+          "filename": "LCI-RDS2.zip/C/Windows/System32/winevt/Logs/Application.evtx",
+          "original_filename": "Application.evtx",
+          "file_path": null,
+          "status": "done",
+          "file_size": 20975616
+        },
+        {
+          "id": 526731,
+          "case_uuid": "0616868f-75db-4b61-a4b1-6ab552875a4b",
+          "filename": "PROCESSING2-PC.zip/C/Windows/System32/winevt/Logs/Application.evtx",
+          "original_filename": "Application.evtx",
+          "file_path": null,
+          "status": "done",
+          "file_size": 20975616
+        },
+        {
+          "id": 527834,
+          "case_uuid": "0616868f-75db-4b61-a4b1-6ab552875a4b",
+          "filename": "JB-02-PC.zip/C/Windows/System32/winevt/Logs/Application.evtx",
+          "original_filename": "Application.evtx",
+          "file_path": null,
+          "status": "done",
+          "file_size": 20975616
+        },
+        {
+          "id": 529813,
+          "case_uuid": "0616868f-75db-4b61-a4b1-6ab552875a4b",
+          "filename": "PROCESSING6-PC.zip/C/Windows/System32/winevt/Logs/Application.evtx",
+          "original_filename": "Application.evtx",
+          "file_path": null,
+          "status": "done",
+          "file_size": 20975616
+        },
+        {
+          "id": 532996,
+          "case_uuid": "0616868f-75db-4b61-a4b1-6ab552875a4b",
+          "filename": "LCI-IT01-PC.zip/C/Windows/System32/winevt/Logs/Application.evtx",
+          "original_filename": "Application.evtx",
+          "file_path": null,
+          "status": "done",
+          "file_size": 20975616
+        },
+        {
+          "id": 534484,
+          "case_uuid": "0616868f-75db-4b61-a4b1-6ab552875a4b",
+          "filename": "MARKA-PC.zip/C/Windows/System32/winevt/Logs/Application.evtx",
+          "original_filename": "Application.evtx",
+          "file_path": null,
+          "status": "done",
+          "file_size": 20975616
+        },
+        {
+          "id": 537410,
+          "case_uuid": "0616868f-75db-4b61-a4b1-6ab552875a4b",
+          "filename": "PROCESSING5-PC.zip/C/Windows/System32/winevt/Logs/Application.evtx",
+          "original_filename": "Application.evtx",
+          "file_path": null,
+          "status": "done",
+          "file_size": 20975616
+        },
+        {
+          "id": 539557,
+          "case_uuid": "9cfc3f94-eaae-4829-82a1-147072da6c99",
+          "filename": "ACCOUNTING-DAFF.zip/C/Windows/System32/winevt/Logs/Application.evtx",
+          "original_filename": "Application.evtx",
+          "file_path": null,
+          "status": "done",
+          "file_size": 20975616
+        },
+        {
+          "id": 543387,
+          "case_uuid": "9cfc3f94-eaae-4829-82a1-147072da6c99",
+          "filename": "ATN79684.zip/C/Windows/System32/winevt/Logs/Application.evtx",
+          "original_filename": "Application.evtx",
+          "file_path": null,
+          "status": "done",
+          "file_size": 20975616
+        },
+        {
+          "id": 545359,
+          "case_uuid": "9cfc3f94-eaae-4829-82a1-147072da6c99",
+          "filename": "ATN79685.zip/C/Windows/System32/winevt/Logs/Application.evtx",
+          "original_filename": "Application.evtx",
+          "file_path": null,
+          "status": "done",
+          "file_size": 20975616
+        },
+        {
+          "id": 547194,
+          "case_uuid": "9cfc3f94-eaae-4829-82a1-147072da6c99",
+          "filename": "ATN80117.zip/C/Windows/System32/winevt/Logs/Application.evtx",
+          "original_filename": "Application.evtx",
+          "file_path": null,
+          "status": "done",
+          "file_size": 20975616
+        },
+        {
+          "id": 549186,
+          "case_uuid": "9cfc3f94-eaae-4829-82a1-147072da6c99",
+          "filename": "ATN81301.zip/C/Windows/System32/winevt/Logs/Application.evtx",
+          "original_filename": "Application.evtx",
+          "file_path": null,
+          "status": "done",
+          "file_size": 20975616
+        },
+        {
+          "id": 551226,
+          "case_uuid": "9cfc3f94-eaae-4829-82a1-147072da6c99",
+          "filename": "DEPCO-DC01.zip/C/Windows/System32/winevt/Logs/Application.evtx",
+          "original_filename": "Application.evtx",
+          "file_path": null,
+          "status": "done",
+          "file_size": 20975616
+        },
+        {
+          "id": 552005,
+          "case_uuid": "9cfc3f94-eaae-4829-82a1-147072da6c99",
+          "filename": "DEPCO-VMHOST.zip/C/Windows/System32/winevt/Logs/Application.evtx",
+          "original_filename": "Application.evtx",
+          "file_path": null,
+          "status": "done",
+          "file_size": 20975616
+        },
+        {
+          "id": 553618,
+          "case_uuid": "9cfc3f94-eaae-4829-82a1-147072da6c99",
+          "filename": "HEATLOSS.zip/C/Windows/System32/winevt/Logs/Application.evtx",
+          "original_filename": "Application.evtx",
+          "file_path": null,
+          "status": "done",
+          "file_size": 20975616
+        },
+        {
+          "id": 557580,
+          "case_uuid": "c40d5c83-1e0e-4d14-9469-91a3d13ddc2e",
+          "filename": "ATN83066.zip/C/Windows/System32/winevt/Logs/Application.evtx",
+          "original_filename": "Application.evtx",
+          "file_path": null,
+          "status": "done",
+          "file_size": 22089728
+        },
+        {
+          "id": 564255,
+          "case_uuid": "698c3402-3464-48ae-96bf-a250c00fadcc",
+          "filename": "2026-08-10T134447_ATN86143_kape.zip/C/Windows/System32/winevt/logs/Application.evtx",
+          "original_filename": "Application.evtx",
+          "file_path": null,
+          "status": "done",
+          "file_size": 20975616
+        },
+        {
+          "id": 566525,
+          "case_uuid": "698c3402-3464-48ae-96bf-a250c00fadcc",
+          "filename": "ATN86143.zip/C/Windows/System32/winevt/Logs/Application.evtx",
+          "original_filename": "Application.evtx",
+          "file_path": null,
+          "status": "done",
+          "file_size": 20975616
+        },
+        {
+          "id": 578138,
+          "case_uuid": "acc29529-7647-400a-966a-843199d07950",
+          "filename": "ATN86573.zip/C/Windows/System32/winevt/Logs/Application.evtx",
+          "original_filename": "Application.evtx",
+          "file_path": null,
+          "status": "done",
+          "file_size": 20975616
+        }
+      ]
+    },
+    {
+      "path": "/opt/casescope-benchmark/phase0a_evtx/Microsoft-Windows-PowerShell-Operational.evtx",
+      "filename": "Microsoft-Windows-PowerShell-Operational.evtx",
+      "sha256": "a0deb6a8e4c97a563e487fa2c96e0a2711566654ef77a28a4e7c7952bcb29a69",
+      "size_bytes": 15798272,
+      "channel_guess": "Microsoft-Windows-PowerShell/Operational",
+      "retained_casefile_matches": []
+    },
+    {
+      "path": "/opt/casescope-benchmark/phase0a_evtx/Microsoft-Windows-TaskScheduler-Operational.evtx",
+      "filename": "Microsoft-Windows-TaskScheduler-Operational.evtx",
+      "sha256": "915c2c1ef94a010885c882cda0b52cfc26a1512d22f9133c1295e26087dcf499",
+      "size_bytes": 69632,
+      "channel_guess": "Microsoft-Windows-TaskScheduler/Operational",
+      "retained_casefile_matches": []
+    },
+    {
+      "path": "/opt/casescope-benchmark/phase0a_evtx/Microsoft-Windows-TerminalServices-LocalSessionManager.evtx",
+      "filename": "Microsoft-Windows-TerminalServices-LocalSessionManager.evtx",
+      "sha256": "eba5bea0102201e553ad004ac1d9fb575067d270a6a2dce3e96740dad64593b8",
+      "size_bytes": 1118208,
+      "channel_guess": "Microsoft-Windows-TerminalServices-LocalSessionManager",
+      "retained_casefile_matches": []
+    },
+    {
+      "path": "/opt/casescope-benchmark/phase0a_evtx/Microsoft-Windows-WMI-Activity-Operational.evtx",
+      "filename": "Microsoft-Windows-WMI-Activity-Operational.evtx",
+      "sha256": "184b17c902cdaa684da76bb7b256a39a89a5cdb8438ff307714b2a767785f8e0",
+      "size_bytes": 1118208,
+      "channel_guess": "Microsoft-Windows-WMI-Activity/Operational",
+      "retained_casefile_matches": []
+    },
+    {
+      "path": "/opt/casescope-benchmark/phase0a_evtx/Microsoft-Windows-Windows-Defender-Operational.evtx",
+      "filename": "Microsoft-Windows-Windows-Defender-Operational.evtx",
+      "sha256": "b52d925a12d38422c6373416a11fe28565ffb4a872dc6318900e1756f8ef9ed0",
+      "size_bytes": 5312512,
+      "channel_guess": "Microsoft-Windows-Windows-Defender/Operational",
+      "retained_casefile_matches": []
+    },
+    {
+      "path": "/opt/casescope-benchmark/phase0a_evtx/Security.evtx",
+      "filename": "Security.evtx",
+      "sha256": "f720ce8362f7f9c5b8ec7068f916026efb04e78499fd30859e3e6e172265244a",
+      "size_bytes": 21041152,
+      "channel_guess": "Security",
+      "retained_casefile_matches": [
+        {
+          "id": 11781,
+          "case_uuid": "a580e5ce-4bb2-4912-b34b-8b63b4cf80cd",
+          "filename": "ATN82151.zip/C/Windows/System32/winevt/Logs/Security.evtx",
+          "original_filename": "Security.evtx",
+          "file_path": null,
+          "status": "done",
+          "file_size": 20975616
+        },
+        {
+          "id": 25478,
+          "case_uuid": "7fb4e29e-d8d4-44d9-9502-1290e5d26cd1",
+          "filename": "CAMRDS.zip/C/Windows/System32/winevt/Logs/Security.evtx",
+          "original_filename": "Security.evtx",
+          "file_path": null,
+          "status": "done",
+          "file_size": 20975616
+        },
+        {
+          "id": 26262,
+          "case_uuid": "7fb4e29e-d8d4-44d9-9502-1290e5d26cd1",
+          "filename": "CSCI-DC.zip/C/Windows/System32/winevt/Logs/Security.evtx",
+          "original_filename": "Security.evtx",
+          "file_path": null,
+          "status": "done",
+          "file_size": 953487360
+        },
+        {
+          "id": 27155,
+          "case_uuid": "7fb4e29e-d8d4-44d9-9502-1290e5d26cd1",
+          "filename": "CAMRDG.zip/C/Windows/System32/winevt/Logs/Security.evtx",
+          "original_filename": "Security.evtx",
+          "file_path": null,
+          "status": "done",
+          "file_size": 126947328
+        },
+        {
+          "id": 28689,
+          "case_uuid": "7fb4e29e-d8d4-44d9-9502-1290e5d26cd1",
+          "filename": "ATN84014.zip/C/Windows/System32/winevt/Logs/Security.evtx",
+          "original_filename": "Security.evtx",
+          "file_path": null,
+          "status": "done",
+          "file_size": 20975616
+        },
+        {
+          "id": 34923,
+          "case_uuid": "7fb4e29e-d8d4-44d9-9502-1290e5d26cd1",
+          "filename": "CAMDC.zip/C/Windows/System32/winevt/Logs/Security.evtx",
+          "original_filename": "Security.evtx",
+          "file_path": null,
+          "status": "done",
+          "file_size": 953421824
+        },
+        {
+          "id": 36087,
+          "case_uuid": "ff362acc-a014-487b-a06b-364e40d1f961",
+          "filename": "ATN84794.zip/C/Windows/System32/winevt/Logs/Security.evtx",
+          "original_filename": "Security.evtx",
+          "file_path": null,
+          "status": "done",
+          "file_size": 20975616
+        },
+        {
+          "id": 37723,
+          "case_uuid": "0e055922-e3f3-4bfb-9068-acc81264e37f",
+          "filename": "ATN86863.zip/C/Windows/System32/winevt/Logs/Security.evtx",
+          "original_filename": "Security.evtx",
+          "file_path": null,
+          "status": "done",
+          "file_size": 20975616
+        },
+        {
+          "id": 39504,
+          "case_uuid": "0e055922-e3f3-4bfb-9068-acc81264e37f",
+          "filename": "ATN71830.zip/C/Windows/System32/winevt/Logs/Security.evtx",
+          "original_filename": "Security.evtx",
+          "file_path": null,
+          "status": "done",
+          "file_size": 20975616
+        },
+        {
+          "id": 41551,
+          "case_uuid": "0e055922-e3f3-4bfb-9068-acc81264e37f",
+          "filename": "ATN68830.zip/C/Windows/System32/winevt/Logs/Security.evtx",
+          "original_filename": "Security.evtx",
+          "file_path": null,
+          "status": "done",
+          "file_size": 20975616
+        },
+        {
+          "id": 43691,
+          "case_uuid": "0e055922-e3f3-4bfb-9068-acc81264e37f",
+          "filename": "ATN62290.zip/C/Windows/System32/winevt/Logs/Security.evtx",
+          "original_filename": "Security.evtx",
+          "file_path": null,
+          "status": "done",
+          "file_size": 20975616
+        },
+        {
+          "id": 45444,
+          "case_uuid": "0e055922-e3f3-4bfb-9068-acc81264e37f",
+          "filename": "FRIAR-VMHOST.zip/C/Windows/System32/winevt/Logs/Security.evtx",
+          "original_filename": "Security.evtx",
+          "file_path": null,
+          "status": "done",
+          "file_size": 20975616
+        },
+        {
+          "id": 46411,
+          "case_uuid": "0e055922-e3f3-4bfb-9068-acc81264e37f",
+          "filename": "FRIAR-DC01.zip/C/Windows/System32/winevt/Logs/Security.evtx",
+          "original_filename": "Security.evtx",
+          "file_path": null,
+          "status": "done",
+          "file_size": 134221824
+        },
+        {
+          "id": 47353,
+          "case_uuid": "0e055922-e3f3-4bfb-9068-acc81264e37f",
+          "filename": "FRIAR-APPS.zip/C/Windows/System32/winevt/Logs/Security.evtx",
+          "original_filename": "Security.evtx",
+          "file_path": null,
+          "status": "done",
+          "file_size": 20975616
+        },
+        {
+          "id": 48764,
+          "case_uuid": "0e055922-e3f3-4bfb-9068-acc81264e37f",
+          "filename": "LAPTOP-A00AEIGT.zip/C/Windows/System32/winevt/Logs/Security.evtx",
+          "original_filename": "Security.evtx",
+          "file_path": null,
+          "status": "done",
+          "file_size": 20975616
+        },
+        {
+          "id": 50701,
+          "case_uuid": "0e055922-e3f3-4bfb-9068-acc81264e37f",
+          "filename": "ATN83675.zip/C/Windows/System32/winevt/Logs/Security.evtx",
+          "original_filename": "Security.evtx",
+          "file_path": null,
+          "status": "done",
+          "file_size": 20975616
+        },
+        {
+          "id": 52690,
+          "case_uuid": "0e055922-e3f3-4bfb-9068-acc81264e37f",
+          "filename": "ATN80645.zip/C/Windows/System32/winevt/Logs/Security.evtx",
+          "original_filename": "Security.evtx",
+          "file_path": null,
+          "status": "done",
+          "file_size": 20975616
+        },
+        {
+          "id": 54619,
+          "case_uuid": "0e055922-e3f3-4bfb-9068-acc81264e37f",
+          "filename": "ATN80539.zip/C/Windows/System32/winevt/Logs/Security.evtx",
+          "original_filename": "Security.evtx",
+          "file_path": null,
+          "status": "done",
+          "file_size": 20975616
+        },
+        {
+          "id": 57101,
+          "case_uuid": "0e055922-e3f3-4bfb-9068-acc81264e37f",
+          "filename": "ATN78920.zip/C/Windows/System32/winevt/Logs/Security.evtx",
+          "original_filename": "Security.evtx",
+          "file_path": null,
+          "status": "done",
+          "file_size": 20975616
+        },
+        {
+          "id": 80227,
+          "case_uuid": "0e055922-e3f3-4bfb-9068-acc81264e37f",
+          "filename": "ATN77188.zip/C/Windows/System32/winevt/Logs/Security.evtx",
+          "original_filename": "Security.evtx",
+          "file_path": null,
+          "status": "done",
+          "file_size": 20975616
+        },
+        {
+          "id": 83095,
+          "case_uuid": "0e055922-e3f3-4bfb-9068-acc81264e37f",
+          "filename": "ATN76701.zip/C/Windows/System32/winevt/Logs/Security.evtx",
+          "original_filename": "Security.evtx",
+          "file_path": null,
+          "status": "done",
+          "file_size": 20975616
+        },
+        {
+          "id": 91789,
+          "case_uuid": "0e055922-e3f3-4bfb-9068-acc81264e37f",
+          "filename": "ATN75349.zip/C/Windows/System32/winevt/Logs/Security.evtx",
+          "original_filename": "Security.evtx",
+          "file_path": null,
+          "status": "done",
+          "file_size": 20975616
+        },
+        {
+          "id": 94897,
+          "case_uuid": "0e055922-e3f3-4bfb-9068-acc81264e37f",
+          "filename": "ATN71831.zip/C/Windows/System32/winevt/Logs/Security.evtx",
+          "original_filename": "Security.evtx",
+          "file_path": null,
+          "status": "done",
+          "file_size": 20975616
+        },
+        {
+          "id": 98746,
+          "case_uuid": "0e055922-e3f3-4bfb-9068-acc81264e37f",
+          "filename": "ATN71089.zip/C/Windows/System32/winevt/Logs/Security.evtx",
+          "original_filename": "Security.evtx",
+          "file_path": null,
+          "status": "done",
+          "file_size": 20975616
+        },
+        {
+          "id": 101820,
+          "case_uuid": "0e055922-e3f3-4bfb-9068-acc81264e37f",
+          "filename": "ATN67038.zip/C/Windows/System32/winevt/Logs/Security.evtx",
+          "original_filename": "Security.evtx",
+          "file_path": null,
+          "status": "done",
+          "file_size": 20975616
+        },
+        {
+          "id": 104031,
+          "case_uuid": "0e055922-e3f3-4bfb-9068-acc81264e37f",
+          "filename": "ATN62292.zip/C/Windows/System32/winevt/Logs/Security.evtx",
+          "original_filename": "Security.evtx",
+          "file_path": null,
+          "status": "done",
+          "file_size": 20975616
+        },
+        {
+          "id": 108629,
+          "case_uuid": "0e055922-e3f3-4bfb-9068-acc81264e37f",
+          "filename": "ATN62291.zip/C/Windows/System32/winevt/Logs/Security.evtx",
+          "original_filename": "Security.evtx",
+          "file_path": null,
+          "status": "done",
+          "file_size": 20975616
+        },
+        {
+          "id": 111121,
+          "case_uuid": "0e055922-e3f3-4bfb-9068-acc81264e37f",
+          "filename": "ATN62290.zip/C/Windows/System32/winevt/Logs/Security.evtx",
+          "original_filename": "Security.evtx",
+          "file_path": null,
+          "status": "done",
+          "file_size": 20975616
+        },
+        {
+          "id": 114393,
+          "case_uuid": "0e055922-e3f3-4bfb-9068-acc81264e37f",
+          "filename": "ATN62288.zip/C/Windows/System32/winevt/Logs/Security.evtx",
+          "original_filename": "Security.evtx",
+          "file_path": null,
+          "status": "done",
+          "file_size": 20975616
+        },
+        {
+          "id": 116612,
+          "case_uuid": "0e055922-e3f3-4bfb-9068-acc81264e37f",
+          "filename": "ATN62287.zip/C/Windows/System32/winevt/Logs/Security.evtx",
+          "original_filename": "Security.evtx",
+          "file_path": null,
+          "status": "done",
+          "file_size": 20975616
+        },
+        {
+          "id": 117851,
+          "case_uuid": "c93c5cab-5c6d-4037-bcef-e2bb06fe0654",
+          "filename": "LSG-DC01.zip/C/Windows/System32/winevt/Logs/Security.evtx",
+          "original_filename": "Security.evtx",
+          "file_path": null,
+          "status": "done",
+          "file_size": 134221824
+        },
+        {
+          "id": 118537,
+          "case_uuid": "c93c5cab-5c6d-4037-bcef-e2bb06fe0654",
+          "filename": "LSG-RDS01.zip/C/Windows/System32/winevt/Logs/Security.evtx",
+          "original_filename": "Security.evtx",
+          "file_path": null,
+          "status": "done",
+          "file_size": 20975616
+        },
+        {
+          "id": 119467,
+          "case_uuid": "c93c5cab-5c6d-4037-bcef-e2bb06fe0654",
+          "filename": "LSG-SQL01.zip/C/Windows/System32/winevt/Logs/Security.evtx",
+          "original_filename": "Security.evtx",
+          "file_path": null,
+          "status": "done",
+          "file_size": 20975616
+        },
+        {
+          "id": 120492,
+          "case_uuid": "c93c5cab-5c6d-4037-bcef-e2bb06fe0654",
+          "filename": "LSG-EXCH01.zip/C/Windows/System32/winevt/Logs/Security.evtx",
+          "original_filename": "Security.evtx",
+          "file_path": null,
+          "status": "done",
+          "file_size": 20975616
+        },
+        {
+          "id": 122563,
+          "case_uuid": "c93c5cab-5c6d-4037-bcef-e2bb06fe0654",
+          "filename": "ATN50517.zip/C/Windows/System32/winevt/Logs/Security.evtx",
+          "original_filename": "Security.evtx",
+          "file_path": null,
+          "status": "done",
+          "file_size": 20975616
+        },
+        {
+          "id": 124245,
+          "case_uuid": "c93c5cab-5c6d-4037-bcef-e2bb06fe0654",
+          "filename": "ATN65276.zip/C/Windows/System32/winevt/Logs/Security.evtx",
+          "original_filename": "Security.evtx",
+          "file_path": null,
+          "status": "done",
+          "file_size": 20975616
+        },
+        {
+          "id": 125598,
+          "case_uuid": "c93c5cab-5c6d-4037-bcef-e2bb06fe0654",
+          "filename": "ATN74805.zip/C/Windows/System32/winevt/Logs/Security.evtx",
+          "original_filename": "Security.evtx",
+          "file_path": null,
+          "status": "done",
+          "file_size": 11603968
+        },
+        {
+          "id": 128619,
+          "case_uuid": "c93c5cab-5c6d-4037-bcef-e2bb06fe0654",
+          "filename": "DESKTOP-JK2019.zip/C/Windows/System32/winevt/Logs/Security.evtx",
+          "original_filename": "Security.evtx",
+          "file_path": null,
+          "status": "done",
+          "file_size": 20975616
+        },
+        {
+          "id": 130846,
+          "case_uuid": "c93c5cab-5c6d-4037-bcef-e2bb06fe0654",
+          "filename": "DT-SC-0001.zip/C/Windows/System32/winevt/Logs/Security.evtx",
+          "original_filename": "Security.evtx",
+          "file_path": null,
+          "status": "done",
+          "file_size": 20975616
+        },
+        {
+          "id": 132119,
+          "case_uuid": "c93c5cab-5c6d-4037-bcef-e2bb06fe0654",
+          "filename": "LAPTOP-LVSSD6KH.zip/C/Windows/System32/winevt/Logs/Security.evtx",
+          "original_filename": "Security.evtx",
+          "file_path": null,
+          "status": "done",
+          "file_size": 20975616
+        },
+        {
+          "id": 134357,
+          "case_uuid": "c93c5cab-5c6d-4037-bcef-e2bb06fe0654",
+          "filename": "LSG-120.zip/C/Windows/System32/winevt/Logs/Security.evtx",
+          "original_filename": "Security.evtx",
+          "file_path": null,
+          "status": "done",
+          "file_size": 20975616
+        },
+        {
+          "id": 140524,
+          "case_uuid": "c93c5cab-5c6d-4037-bcef-e2bb06fe0654",
+          "filename": "LSG-121.zip/C/Windows/System32/winevt/Logs/Security.evtx",
+          "original_filename": "Security.evtx",
+          "file_path": null,
+          "status": "done",
+          "file_size": 20975616
+        },
+        {
+          "id": 142357,
+          "case_uuid": "c93c5cab-5c6d-4037-bcef-e2bb06fe0654",
+          "filename": "LSG-143.zip/C/Windows/System32/winevt/Logs/Security.evtx",
+          "original_filename": "Security.evtx",
+          "file_path": null,
+          "status": "done",
+          "file_size": 20975616
+        },
+        {
+          "id": 144489,
+          "case_uuid": "c93c5cab-5c6d-4037-bcef-e2bb06fe0654",
+          "filename": "LSG-152.zip/C/Windows/System32/winevt/Logs/Security.evtx",
+          "original_filename": "Security.evtx",
+          "file_path": null,
+          "status": "done",
+          "file_size": 20975616
+        },
+        {
+          "id": 148363,
+          "case_uuid": "c93c5cab-5c6d-4037-bcef-e2bb06fe0654",
+          "filename": "LSG-122.zip/C/Windows/System32/winevt/Logs/Security.evtx",
+          "original_filename": "Security.evtx",
+          "file_path": null,
+          "status": "done",
+          "file_size": 20975616
+        },
+        {
+          "id": 151594,
+          "case_uuid": "c93c5cab-5c6d-4037-bcef-e2bb06fe0654",
+          "filename": "LSG-148.zip/C/Windows/System32/winevt/Logs/Security.evtx",
+          "original_filename": "Security.evtx",
+          "file_path": null,
+          "status": "done",
+          "file_size": 20975616
+        },
+        {
+          "id": 153254,
+          "case_uuid": "c93c5cab-5c6d-4037-bcef-e2bb06fe0654",
+          "filename": "MARC5124.zip/C/Windows/System32/winevt/Logs/Security.evtx",
+          "original_filename": "Security.evtx",
+          "file_path": null,
+          "status": "done",
+          "file_size": 20975616
+        },
+        {
+          "id": 154847,
+          "case_uuid": "c93c5cab-5c6d-4037-bcef-e2bb06fe0654",
+          "filename": "LSG-VMHOST01.zip/C/Windows/System32/winevt/Logs/Security.evtx",
+          "original_filename": "Security.evtx",
+          "file_path": null,
+          "status": "done",
+          "file_size": 20975616
+        },
+        {
+          "id": 156893,
+          "case_uuid": "c93c5cab-5c6d-4037-bcef-e2bb06fe0654",
+          "filename": "LSG-149.zip/C/Windows/System32/winevt/Logs/Security.evtx",
+          "original_filename": "Security.evtx",
+          "file_path": null,
+          "status": "done",
+          "file_size": 20975616
+        },
+        {
+          "id": 159508,
+          "case_uuid": "c93c5cab-5c6d-4037-bcef-e2bb06fe0654",
+          "filename": "LSG-141.zip/C/Windows/System32/winevt/Logs/Security.evtx",
+          "original_filename": "Security.evtx",
+          "file_path": null,
+          "status": "done",
+          "file_size": 20975616
+        },
+        {
+          "id": 161445,
+          "case_uuid": "c93c5cab-5c6d-4037-bcef-e2bb06fe0654",
+          "filename": "LSG-155.zip/C/Windows/System32/winevt/Logs/Security.evtx",
+          "original_filename": "Security.evtx",
+          "file_path": null,
+          "status": "done",
+          "file_size": 20975616
+        },
+        {
+          "id": 164865,
+          "case_uuid": "c93c5cab-5c6d-4037-bcef-e2bb06fe0654",
+          "filename": "LSG-156.zip/C/Windows/System32/winevt/Logs/Security.evtx",
+          "original_filename": "Security.evtx",
+          "file_path": null,
+          "status": "done",
+          "file_size": 20975616
+        },
+        {
+          "id": 166946,
+          "case_uuid": "c93c5cab-5c6d-4037-bcef-e2bb06fe0654",
+          "filename": "LSG-165.zip/C/Windows/System32/winevt/Logs/Security.evtx",
+          "original_filename": "Security.evtx",
+          "file_path": null,
+          "status": "done",
+          "file_size": 20975616
+        },
+        {
+          "id": 168298,
+          "case_uuid": "c93c5cab-5c6d-4037-bcef-e2bb06fe0654",
+          "filename": "MIKE-UPSTAIRS.zip/C/Windows/System32/winevt/Logs/Security.evtx",
+          "original_filename": "Security.evtx",
+          "file_path": null,
+          "status": "done",
+          "file_size": 20975616
+        },
+        {
+          "id": 170810,
+          "case_uuid": "c93c5cab-5c6d-4037-bcef-e2bb06fe0654",
+          "filename": "LSG-150X.zip/C/Windows/System32/winevt/Logs/Security.evtx",
+          "original_filename": "Security.evtx",
+          "file_path": null,
+          "status": "done",
+          "file_size": 20975616
+        },
+        {
+          "id": 174285,
+          "case_uuid": "2ecd5b89-9245-4945-850a-2e9611a337e4",
+          "filename": "ATN81971.zip/C/Windows/System32/winevt/Logs/Security.evtx",
+          "original_filename": "Security.evtx",
+          "file_path": null,
+          "status": "done",
+          "file_size": 20975616
+        },
+        {
+          "id": 176176,
+          "case_uuid": "6356c35a-4833-498f-9cba-a8d0b8fe26eb",
+          "filename": "ATN81108.zip/C/Windows/System32/winevt/Logs/Security.evtx",
+          "original_filename": "Security.evtx",
+          "file_path": null,
+          "status": "done",
+          "file_size": 20975616
+        },
+        {
+          "id": 185402,
+          "case_uuid": "253ee90c-5dcc-429f-abbf-b719389d8b41",
+          "filename": "HOBBYTYMESALES.zip/C/Windows/System32/winevt/Logs/Security.evtx",
+          "original_filename": "Security.evtx",
+          "file_path": null,
+          "status": "done",
+          "file_size": 20975616
+        },
+        {
+          "id": 196491,
+          "case_uuid": "4a0019f4-8ba9-4bdd-b853-40cde5f67e65",
+          "filename": "ATN67524.zip/C/Windows/System32/winevt/Logs/Security.evtx",
+          "original_filename": "Security.evtx",
+          "file_path": null,
+          "status": "done",
+          "file_size": 20975616
+        },
+        {
+          "id": 213289,
+          "case_uuid": "e27fd66c-7599-46f5-95a1-6b0f396cd46d",
+          "filename": "BDALENE.zip/C/Windows/System32/winevt/Logs/Security.evtx",
+          "original_filename": "Security.evtx",
+          "file_path": null,
+          "status": "done",
+          "file_size": 20975616
+        },
+        {
+          "id": 222197,
+          "case_uuid": "dc095682-ce84-47a1-9e2d-ea52b249d34d",
+          "filename": "ATN80575.zip/C/Windows/System32/winevt/Logs/Security.evtx",
+          "original_filename": "Security.evtx",
+          "file_path": null,
+          "status": "done",
+          "file_size": 20975616
+        },
+        {
+          "id": 224135,
+          "case_uuid": "b644de5f-47ae-4e61-8a2d-d88927118db2",
+          "filename": "ATN83518.zip/C/Windows/System32/winevt/Logs/Security.evtx",
+          "original_filename": "Security.evtx",
+          "file_path": null,
+          "status": "done",
+          "file_size": 20975616
+        },
+        {
+          "id": 225788,
+          "case_uuid": "b644de5f-47ae-4e61-8a2d-d88927118db2",
+          "filename": "QUALITYPC2.zip/C/Windows/System32/winevt/Logs/Security.evtx",
+          "original_filename": "Security.evtx",
+          "file_path": null,
+          "status": "done",
+          "file_size": 20975616
+        },
+        {
+          "id": 228831,
+          "case_uuid": "b644de5f-47ae-4e61-8a2d-d88927118db2",
+          "filename": "CCASTOR.zip/C/Windows/System32/winevt/Logs/Security.evtx",
+          "original_filename": "Security.evtx",
+          "file_path": null,
+          "status": "done",
+          "file_size": 20975616
+        },
+        {
+          "id": 231502,
+          "case_uuid": "b644de5f-47ae-4e61-8a2d-d88927118db2",
+          "filename": "ATN55915.zip/C/Windows/System32/winevt/Logs/Security.evtx",
+          "original_filename": "Security.evtx",
+          "file_path": null,
+          "status": "done",
+          "file_size": 20975616
+        },
+        {
+          "id": 233785,
+          "case_uuid": "b644de5f-47ae-4e61-8a2d-d88927118db2",
+          "filename": "ATN83607.zip/C/Windows/System32/winevt/Logs/Security.evtx",
+          "original_filename": "Security.evtx",
+          "file_path": null,
+          "status": "done",
+          "file_size": 20975616
+        },
+        {
+          "id": 236298,
+          "case_uuid": "b644de5f-47ae-4e61-8a2d-d88927118db2",
+          "filename": "ATN71459.zip/C/Windows/System32/winevt/Logs/Security.evtx",
+          "original_filename": "Security.evtx",
+          "file_path": null,
+          "status": "done",
+          "file_size": 20975616
+        },
+        {
+          "id": 240377,
+          "case_uuid": "b644de5f-47ae-4e61-8a2d-d88927118db2",
+          "filename": "DESKTOP-P86DFTL.zip/C/Windows/System32/winevt/Logs/Security.evtx",
+          "original_filename": "Security.evtx",
+          "file_path": null,
+          "status": "done",
+          "file_size": 20975616
+        },
+        {
+          "id": 242973,
+          "case_uuid": "b644de5f-47ae-4e61-8a2d-d88927118db2",
+          "filename": "CM-VMHOST.zip/C/Windows/System32/winevt/Logs/Security.evtx",
+          "original_filename": "Security.evtx",
+          "file_path": null,
+          "status": "done",
+          "file_size": 20975616
+        },
+        {
+          "id": 243838,
+          "case_uuid": "b644de5f-47ae-4e61-8a2d-d88927118db2",
+          "filename": "CM-APP01.zip/C/Windows/System32/winevt/Logs/Security.evtx",
+          "original_filename": "Security.evtx",
+          "file_path": null,
+          "status": "done",
+          "file_size": 20975616
+        },
+        {
+          "id": 248851,
+          "case_uuid": "b644de5f-47ae-4e61-8a2d-d88927118db2",
+          "filename": "ATN71401.zip/C/Windows/System32/winevt/Logs/Security.evtx",
+          "original_filename": "Security.evtx",
+          "file_path": null,
+          "status": "done",
+          "file_size": 20975616
+        },
+        {
+          "id": 251649,
+          "case_uuid": "b644de5f-47ae-4e61-8a2d-d88927118db2",
+          "filename": "ATN65900.zip/C/Windows/System32/winevt/Logs/Security.evtx",
+          "original_filename": "Security.evtx",
+          "file_path": null,
+          "status": "done",
+          "file_size": 20975616
+        },
+        {
+          "id": 254478,
+          "case_uuid": "b644de5f-47ae-4e61-8a2d-d88927118db2",
+          "filename": "ATN71575.zip/C/Windows/System32/winevt/Logs/Security.evtx",
+          "original_filename": "Security.evtx",
+          "file_path": null,
+          "status": "done",
+          "file_size": 20975616
+        },
+        {
+          "id": 256585,
+          "case_uuid": "b644de5f-47ae-4e61-8a2d-d88927118db2",
+          "filename": "ATN82198.zip/C/Windows/System32/winevt/Logs/Security.evtx",
+          "original_filename": "Security.evtx",
+          "file_path": null,
+          "status": "done",
+          "file_size": 20975616
+        },
+        {
+          "id": 386650,
+          "case_uuid": "a794d777-156c-4af3-8c51-d13f2a1250e4",
+          "filename": "ATN69435.zip/C/Windows/System32/winevt/Logs/Security.evtx",
+          "original_filename": "Security.evtx",
+          "file_path": null,
+          "status": "done",
+          "file_size": 20975616
+        },
+        {
+          "id": 393793,
+          "case_uuid": "0616868f-75db-4b61-a4b1-6ab552875a4b",
+          "filename": "LCI-DC3.zip/C/Windows/System32/winevt/Logs/Security.evtx",
+          "original_filename": "Security.evtx",
+          "file_path": null,
+          "status": "done",
+          "file_size": 910233600
+        },
+        {
+          "id": 395317,
+          "case_uuid": "0616868f-75db-4b61-a4b1-6ab552875a4b",
+          "filename": "LCI-FS1.zip/C/Windows/System32/winevt/Logs/Security.evtx",
+          "original_filename": "Security.evtx",
+          "file_path": null,
+          "status": "done",
+          "file_size": 20975616
+        },
+        {
+          "id": 396498,
+          "case_uuid": "0616868f-75db-4b61-a4b1-6ab552875a4b",
+          "filename": "ADMIN-PC.zip/C/Windows/System32/winevt/Logs/Security.evtx",
+          "original_filename": "Security.evtx",
+          "file_path": null,
+          "status": "done",
+          "file_size": 4194304
+        },
+        {
+          "id": 402763,
+          "case_uuid": "0616868f-75db-4b61-a4b1-6ab552875a4b",
+          "filename": "ATN71463.zip/C/Windows/System32/winevt/Logs/Security.evtx",
+          "original_filename": "Security.evtx",
+          "file_path": null,
+          "status": "done",
+          "file_size": 20975616
+        },
+        {
+          "id": 405031,
+          "case_uuid": "0616868f-75db-4b61-a4b1-6ab552875a4b",
+          "filename": "ATN71888.zip/C/Windows/System32/winevt/Logs/Security.evtx",
+          "original_filename": "Security.evtx",
+          "file_path": null,
+          "status": "done",
+          "file_size": 20975616
+        },
+        {
+          "id": 410054,
+          "case_uuid": "0616868f-75db-4b61-a4b1-6ab552875a4b",
+          "filename": "ATN71920.zip/C/Windows/System32/winevt/Logs/Security.evtx",
+          "original_filename": "Security.evtx",
+          "file_path": null,
+          "status": "done",
+          "file_size": 20975616
+        },
+        {
+          "id": 417050,
+          "case_uuid": "0616868f-75db-4b61-a4b1-6ab552875a4b",
+          "filename": "ATN77371.zip/C/Windows/System32/winevt/Logs/Security.evtx",
+          "original_filename": "Security.evtx",
+          "file_path": null,
+          "status": "done",
+          "file_size": 20975616
+        },
+        {
+          "id": 419371,
+          "case_uuid": "0616868f-75db-4b61-a4b1-6ab552875a4b",
+          "filename": "ATN77602.zip/C/Windows/System32/winevt/Logs/Security.evtx",
+          "original_filename": "Security.evtx",
+          "file_path": null,
+          "status": "done",
+          "file_size": 20975616
+        },
+        {
+          "id": 422469,
+          "case_uuid": "0616868f-75db-4b61-a4b1-6ab552875a4b",
+          "filename": "ATN77604.zip/C/Windows/System32/winevt/Logs/Security.evtx",
+          "original_filename": "Security.evtx",
+          "file_path": null,
+          "status": "done",
+          "file_size": 20975616
+        },
+        {
+          "id": 426440,
+          "case_uuid": "0616868f-75db-4b61-a4b1-6ab552875a4b",
+          "filename": "ATN78183.zip/C/Windows/System32/winevt/Logs/Security.evtx",
+          "original_filename": "Security.evtx",
+          "file_path": null,
+          "status": "done",
+          "file_size": 20975616
+        },
+        {
+          "id": 430114,
+          "case_uuid": "0616868f-75db-4b61-a4b1-6ab552875a4b",
+          "filename": "ATN78700.zip/C/Windows/System32/winevt/Logs/Security.evtx",
+          "original_filename": "Security.evtx",
+          "file_path": null,
+          "status": "done",
+          "file_size": 20975616
+        },
+        {
+          "id": 433821,
+          "case_uuid": "0616868f-75db-4b61-a4b1-6ab552875a4b",
+          "filename": "ATN78703.zip/C/Windows/System32/winevt/Logs/Security.evtx",
+          "original_filename": "Security.evtx",
+          "file_path": null,
+          "status": "done",
+          "file_size": 20975616
+        },
+        {
+          "id": 437446,
+          "case_uuid": "0616868f-75db-4b61-a4b1-6ab552875a4b",
+          "filename": "ATN78702.zip/C/Windows/System32/winevt/Logs/Security.evtx",
+          "original_filename": "Security.evtx",
+          "file_path": null,
+          "status": "done",
+          "file_size": 20975616
+        },
+        {
+          "id": 440206,
+          "case_uuid": "0616868f-75db-4b61-a4b1-6ab552875a4b",
+          "filename": "ATN78860.zip/C/Windows/System32/winevt/Logs/Security.evtx",
+          "original_filename": "Security.evtx",
+          "file_path": null,
+          "status": "done",
+          "file_size": 20975616
+        },
+        {
+          "id": 450260,
+          "case_uuid": "0616868f-75db-4b61-a4b1-6ab552875a4b",
+          "filename": "ATN83066.zip/C/Windows/System32/winevt/Logs/Security.evtx",
+          "original_filename": "Security.evtx",
+          "file_path": null,
+          "status": "done",
+          "file_size": 20975616
+        },
+        {
+          "id": 452877,
+          "case_uuid": "0616868f-75db-4b61-a4b1-6ab552875a4b",
+          "filename": "ATN83526.zip/C/Windows/System32/winevt/Logs/Security.evtx",
+          "original_filename": "Security.evtx",
+          "file_path": null,
+          "status": "done",
+          "file_size": 20975616
+        },
+        {
+          "id": 455076,
+          "case_uuid": "0616868f-75db-4b61-a4b1-6ab552875a4b",
+          "filename": "ATN83924.zip/C/Windows/System32/winevt/Logs/Security.evtx",
+          "original_filename": "Security.evtx",
+          "file_path": null,
+          "status": "done",
+          "file_size": 20975616
+        },
+        {
+          "id": 457768,
+          "case_uuid": "0616868f-75db-4b61-a4b1-6ab552875a4b",
+          "filename": "ATN83948.zip/C/Windows/System32/winevt/Logs/Security.evtx",
+          "original_filename": "Security.evtx",
+          "file_path": null,
+          "status": "done",
+          "file_size": 20975616
+        },
+        {
+          "id": 461568,
+          "case_uuid": "0616868f-75db-4b61-a4b1-6ab552875a4b",
+          "filename": "LCI-CS3-PC.zip/C/Windows/System32/winevt/Logs/Security.evtx",
+          "original_filename": "Security.evtx",
+          "file_path": null,
+          "status": "done",
+          "file_size": 20975616
+        },
+        {
+          "id": 464700,
+          "case_uuid": "0616868f-75db-4b61-a4b1-6ab552875a4b",
+          "filename": "CANHH-PC.zip/C/Windows/System32/winevt/Logs/Security.evtx",
+          "original_filename": "Security.evtx",
+          "file_path": null,
+          "status": "done",
+          "file_size": 20975616
+        },
+        {
+          "id": 469149,
+          "case_uuid": "0616868f-75db-4b61-a4b1-6ab552875a4b",
+          "filename": "COLLEENH-PC.zip/C/Windows/System32/winevt/Logs/Security.evtx",
+          "original_filename": "Security.evtx",
+          "file_path": null,
+          "status": "done",
+          "file_size": 20975616
+        },
+        {
+          "id": 472473,
+          "case_uuid": "0616868f-75db-4b61-a4b1-6ab552875a4b",
+          "filename": "LCI-VMHOST.zip/C/Windows/System32/winevt/Logs/Security.evtx",
+          "original_filename": "Security.evtx",
+          "file_path": null,
+          "status": "done",
+          "file_size": 20975616
+        },
+        {
+          "id": 475607,
+          "case_uuid": "0616868f-75db-4b61-a4b1-6ab552875a4b",
+          "filename": "AVAST.zip/C/Windows/System32/winevt/Logs/Security.evtx",
+          "original_filename": "Security.evtx",
+          "file_path": null,
+          "status": "done",
+          "file_size": 20975616
+        },
+        {
+          "id": 478115,
+          "case_uuid": "0616868f-75db-4b61-a4b1-6ab552875a4b",
+          "filename": "CA4K.zip/C/Windows/System32/winevt/Logs/Security.evtx",
+          "original_filename": "Security.evtx",
+          "file_path": null,
+          "status": "done",
+          "file_size": 20975616
+        },
+        {
+          "id": 481045,
+          "case_uuid": "0616868f-75db-4b61-a4b1-6ab552875a4b",
+          "filename": "HENRYG-PC.zip/C/Windows/System32/winevt/Logs/Security.evtx",
+          "original_filename": "Security.evtx",
+          "file_path": null,
+          "status": "done",
+          "file_size": 20975616
+        },
+        {
+          "id": 486692,
+          "case_uuid": "0616868f-75db-4b61-a4b1-6ab552875a4b",
+          "filename": "ROSEN-PC.zip/C/Windows/System32/winevt/Logs/Security.evtx",
+          "original_filename": "Security.evtx",
+          "file_path": null,
+          "status": "done",
+          "file_size": 20975616
+        },
+        {
+          "id": 492940,
+          "case_uuid": "0616868f-75db-4b61-a4b1-6ab552875a4b",
+          "filename": "DDS-17210090.zip/C/Windows/System32/winevt/Logs/Security.evtx",
+          "original_filename": "Security.evtx",
+          "file_path": null,
+          "status": "done",
+          "file_size": 20975616
+        },
+        {
+          "id": 493787,
+          "case_uuid": "0616868f-75db-4b61-a4b1-6ab552875a4b",
+          "filename": "PATG-PC.zip/C/Windows/System32/winevt/Logs/Security.evtx",
+          "original_filename": "Security.evtx",
+          "file_path": null,
+          "status": "done",
+          "file_size": 7733248
+        },
+        {
+          "id": 494813,
+          "case_uuid": "0616868f-75db-4b61-a4b1-6ab552875a4b",
+          "filename": "LCI-SQL1.zip/C/Windows/System32/winevt/Logs/Security.evtx",
+          "original_filename": "Security.evtx",
+          "file_path": null,
+          "status": "done",
+          "file_size": 20975616
+        },
+        {
+          "id": 498698,
+          "case_uuid": "0616868f-75db-4b61-a4b1-6ab552875a4b",
+          "filename": "PROJM1-PC.zip/C/Windows/System32/winevt/Logs/Security.evtx",
+          "original_filename": "Security.evtx",
+          "file_path": null,
+          "status": "done",
+          "file_size": 20975616
+        },
+        {
+          "id": 511612,
+          "case_uuid": "0616868f-75db-4b61-a4b1-6ab552875a4b",
+          "filename": "PROCESSING9-PC.zip/C/Windows/System32/winevt/Logs/Security.evtx",
+          "original_filename": "Security.evtx",
+          "file_path": null,
+          "status": "done",
+          "file_size": 20975616
+        },
+        {
+          "id": 514630,
+          "case_uuid": "0616868f-75db-4b61-a4b1-6ab552875a4b",
+          "filename": "PROCESSING8-PC.zip/C/Windows/System32/winevt/Logs/Security.evtx",
+          "original_filename": "Security.evtx",
+          "file_path": null,
+          "status": "done",
+          "file_size": 20975616
+        },
+        {
+          "id": 517256,
+          "case_uuid": "0616868f-75db-4b61-a4b1-6ab552875a4b",
+          "filename": "BR-DELL.zip/C/Windows/System32/winevt/Logs/Security.evtx",
+          "original_filename": "Security.evtx",
+          "file_path": null,
+          "status": "done",
+          "file_size": 20975616
+        },
+        {
+          "id": 522813,
+          "case_uuid": "0616868f-75db-4b61-a4b1-6ab552875a4b",
+          "filename": "LCI-RDS2.zip/C/Windows/System32/winevt/Logs/Security.evtx",
+          "original_filename": "Security.evtx",
+          "file_path": null,
+          "status": "done",
+          "file_size": 20975616
+        },
+        {
+          "id": 526810,
+          "case_uuid": "0616868f-75db-4b61-a4b1-6ab552875a4b",
+          "filename": "PROCESSING2-PC.zip/C/Windows/System32/winevt/Logs/Security.evtx",
+          "original_filename": "Security.evtx",
+          "file_path": null,
+          "status": "done",
+          "file_size": 20975616
+        },
+        {
+          "id": 529897,
+          "case_uuid": "0616868f-75db-4b61-a4b1-6ab552875a4b",
+          "filename": "PROCESSING6-PC.zip/C/Windows/System32/winevt/Logs/Security.evtx",
+          "original_filename": "Security.evtx",
+          "file_path": null,
+          "status": "done",
+          "file_size": 20975616
+        },
+        {
+          "id": 533083,
+          "case_uuid": "0616868f-75db-4b61-a4b1-6ab552875a4b",
+          "filename": "LCI-IT01-PC.zip/C/Windows/System32/winevt/Logs/Security.evtx",
+          "original_filename": "Security.evtx",
+          "file_path": null,
+          "status": "done",
+          "file_size": 20975616
+        },
+        {
+          "id": 537496,
+          "case_uuid": "0616868f-75db-4b61-a4b1-6ab552875a4b",
+          "filename": "PROCESSING5-PC.zip/C/Windows/System32/winevt/Logs/Security.evtx",
+          "original_filename": "Security.evtx",
+          "file_path": null,
+          "status": "done",
+          "file_size": 20975616
+        },
+        {
+          "id": 539635,
+          "case_uuid": "9cfc3f94-eaae-4829-82a1-147072da6c99",
+          "filename": "ACCOUNTING-DAFF.zip/C/Windows/System32/winevt/Logs/Security.evtx",
+          "original_filename": "Security.evtx",
+          "file_path": null,
+          "status": "done",
+          "file_size": 20975616
+        },
+        {
+          "id": 543468,
+          "case_uuid": "9cfc3f94-eaae-4829-82a1-147072da6c99",
+          "filename": "ATN79684.zip/C/Windows/System32/winevt/Logs/Security.evtx",
+          "original_filename": "Security.evtx",
+          "file_path": null,
+          "status": "done",
+          "file_size": 20975616
+        },
+        {
+          "id": 545434,
+          "case_uuid": "9cfc3f94-eaae-4829-82a1-147072da6c99",
+          "filename": "ATN79685.zip/C/Windows/System32/winevt/Logs/Security.evtx",
+          "original_filename": "Security.evtx",
+          "file_path": null,
+          "status": "done",
+          "file_size": 20975616
+        },
+        {
+          "id": 547269,
+          "case_uuid": "9cfc3f94-eaae-4829-82a1-147072da6c99",
+          "filename": "ATN80117.zip/C/Windows/System32/winevt/Logs/Security.evtx",
+          "original_filename": "Security.evtx",
+          "file_path": null,
+          "status": "done",
+          "file_size": 20975616
+        },
+        {
+          "id": 549260,
+          "case_uuid": "9cfc3f94-eaae-4829-82a1-147072da6c99",
+          "filename": "ATN81301.zip/C/Windows/System32/winevt/Logs/Security.evtx",
+          "original_filename": "Security.evtx",
+          "file_path": null,
+          "status": "done",
+          "file_size": 20975616
+        },
+        {
+          "id": 551298,
+          "case_uuid": "9cfc3f94-eaae-4829-82a1-147072da6c99",
+          "filename": "DEPCO-DC01.zip/C/Windows/System32/winevt/Logs/Security.evtx",
+          "original_filename": "Security.evtx",
+          "file_path": null,
+          "status": "done",
+          "file_size": 134221824
+        },
+        {
+          "id": 552076,
+          "case_uuid": "9cfc3f94-eaae-4829-82a1-147072da6c99",
+          "filename": "DEPCO-VMHOST.zip/C/Windows/System32/winevt/Logs/Security.evtx",
+          "original_filename": "Security.evtx",
+          "file_path": null,
+          "status": "done",
+          "file_size": 20975616
+        },
+        {
+          "id": 553701,
+          "case_uuid": "9cfc3f94-eaae-4829-82a1-147072da6c99",
+          "filename": "HEATLOSS.zip/C/Windows/System32/winevt/Logs/Security.evtx",
+          "original_filename": "Security.evtx",
+          "file_path": null,
+          "status": "done",
+          "file_size": 20975616
+        },
+        {
+          "id": 557658,
+          "case_uuid": "c40d5c83-1e0e-4d14-9469-91a3d13ddc2e",
+          "filename": "ATN83066.zip/C/Windows/System32/winevt/Logs/Security.evtx",
+          "original_filename": "Security.evtx",
+          "file_path": null,
+          "status": "done",
+          "file_size": 27332608
+        },
+        {
+          "id": 566607,
+          "case_uuid": "698c3402-3464-48ae-96bf-a250c00fadcc",
+          "filename": "ATN86143.zip/C/Windows/System32/winevt/Logs/Security.evtx",
+          "original_filename": "Security.evtx",
+          "file_path": null,
+          "status": "done",
+          "file_size": 20975616
+        },
+        {
+          "id": 578218,
+          "case_uuid": "acc29529-7647-400a-966a-843199d07950",
+          "filename": "ATN86573.zip/C/Windows/System32/winevt/Logs/Security.evtx",
+          "original_filename": "Security.evtx",
+          "file_path": null,
+          "status": "done",
+          "file_size": 20975616
+        }
+      ]
+    },
+    {
+      "path": "/opt/casescope-benchmark/phase0a_evtx/System.evtx",
+      "filename": "System.evtx",
+      "sha256": "1f4cef929100fc1398f440afc583222ef2e228e1a577c33c19f5a3a82b88699a",
+      "size_bytes": 21041152,
+      "channel_guess": "System",
+      "retained_casefile_matches": [
+        {
+          "id": 11655,
+          "case_uuid": "a580e5ce-4bb2-4912-b34b-8b63b4cf80cd",
+          "filename": "ATN82151.zip/C/Windows/System32/winevt/Logs/System.evtx",
+          "original_filename": "System.evtx",
+          "file_path": null,
+          "status": "done",
+          "file_size": 20975616
+        },
+        {
+          "id": 25366,
+          "case_uuid": "7fb4e29e-d8d4-44d9-9502-1290e5d26cd1",
+          "filename": "CAMRDS.zip/C/Windows/System32/winevt/Logs/System.evtx",
+          "original_filename": "System.evtx",
+          "file_path": null,
+          "status": "done",
+          "file_size": 20975616
+        },
+        {
+          "id": 26131,
+          "case_uuid": "7fb4e29e-d8d4-44d9-9502-1290e5d26cd1",
+          "filename": "CSCI-DC.zip/C/Windows/System32/winevt/Logs/System.evtx",
+          "original_filename": "System.evtx",
+          "file_path": null,
+          "status": "done",
+          "file_size": 12652544
+        },
+        {
+          "id": 27038,
+          "case_uuid": "7fb4e29e-d8d4-44d9-9502-1290e5d26cd1",
+          "filename": "CAMRDG.zip/C/Windows/System32/winevt/Logs/System.evtx",
+          "original_filename": "System.evtx",
+          "file_path": null,
+          "status": "done",
+          "file_size": 20975616
+        },
+        {
+          "id": 28576,
+          "case_uuid": "7fb4e29e-d8d4-44d9-9502-1290e5d26cd1",
+          "filename": "ATN84014.zip/C/Windows/System32/winevt/Logs/System.evtx",
+          "original_filename": "System.evtx",
+          "file_path": null,
+          "status": "done",
+          "file_size": 20975616
+        },
+        {
+          "id": 34801,
+          "case_uuid": "7fb4e29e-d8d4-44d9-9502-1290e5d26cd1",
+          "filename": "CAMDC.zip/C/Windows/System32/winevt/Logs/System.evtx",
+          "original_filename": "System.evtx",
+          "file_path": null,
+          "status": "done",
+          "file_size": 20975616
+        },
+        {
+          "id": 35967,
+          "case_uuid": "ff362acc-a014-487b-a06b-364e40d1f961",
+          "filename": "ATN84794.zip/C/Windows/System32/winevt/Logs/System.evtx",
+          "original_filename": "System.evtx",
+          "file_path": null,
+          "status": "done",
+          "file_size": 20975616
+        },
+        {
+          "id": 37599,
+          "case_uuid": "0e055922-e3f3-4bfb-9068-acc81264e37f",
+          "filename": "ATN86863.zip/C/Windows/System32/winevt/Logs/System.evtx",
+          "original_filename": "System.evtx",
+          "file_path": null,
+          "status": "done",
+          "file_size": 9506816
+        },
+        {
+          "id": 39380,
+          "case_uuid": "0e055922-e3f3-4bfb-9068-acc81264e37f",
+          "filename": "ATN71830.zip/C/Windows/System32/winevt/Logs/System.evtx",
+          "original_filename": "System.evtx",
+          "file_path": null,
+          "status": "done",
+          "file_size": 18944000
+        },
+        {
+          "id": 41424,
+          "case_uuid": "0e055922-e3f3-4bfb-9068-acc81264e37f",
+          "filename": "ATN68830.zip/C/Windows/System32/winevt/Logs/System.evtx",
+          "original_filename": "System.evtx",
+          "file_path": null,
+          "status": "done",
+          "file_size": 20975616
+        },
+        {
+          "id": 43563,
+          "case_uuid": "0e055922-e3f3-4bfb-9068-acc81264e37f",
+          "filename": "ATN62290.zip/C/Windows/System32/winevt/Logs/System.evtx",
+          "original_filename": "System.evtx",
+          "file_path": null,
+          "status": "done",
+          "file_size": 19992576
+        },
+        {
+          "id": 45313,
+          "case_uuid": "0e055922-e3f3-4bfb-9068-acc81264e37f",
+          "filename": "FRIAR-VMHOST.zip/C/Windows/System32/winevt/Logs/System.evtx",
+          "original_filename": "System.evtx",
+          "file_path": null,
+          "status": "done",
+          "file_size": 20975616
+        },
+        {
+          "id": 46280,
+          "case_uuid": "0e055922-e3f3-4bfb-9068-acc81264e37f",
+          "filename": "FRIAR-DC01.zip/C/Windows/System32/winevt/Logs/System.evtx",
+          "original_filename": "System.evtx",
+          "file_path": null,
+          "status": "done",
+          "file_size": 20975616
+        },
+        {
+          "id": 47239,
+          "case_uuid": "0e055922-e3f3-4bfb-9068-acc81264e37f",
+          "filename": "FRIAR-APPS.zip/C/Windows/System32/winevt/Logs/System.evtx",
+          "original_filename": "System.evtx",
+          "file_path": null,
+          "status": "done",
+          "file_size": 20975616
+        },
+        {
+          "id": 48640,
+          "case_uuid": "0e055922-e3f3-4bfb-9068-acc81264e37f",
+          "filename": "LAPTOP-A00AEIGT.zip/C/Windows/System32/winevt/Logs/System.evtx",
+          "original_filename": "System.evtx",
+          "file_path": null,
+          "status": "done",
+          "file_size": 20975616
+        },
+        {
+          "id": 50574,
+          "case_uuid": "0e055922-e3f3-4bfb-9068-acc81264e37f",
+          "filename": "ATN83675.zip/C/Windows/System32/winevt/Logs/System.evtx",
+          "original_filename": "System.evtx",
+          "file_path": null,
+          "status": "done",
+          "file_size": 20975616
+        },
+        {
+          "id": 52561,
+          "case_uuid": "0e055922-e3f3-4bfb-9068-acc81264e37f",
+          "filename": "ATN80645.zip/C/Windows/System32/winevt/Logs/System.evtx",
+          "original_filename": "System.evtx",
+          "file_path": null,
+          "status": "done",
+          "file_size": 20975616
+        },
+        {
+          "id": 54501,
+          "case_uuid": "0e055922-e3f3-4bfb-9068-acc81264e37f",
+          "filename": "ATN80539.zip/C/Windows/System32/winevt/Logs/System.evtx",
+          "original_filename": "System.evtx",
+          "file_path": null,
+          "status": "done",
+          "file_size": 20975616
+        },
+        {
+          "id": 56973,
+          "case_uuid": "0e055922-e3f3-4bfb-9068-acc81264e37f",
+          "filename": "ATN78920.zip/C/Windows/System32/winevt/Logs/System.evtx",
+          "original_filename": "System.evtx",
+          "file_path": null,
+          "status": "done",
+          "file_size": 20975616
+        },
+        {
+          "id": 80100,
+          "case_uuid": "0e055922-e3f3-4bfb-9068-acc81264e37f",
+          "filename": "ATN77188.zip/C/Windows/System32/winevt/Logs/System.evtx",
+          "original_filename": "System.evtx",
+          "file_path": null,
+          "status": "done",
+          "file_size": 20975616
+        },
+        {
+          "id": 82968,
+          "case_uuid": "0e055922-e3f3-4bfb-9068-acc81264e37f",
+          "filename": "ATN76701.zip/C/Windows/System32/winevt/Logs/System.evtx",
+          "original_filename": "System.evtx",
+          "file_path": null,
+          "status": "done",
+          "file_size": 20975616
+        },
+        {
+          "id": 91656,
+          "case_uuid": "0e055922-e3f3-4bfb-9068-acc81264e37f",
+          "filename": "ATN75349.zip/C/Windows/System32/winevt/Logs/System.evtx",
+          "original_filename": "System.evtx",
+          "file_path": null,
+          "status": "done",
+          "file_size": 20975616
+        },
+        {
+          "id": 94771,
+          "case_uuid": "0e055922-e3f3-4bfb-9068-acc81264e37f",
+          "filename": "ATN71831.zip/C/Windows/System32/winevt/Logs/System.evtx",
+          "original_filename": "System.evtx",
+          "file_path": null,
+          "status": "done",
+          "file_size": 17895424
+        },
+        {
+          "id": 98615,
+          "case_uuid": "0e055922-e3f3-4bfb-9068-acc81264e37f",
+          "filename": "ATN71089.zip/C/Windows/System32/winevt/Logs/System.evtx",
+          "original_filename": "System.evtx",
+          "file_path": null,
+          "status": "done",
+          "file_size": 20975616
+        },
+        {
+          "id": 101693,
+          "case_uuid": "0e055922-e3f3-4bfb-9068-acc81264e37f",
+          "filename": "ATN67038.zip/C/Windows/System32/winevt/Logs/System.evtx",
+          "original_filename": "System.evtx",
+          "file_path": null,
+          "status": "done",
+          "file_size": 20975616
+        },
+        {
+          "id": 103903,
+          "case_uuid": "0e055922-e3f3-4bfb-9068-acc81264e37f",
+          "filename": "ATN62292.zip/C/Windows/System32/winevt/Logs/System.evtx",
+          "original_filename": "System.evtx",
+          "file_path": null,
+          "status": "done",
+          "file_size": 20975616
+        },
+        {
+          "id": 108489,
+          "case_uuid": "0e055922-e3f3-4bfb-9068-acc81264e37f",
+          "filename": "ATN62291.zip/C/Windows/System32/winevt/Logs/System.evtx",
+          "original_filename": "System.evtx",
+          "file_path": null,
+          "status": "done",
+          "file_size": 20975616
+        },
+        {
+          "id": 110993,
+          "case_uuid": "0e055922-e3f3-4bfb-9068-acc81264e37f",
+          "filename": "ATN62290.zip/C/Windows/System32/winevt/Logs/System.evtx",
+          "original_filename": "System.evtx",
+          "file_path": null,
+          "status": "duplicate",
+          "file_size": 19992576
+        },
+        {
+          "id": 114266,
+          "case_uuid": "0e055922-e3f3-4bfb-9068-acc81264e37f",
+          "filename": "ATN62288.zip/C/Windows/System32/winevt/Logs/System.evtx",
+          "original_filename": "System.evtx",
+          "file_path": null,
+          "status": "done",
+          "file_size": 20975616
+        },
+        {
+          "id": 116495,
+          "case_uuid": "0e055922-e3f3-4bfb-9068-acc81264e37f",
+          "filename": "ATN62287.zip/C/Windows/System32/winevt/Logs/System.evtx",
+          "original_filename": "System.evtx",
+          "file_path": null,
+          "status": "done",
+          "file_size": 20975616
+        },
+        {
+          "id": 117737,
+          "case_uuid": "c93c5cab-5c6d-4037-bcef-e2bb06fe0654",
+          "filename": "LSG-DC01.zip/C/Windows/System32/winevt/Logs/System.evtx",
+          "original_filename": "System.evtx",
+          "file_path": null,
+          "status": "done",
+          "file_size": 20975616
+        },
+        {
+          "id": 118415,
+          "case_uuid": "c93c5cab-5c6d-4037-bcef-e2bb06fe0654",
+          "filename": "LSG-RDS01.zip/C/Windows/System32/winevt/Logs/System.evtx",
+          "original_filename": "System.evtx",
+          "file_path": null,
+          "status": "done",
+          "file_size": 20975616
+        },
+        {
+          "id": 119366,
+          "case_uuid": "c93c5cab-5c6d-4037-bcef-e2bb06fe0654",
+          "filename": "LSG-SQL01.zip/C/Windows/System32/winevt/Logs/System.evtx",
+          "original_filename": "System.evtx",
+          "file_path": null,
+          "status": "done",
+          "file_size": 20975616
+        },
+        {
+          "id": 120366,
+          "case_uuid": "c93c5cab-5c6d-4037-bcef-e2bb06fe0654",
+          "filename": "LSG-EXCH01.zip/C/Windows/System32/winevt/Logs/System.evtx",
+          "original_filename": "System.evtx",
+          "file_path": null,
+          "status": "done",
+          "file_size": 20975616
+        },
+        {
+          "id": 122436,
+          "case_uuid": "c93c5cab-5c6d-4037-bcef-e2bb06fe0654",
+          "filename": "ATN50517.zip/C/Windows/System32/winevt/Logs/System.evtx",
+          "original_filename": "System.evtx",
+          "file_path": null,
+          "status": "done",
+          "file_size": 20975616
+        },
+        {
+          "id": 124127,
+          "case_uuid": "c93c5cab-5c6d-4037-bcef-e2bb06fe0654",
+          "filename": "ATN65276.zip/C/Windows/System32/winevt/Logs/System.evtx",
+          "original_filename": "System.evtx",
+          "file_path": null,
+          "status": "done",
+          "file_size": 20975616
+        },
+        {
+          "id": 125480,
+          "case_uuid": "c93c5cab-5c6d-4037-bcef-e2bb06fe0654",
+          "filename": "ATN74805.zip/C/Windows/System32/winevt/Logs/System.evtx",
+          "original_filename": "System.evtx",
+          "file_path": null,
+          "status": "done",
+          "file_size": 1118208
+        },
+        {
+          "id": 128495,
+          "case_uuid": "c93c5cab-5c6d-4037-bcef-e2bb06fe0654",
+          "filename": "DESKTOP-JK2019.zip/C/Windows/System32/winevt/Logs/System.evtx",
+          "original_filename": "System.evtx",
+          "file_path": null,
+          "status": "done",
+          "file_size": 20975616
+        },
+        {
+          "id": 130732,
+          "case_uuid": "c93c5cab-5c6d-4037-bcef-e2bb06fe0654",
+          "filename": "DT-SC-0001.zip/C/Windows/System32/winevt/Logs/System.evtx",
+          "original_filename": "System.evtx",
+          "file_path": null,
+          "status": "done",
+          "file_size": 20975616
+        },
+        {
+          "id": 132013,
+          "case_uuid": "c93c5cab-5c6d-4037-bcef-e2bb06fe0654",
+          "filename": "LAPTOP-LVSSD6KH.zip/C/Windows/System32/winevt/Logs/System.evtx",
+          "original_filename": "System.evtx",
+          "file_path": null,
+          "status": "done",
+          "file_size": 20975616
+        },
+        {
+          "id": 134241,
+          "case_uuid": "c93c5cab-5c6d-4037-bcef-e2bb06fe0654",
+          "filename": "LSG-120.zip/C/Windows/System32/winevt/Logs/System.evtx",
+          "original_filename": "System.evtx",
+          "file_path": null,
+          "status": "done",
+          "file_size": 20975616
+        },
+        {
+          "id": 140407,
+          "case_uuid": "c93c5cab-5c6d-4037-bcef-e2bb06fe0654",
+          "filename": "LSG-121.zip/C/Windows/System32/winevt/Logs/System.evtx",
+          "original_filename": "System.evtx",
+          "file_path": null,
+          "status": "done",
+          "file_size": 20975616
+        },
+        {
+          "id": 142239,
+          "case_uuid": "c93c5cab-5c6d-4037-bcef-e2bb06fe0654",
+          "filename": "LSG-143.zip/C/Windows/System32/winevt/Logs/System.evtx",
+          "original_filename": "System.evtx",
+          "file_path": null,
+          "status": "done",
+          "file_size": 20975616
+        },
+        {
+          "id": 144366,
+          "case_uuid": "c93c5cab-5c6d-4037-bcef-e2bb06fe0654",
+          "filename": "LSG-152.zip/C/Windows/System32/winevt/Logs/System.evtx",
+          "original_filename": "System.evtx",
+          "file_path": null,
+          "status": "done",
+          "file_size": 20975616
+        },
+        {
+          "id": 148239,
+          "case_uuid": "c93c5cab-5c6d-4037-bcef-e2bb06fe0654",
+          "filename": "LSG-122.zip/C/Windows/System32/winevt/Logs/System.evtx",
+          "original_filename": "System.evtx",
+          "file_path": null,
+          "status": "done",
+          "file_size": 20975616
+        },
+        {
+          "id": 151466,
+          "case_uuid": "c93c5cab-5c6d-4037-bcef-e2bb06fe0654",
+          "filename": "LSG-148.zip/C/Windows/System32/winevt/Logs/System.evtx",
+          "original_filename": "System.evtx",
+          "file_path": null,
+          "status": "done",
+          "file_size": 20975616
+        },
+        {
+          "id": 153128,
+          "case_uuid": "c93c5cab-5c6d-4037-bcef-e2bb06fe0654",
+          "filename": "MARC5124.zip/C/Windows/System32/winevt/Logs/System.evtx",
+          "original_filename": "System.evtx",
+          "file_path": null,
+          "status": "done",
+          "file_size": 12652544
+        },
+        {
+          "id": 154733,
+          "case_uuid": "c93c5cab-5c6d-4037-bcef-e2bb06fe0654",
+          "filename": "LSG-VMHOST01.zip/C/Windows/System32/winevt/Logs/System.evtx",
+          "original_filename": "System.evtx",
+          "file_path": null,
+          "status": "done",
+          "file_size": 20975616
+        },
+        {
+          "id": 156766,
+          "case_uuid": "c93c5cab-5c6d-4037-bcef-e2bb06fe0654",
+          "filename": "LSG-149.zip/C/Windows/System32/winevt/Logs/System.evtx",
+          "original_filename": "System.evtx",
+          "file_path": null,
+          "status": "done",
+          "file_size": 20975616
+        },
+        {
+          "id": 159385,
+          "case_uuid": "c93c5cab-5c6d-4037-bcef-e2bb06fe0654",
+          "filename": "LSG-141.zip/C/Windows/System32/winevt/Logs/System.evtx",
+          "original_filename": "System.evtx",
+          "file_path": null,
+          "status": "done",
+          "file_size": 20975616
+        },
+        {
+          "id": 161321,
+          "case_uuid": "c93c5cab-5c6d-4037-bcef-e2bb06fe0654",
+          "filename": "LSG-155.zip/C/Windows/System32/winevt/Logs/System.evtx",
+          "original_filename": "System.evtx",
+          "file_path": null,
+          "status": "done",
+          "file_size": 20975616
+        },
+        {
+          "id": 164732,
+          "case_uuid": "c93c5cab-5c6d-4037-bcef-e2bb06fe0654",
+          "filename": "LSG-156.zip/C/Windows/System32/winevt/Logs/System.evtx",
+          "original_filename": "System.evtx",
+          "file_path": null,
+          "status": "done",
+          "file_size": 20975616
+        },
+        {
+          "id": 166822,
+          "case_uuid": "c93c5cab-5c6d-4037-bcef-e2bb06fe0654",
+          "filename": "LSG-165.zip/C/Windows/System32/winevt/Logs/System.evtx",
+          "original_filename": "System.evtx",
+          "file_path": null,
+          "status": "done",
+          "file_size": 20975616
+        },
+        {
+          "id": 168179,
+          "case_uuid": "c93c5cab-5c6d-4037-bcef-e2bb06fe0654",
+          "filename": "MIKE-UPSTAIRS.zip/C/Windows/System32/winevt/Logs/System.evtx",
+          "original_filename": "System.evtx",
+          "file_path": null,
+          "status": "done",
+          "file_size": 20975616
+        },
+        {
+          "id": 170685,
+          "case_uuid": "c93c5cab-5c6d-4037-bcef-e2bb06fe0654",
+          "filename": "LSG-150X.zip/C/Windows/System32/winevt/Logs/System.evtx",
+          "original_filename": "System.evtx",
+          "file_path": null,
+          "status": "done",
+          "file_size": 20975616
+        },
+        {
+          "id": 174167,
+          "case_uuid": "2ecd5b89-9245-4945-850a-2e9611a337e4",
+          "filename": "ATN81971.zip/C/Windows/System32/winevt/Logs/System.evtx",
+          "original_filename": "System.evtx",
+          "file_path": null,
+          "status": "done",
+          "file_size": 20975616
+        },
+        {
+          "id": 176054,
+          "case_uuid": "6356c35a-4833-498f-9cba-a8d0b8fe26eb",
+          "filename": "ATN81108.zip/C/Windows/System32/winevt/Logs/System.evtx",
+          "original_filename": "System.evtx",
+          "file_path": null,
+          "status": "done",
+          "file_size": 20975616
+        },
+        {
+          "id": 185270,
+          "case_uuid": "253ee90c-5dcc-429f-abbf-b719389d8b41",
+          "filename": "HOBBYTYMESALES.zip/C/Windows/System32/winevt/Logs/System.evtx",
+          "original_filename": "System.evtx",
+          "file_path": null,
+          "status": "done",
+          "file_size": 20975616
+        },
+        {
+          "id": 196378,
+          "case_uuid": "4a0019f4-8ba9-4bdd-b853-40cde5f67e65",
+          "filename": "ATN67524.zip/C/Windows/System32/winevt/Logs/System.evtx",
+          "original_filename": "System.evtx",
+          "file_path": null,
+          "status": "done",
+          "file_size": 20975616
+        },
+        {
+          "id": 213159,
+          "case_uuid": "e27fd66c-7599-46f5-95a1-6b0f396cd46d",
+          "filename": "BDALENE.zip/C/Windows/System32/winevt/Logs/System.evtx",
+          "original_filename": "System.evtx",
+          "file_path": null,
+          "status": "done",
+          "file_size": 20975616
+        },
+        {
+          "id": 222065,
+          "case_uuid": "dc095682-ce84-47a1-9e2d-ea52b249d34d",
+          "filename": "ATN80575.zip/C/Windows/System32/winevt/Logs/System.evtx",
+          "original_filename": "System.evtx",
+          "file_path": null,
+          "status": "done",
+          "file_size": 20975616
+        },
+        {
+          "id": 224015,
+          "case_uuid": "b644de5f-47ae-4e61-8a2d-d88927118db2",
+          "filename": "ATN83518.zip/C/Windows/System32/winevt/Logs/System.evtx",
+          "original_filename": "System.evtx",
+          "file_path": null,
+          "status": "done",
+          "file_size": 20975616
+        },
+        {
+          "id": 225685,
+          "case_uuid": "b644de5f-47ae-4e61-8a2d-d88927118db2",
+          "filename": "QUALITYPC2.zip/C/Windows/System32/winevt/Logs/System.evtx",
+          "original_filename": "System.evtx",
+          "file_path": null,
+          "status": "done",
+          "file_size": 20975616
+        },
+        {
+          "id": 228713,
+          "case_uuid": "b644de5f-47ae-4e61-8a2d-d88927118db2",
+          "filename": "CCASTOR.zip/C/Windows/System32/winevt/Logs/System.evtx",
+          "original_filename": "System.evtx",
+          "file_path": null,
+          "status": "done",
+          "file_size": 20975616
+        },
+        {
+          "id": 231384,
+          "case_uuid": "b644de5f-47ae-4e61-8a2d-d88927118db2",
+          "filename": "ATN55915.zip/C/Windows/System32/winevt/Logs/System.evtx",
+          "original_filename": "System.evtx",
+          "file_path": null,
+          "status": "done",
+          "file_size": 20975616
+        },
+        {
+          "id": 233668,
+          "case_uuid": "b644de5f-47ae-4e61-8a2d-d88927118db2",
+          "filename": "ATN83607.zip/C/Windows/System32/winevt/Logs/System.evtx",
+          "original_filename": "System.evtx",
+          "file_path": null,
+          "status": "done",
+          "file_size": 12652544
+        },
+        {
+          "id": 236182,
+          "case_uuid": "b644de5f-47ae-4e61-8a2d-d88927118db2",
+          "filename": "ATN71459.zip/C/Windows/System32/winevt/Logs/System.evtx",
+          "original_filename": "System.evtx",
+          "file_path": null,
+          "status": "done",
+          "file_size": 20975616
+        },
+        {
+          "id": 240254,
+          "case_uuid": "b644de5f-47ae-4e61-8a2d-d88927118db2",
+          "filename": "DESKTOP-P86DFTL.zip/C/Windows/System32/winevt/Logs/System.evtx",
+          "original_filename": "System.evtx",
+          "file_path": null,
+          "status": "done",
+          "file_size": 7409664
+        },
+        {
+          "id": 242856,
+          "case_uuid": "b644de5f-47ae-4e61-8a2d-d88927118db2",
+          "filename": "CM-VMHOST.zip/C/Windows/System32/winevt/Logs/System.evtx",
+          "original_filename": "System.evtx",
+          "file_path": null,
+          "status": "done",
+          "file_size": 20975616
+        },
+        {
+          "id": 243735,
+          "case_uuid": "b644de5f-47ae-4e61-8a2d-d88927118db2",
+          "filename": "CM-APP01.zip/C/Windows/System32/winevt/Logs/System.evtx",
+          "original_filename": "System.evtx",
+          "file_path": null,
+          "status": "done",
+          "file_size": 20975616
+        },
+        {
+          "id": 248725,
+          "case_uuid": "b644de5f-47ae-4e61-8a2d-d88927118db2",
+          "filename": "ATN71401.zip/C/Windows/System32/winevt/Logs/System.evtx",
+          "original_filename": "System.evtx",
+          "file_path": null,
+          "status": "done",
+          "file_size": 20975616
+        },
+        {
+          "id": 251531,
+          "case_uuid": "b644de5f-47ae-4e61-8a2d-d88927118db2",
+          "filename": "ATN65900.zip/C/Windows/System32/winevt/Logs/System.evtx",
+          "original_filename": "System.evtx",
+          "file_path": null,
+          "status": "done",
+          "file_size": 20975616
+        },
+        {
+          "id": 254359,
+          "case_uuid": "b644de5f-47ae-4e61-8a2d-d88927118db2",
+          "filename": "ATN71575.zip/C/Windows/System32/winevt/Logs/System.evtx",
+          "original_filename": "System.evtx",
+          "file_path": null,
+          "status": "done",
+          "file_size": 20975616
+        },
+        {
+          "id": 256469,
+          "case_uuid": "b644de5f-47ae-4e61-8a2d-d88927118db2",
+          "filename": "ATN82198.zip/C/Windows/System32/winevt/Logs/System.evtx",
+          "original_filename": "System.evtx",
+          "file_path": null,
+          "status": "done",
+          "file_size": 20975616
+        },
+        {
+          "id": 386525,
+          "case_uuid": "a794d777-156c-4af3-8c51-d13f2a1250e4",
+          "filename": "ATN69435.zip/C/Windows/System32/winevt/Logs/System.evtx",
+          "original_filename": "System.evtx",
+          "file_path": null,
+          "status": "done",
+          "file_size": 20975616
+        },
+        {
+          "id": 393677,
+          "case_uuid": "0616868f-75db-4b61-a4b1-6ab552875a4b",
+          "filename": "LCI-DC3.zip/C/Windows/System32/winevt/Logs/System.evtx",
+          "original_filename": "System.evtx",
+          "file_path": null,
+          "status": "done",
+          "file_size": 20975616
+        },
+        {
+          "id": 395204,
+          "case_uuid": "0616868f-75db-4b61-a4b1-6ab552875a4b",
+          "filename": "LCI-FS1.zip/C/Windows/System32/winevt/Logs/System.evtx",
+          "original_filename": "System.evtx",
+          "file_path": null,
+          "status": "done",
+          "file_size": 20975616
+        },
+        {
+          "id": 402649,
+          "case_uuid": "0616868f-75db-4b61-a4b1-6ab552875a4b",
+          "filename": "ATN71463.zip/C/Windows/System32/winevt/Logs/System.evtx",
+          "original_filename": "System.evtx",
+          "file_path": null,
+          "status": "done",
+          "file_size": 20975616
+        },
+        {
+          "id": 404907,
+          "case_uuid": "0616868f-75db-4b61-a4b1-6ab552875a4b",
+          "filename": "ATN71888.zip/C/Windows/System32/winevt/Logs/System.evtx",
+          "original_filename": "System.evtx",
+          "file_path": null,
+          "status": "done",
+          "file_size": 20975616
+        },
+        {
+          "id": 409936,
+          "case_uuid": "0616868f-75db-4b61-a4b1-6ab552875a4b",
+          "filename": "ATN71920.zip/C/Windows/System32/winevt/Logs/System.evtx",
+          "original_filename": "System.evtx",
+          "file_path": null,
+          "status": "done",
+          "file_size": 20975616
+        },
+        {
+          "id": 416917,
+          "case_uuid": "0616868f-75db-4b61-a4b1-6ab552875a4b",
+          "filename": "ATN77371.zip/C/Windows/System32/winevt/Logs/System.evtx",
+          "original_filename": "System.evtx",
+          "file_path": null,
+          "status": "done",
+          "file_size": 20975616
+        },
+        {
+          "id": 419214,
+          "case_uuid": "0616868f-75db-4b61-a4b1-6ab552875a4b",
+          "filename": "ATN77602.zip/C/Windows/System32/winevt/Logs/System.evtx",
+          "original_filename": "System.evtx",
+          "file_path": null,
+          "status": "done",
+          "file_size": 20975616
+        },
+        {
+          "id": 422335,
+          "case_uuid": "0616868f-75db-4b61-a4b1-6ab552875a4b",
+          "filename": "ATN77604.zip/C/Windows/System32/winevt/Logs/System.evtx",
+          "original_filename": "System.evtx",
+          "file_path": null,
+          "status": "done",
+          "file_size": 20975616
+        },
+        {
+          "id": 426316,
+          "case_uuid": "0616868f-75db-4b61-a4b1-6ab552875a4b",
+          "filename": "ATN78183.zip/C/Windows/System32/winevt/Logs/System.evtx",
+          "original_filename": "System.evtx",
+          "file_path": null,
+          "status": "done",
+          "file_size": 20975616
+        },
+        {
+          "id": 429981,
+          "case_uuid": "0616868f-75db-4b61-a4b1-6ab552875a4b",
+          "filename": "ATN78700.zip/C/Windows/System32/winevt/Logs/System.evtx",
+          "original_filename": "System.evtx",
+          "file_path": null,
+          "status": "done",
+          "file_size": 20975616
+        },
+        {
+          "id": 433689,
+          "case_uuid": "0616868f-75db-4b61-a4b1-6ab552875a4b",
+          "filename": "ATN78703.zip/C/Windows/System32/winevt/Logs/System.evtx",
+          "original_filename": "System.evtx",
+          "file_path": null,
+          "status": "done",
+          "file_size": 20975616
+        },
+        {
+          "id": 437314,
+          "case_uuid": "0616868f-75db-4b61-a4b1-6ab552875a4b",
+          "filename": "ATN78702.zip/C/Windows/System32/winevt/Logs/System.evtx",
+          "original_filename": "System.evtx",
+          "file_path": null,
+          "status": "done",
+          "file_size": 20975616
+        },
+        {
+          "id": 440073,
+          "case_uuid": "0616868f-75db-4b61-a4b1-6ab552875a4b",
+          "filename": "ATN78860.zip/C/Windows/System32/winevt/Logs/System.evtx",
+          "original_filename": "System.evtx",
+          "file_path": null,
+          "status": "done",
+          "file_size": 20975616
+        },
+        {
+          "id": 450133,
+          "case_uuid": "0616868f-75db-4b61-a4b1-6ab552875a4b",
+          "filename": "ATN83066.zip/C/Windows/System32/winevt/Logs/System.evtx",
+          "original_filename": "System.evtx",
+          "file_path": null,
+          "status": "done",
+          "file_size": 20975616
+        },
+        {
+          "id": 452749,
+          "case_uuid": "0616868f-75db-4b61-a4b1-6ab552875a4b",
+          "filename": "ATN83526.zip/C/Windows/System32/winevt/Logs/System.evtx",
+          "original_filename": "System.evtx",
+          "file_path": null,
+          "status": "done",
+          "file_size": 20975616
+        },
+        {
+          "id": 454965,
+          "case_uuid": "0616868f-75db-4b61-a4b1-6ab552875a4b",
+          "filename": "ATN83924.zip/C/Windows/System32/winevt/Logs/System.evtx",
+          "original_filename": "System.evtx",
+          "file_path": null,
+          "status": "done",
+          "file_size": 20975616
+        },
+        {
+          "id": 457643,
+          "case_uuid": "0616868f-75db-4b61-a4b1-6ab552875a4b",
+          "filename": "ATN83948.zip/C/Windows/System32/winevt/Logs/System.evtx",
+          "original_filename": "System.evtx",
+          "file_path": null,
+          "status": "done",
+          "file_size": 20975616
+        },
+        {
+          "id": 461445,
+          "case_uuid": "0616868f-75db-4b61-a4b1-6ab552875a4b",
+          "filename": "LCI-CS3-PC.zip/C/Windows/System32/winevt/Logs/System.evtx",
+          "original_filename": "System.evtx",
+          "file_path": null,
+          "status": "done",
+          "file_size": 20975616
+        },
+        {
+          "id": 464570,
+          "case_uuid": "0616868f-75db-4b61-a4b1-6ab552875a4b",
+          "filename": "CANHH-PC.zip/C/Windows/System32/winevt/Logs/System.evtx",
+          "original_filename": "System.evtx",
+          "file_path": null,
+          "status": "done",
+          "file_size": 20975616
+        },
+        {
+          "id": 469019,
+          "case_uuid": "0616868f-75db-4b61-a4b1-6ab552875a4b",
+          "filename": "COLLEENH-PC.zip/C/Windows/System32/winevt/Logs/System.evtx",
+          "original_filename": "System.evtx",
+          "file_path": null,
+          "status": "done",
+          "file_size": 20975616
+        },
+        {
+          "id": 472353,
+          "case_uuid": "0616868f-75db-4b61-a4b1-6ab552875a4b",
+          "filename": "LCI-VMHOST.zip/C/Windows/System32/winevt/Logs/System.evtx",
+          "original_filename": "System.evtx",
+          "file_path": null,
+          "status": "done",
+          "file_size": 20975616
+        },
+        {
+          "id": 475489,
+          "case_uuid": "0616868f-75db-4b61-a4b1-6ab552875a4b",
+          "filename": "AVAST.zip/C/Windows/System32/winevt/Logs/System.evtx",
+          "original_filename": "System.evtx",
+          "file_path": null,
+          "status": "done",
+          "file_size": 20975616
+        },
+        {
+          "id": 477996,
+          "case_uuid": "0616868f-75db-4b61-a4b1-6ab552875a4b",
+          "filename": "CA4K.zip/C/Windows/System32/winevt/Logs/System.evtx",
+          "original_filename": "System.evtx",
+          "file_path": null,
+          "status": "done",
+          "file_size": 20975616
+        },
+        {
+          "id": 480917,
+          "case_uuid": "0616868f-75db-4b61-a4b1-6ab552875a4b",
+          "filename": "HENRYG-PC.zip/C/Windows/System32/winevt/Logs/System.evtx",
+          "original_filename": "System.evtx",
+          "file_path": null,
+          "status": "done",
+          "file_size": 20975616
+        },
+        {
+          "id": 486568,
+          "case_uuid": "0616868f-75db-4b61-a4b1-6ab552875a4b",
+          "filename": "ROSEN-PC.zip/C/Windows/System32/winevt/Logs/System.evtx",
+          "original_filename": "System.evtx",
+          "file_path": null,
+          "status": "done",
+          "file_size": 20975616
+        },
+        {
+          "id": 492823,
+          "case_uuid": "0616868f-75db-4b61-a4b1-6ab552875a4b",
+          "filename": "DDS-17210090.zip/C/Windows/System32/winevt/Logs/System.evtx",
+          "original_filename": "System.evtx",
+          "file_path": null,
+          "status": "done",
+          "file_size": 20975616
+        },
+        {
+          "id": 494712,
+          "case_uuid": "0616868f-75db-4b61-a4b1-6ab552875a4b",
+          "filename": "LCI-SQL1.zip/C/Windows/System32/winevt/Logs/System.evtx",
+          "original_filename": "System.evtx",
+          "file_path": null,
+          "status": "done",
+          "file_size": 20975616
+        },
+        {
+          "id": 498575,
+          "case_uuid": "0616868f-75db-4b61-a4b1-6ab552875a4b",
+          "filename": "PROJM1-PC.zip/C/Windows/System32/winevt/Logs/System.evtx",
+          "original_filename": "System.evtx",
+          "file_path": null,
+          "status": "done",
+          "file_size": 20975616
+        },
+        {
+          "id": 511495,
+          "case_uuid": "0616868f-75db-4b61-a4b1-6ab552875a4b",
+          "filename": "PROCESSING9-PC.zip/C/Windows/System32/winevt/Logs/System.evtx",
+          "original_filename": "System.evtx",
+          "file_path": null,
+          "status": "done",
+          "file_size": 20975616
+        },
+        {
+          "id": 514514,
+          "case_uuid": "0616868f-75db-4b61-a4b1-6ab552875a4b",
+          "filename": "PROCESSING8-PC.zip/C/Windows/System32/winevt/Logs/System.evtx",
+          "original_filename": "System.evtx",
+          "file_path": null,
+          "status": "done",
+          "file_size": 20975616
+        },
+        {
+          "id": 517126,
+          "case_uuid": "0616868f-75db-4b61-a4b1-6ab552875a4b",
+          "filename": "BR-DELL.zip/C/Windows/System32/winevt/Logs/System.evtx",
+          "original_filename": "System.evtx",
+          "file_path": null,
+          "status": "done",
+          "file_size": 20975616
+        },
+        {
+          "id": 522695,
+          "case_uuid": "0616868f-75db-4b61-a4b1-6ab552875a4b",
+          "filename": "LCI-RDS2.zip/C/Windows/System32/winevt/Logs/System.evtx",
+          "original_filename": "System.evtx",
+          "file_path": null,
+          "status": "done",
+          "file_size": 20975616
+        },
+        {
+          "id": 526686,
+          "case_uuid": "0616868f-75db-4b61-a4b1-6ab552875a4b",
+          "filename": "PROCESSING2-PC.zip/C/Windows/System32/winevt/Logs/System.evtx",
+          "original_filename": "System.evtx",
+          "file_path": null,
+          "status": "done",
+          "file_size": 20975616
+        },
+        {
+          "id": 529762,
+          "case_uuid": "0616868f-75db-4b61-a4b1-6ab552875a4b",
+          "filename": "PROCESSING6-PC.zip/C/Windows/System32/winevt/Logs/System.evtx",
+          "original_filename": "System.evtx",
+          "file_path": null,
+          "status": "done",
+          "file_size": 20975616
+        },
+        {
+          "id": 532945,
+          "case_uuid": "0616868f-75db-4b61-a4b1-6ab552875a4b",
+          "filename": "LCI-IT01-PC.zip/C/Windows/System32/winevt/Logs/System.evtx",
+          "original_filename": "System.evtx",
+          "file_path": null,
+          "status": "done",
+          "file_size": 20975616
+        },
+        {
+          "id": 537359,
+          "case_uuid": "0616868f-75db-4b61-a4b1-6ab552875a4b",
+          "filename": "PROCESSING5-PC.zip/C/Windows/System32/winevt/Logs/System.evtx",
+          "original_filename": "System.evtx",
+          "file_path": null,
+          "status": "done",
+          "file_size": 20975616
+        },
+        {
+          "id": 539512,
+          "case_uuid": "9cfc3f94-eaae-4829-82a1-147072da6c99",
+          "filename": "ACCOUNTING-DAFF.zip/C/Windows/System32/winevt/Logs/System.evtx",
+          "original_filename": "System.evtx",
+          "file_path": null,
+          "status": "done",
+          "file_size": 20975616
+        },
+        {
+          "id": 543338,
+          "case_uuid": "9cfc3f94-eaae-4829-82a1-147072da6c99",
+          "filename": "ATN79684.zip/C/Windows/System32/winevt/Logs/System.evtx",
+          "original_filename": "System.evtx",
+          "file_path": null,
+          "status": "done",
+          "file_size": 20975616
+        },
+        {
+          "id": 545317,
+          "case_uuid": "9cfc3f94-eaae-4829-82a1-147072da6c99",
+          "filename": "ATN79685.zip/C/Windows/System32/winevt/Logs/System.evtx",
+          "original_filename": "System.evtx",
+          "file_path": null,
+          "status": "done",
+          "file_size": 20975616
+        },
+        {
+          "id": 547151,
+          "case_uuid": "9cfc3f94-eaae-4829-82a1-147072da6c99",
+          "filename": "ATN80117.zip/C/Windows/System32/winevt/Logs/System.evtx",
+          "original_filename": "System.evtx",
+          "file_path": null,
+          "status": "done",
+          "file_size": 20975616
+        },
+        {
+          "id": 549144,
+          "case_uuid": "9cfc3f94-eaae-4829-82a1-147072da6c99",
+          "filename": "ATN81301.zip/C/Windows/System32/winevt/Logs/System.evtx",
+          "original_filename": "System.evtx",
+          "file_path": null,
+          "status": "done",
+          "file_size": 19992576
+        },
+        {
+          "id": 551182,
+          "case_uuid": "9cfc3f94-eaae-4829-82a1-147072da6c99",
+          "filename": "DEPCO-DC01.zip/C/Windows/System32/winevt/Logs/System.evtx",
+          "original_filename": "System.evtx",
+          "file_path": null,
+          "status": "done",
+          "file_size": 20975616
+        },
+        {
+          "id": 551959,
+          "case_uuid": "9cfc3f94-eaae-4829-82a1-147072da6c99",
+          "filename": "DEPCO-VMHOST.zip/C/Windows/System32/winevt/Logs/System.evtx",
+          "original_filename": "System.evtx",
+          "file_path": null,
+          "status": "done",
+          "file_size": 20975616
+        },
+        {
+          "id": 553571,
+          "case_uuid": "9cfc3f94-eaae-4829-82a1-147072da6c99",
+          "filename": "HEATLOSS.zip/C/Windows/System32/winevt/Logs/System.evtx",
+          "original_filename": "System.evtx",
+          "file_path": null,
+          "status": "done",
+          "file_size": 20975616
+        },
+        {
+          "id": 557531,
+          "case_uuid": "c40d5c83-1e0e-4d14-9469-91a3d13ddc2e",
+          "filename": "ATN83066.zip/C/Windows/System32/winevt/Logs/System.evtx",
+          "original_filename": "System.evtx",
+          "file_path": null,
+          "status": "done",
+          "file_size": 22089728
+        },
+        {
+          "id": 566469,
+          "case_uuid": "698c3402-3464-48ae-96bf-a250c00fadcc",
+          "filename": "ATN86143.zip/C/Windows/System32/winevt/Logs/System.evtx",
+          "original_filename": "System.evtx",
+          "file_path": null,
+          "status": "done",
+          "file_size": 20975616
+        },
+        {
+          "id": 578086,
+          "case_uuid": "acc29529-7647-400a-966a-843199d07950",
+          "filename": "ATN86573.zip/C/Windows/System32/winevt/Logs/System.evtx",
+          "original_filename": "System.evtx",
+          "file_path": null,
+          "status": "done",
+          "file_size": 20975616
+        }
+      ]
+    }
+  ],
+  "retained_casefile_match_count": 0,
+  "non_retained_verified": true,
+  "retained_exact_path_casefile_matches": [],
+  "retained_filename_only_matches": [
+    {
+      "filename": "2026-04-28T225916_BDALENE_kape.zip/C/Windows/System32/winevt/logs/Application.evtx",
+      "count": 1
+    },
+    {
+      "filename": "2026-04-28T225916_BDALENE_kape.zip/VSS351/Windows/System32/winevt/logs/Application.evtx",
+      "count": 1
+    },
+    {
+      "filename": "2026-04-28T225916_BDALENE_kape.zip/VSS352/Windows/System32/winevt/logs/Application.evtx",
+      "count": 1
+    },
+    {
+      "filename": "2026-04-28T225916_BDALENE_kape.zip/VSS354/Windows/System32/winevt/logs/Application.evtx",
+      "count": 1
+    },
+    {
+      "filename": "2026-05-06T203715_ATN82151_kape.zip/C/Windows/System32/winevt/logs/Application.evtx",
+      "count": 1
+    },
+    {
+      "filename": "2026-05-06T203715_ATN82151_kape.zip/VSS2/Windows/System32/winevt/logs/Application.evtx",
+      "count": 1
+    },
+    {
+      "filename": "2026-06-03T141400_ATN81108_kape.zip/C/Windows/System32/winevt/logs/Application.evtx",
+      "count": 1
+    },
+    {
+      "filename": "2026-06-09T022701_ATN67524_kape.zip/C/Windows/System32/winevt/logs/Application.evtx",
+      "count": 1
+    },
+    {
+      "filename": "2026-06-09T022701_ATN67524_kape.zip/VSS55/Windows/System32/winevt/logs/Application.evtx",
+      "count": 1
+    },
+    {
+      "filename": "2026-06-19T110418_WIN11-T4VM_kape.zip/C/Windows/System32/winevt/logs/Application.evtx",
+      "count": 1
+    },
+    {
+      "filename": "2026-06-19T110418_WIN11-T4VM_kape.zip/VSS4/Windows/System32/winevt/logs/Application.evtx",
+      "count": 1
+    },
+    {
+      "filename": "2026-06-19T110418_WIN11-T4VM_kape.zip/VSS5/Windows/System32/winevt/logs/Application.evtx",
+      "count": 1
+    },
+    {
+      "filename": "2026-06-19T110418_WIN11-T4VM_kape.zip/VSS6/Windows/System32/winevt/logs/Application.evtx",
+      "count": 1
+    },
+    {
+      "filename": "2026-08-10T134447_ATN86143_kape.zip/C/Windows/System32/winevt/logs/Application.evtx",
+      "count": 1
+    },
+    {
+      "filename": "ACCOUNTING-DAFF.zip/C/Windows/System32/winevt/Logs/Application.evtx",
+      "count": 1
+    },
+    {
+      "filename": "ACCOUNTING-DAFF.zip/C/Windows/System32/winevt/Logs/Security.evtx",
+      "count": 1
+    },
+    {
+      "filename": "ACCOUNTING-DAFF.zip/C/Windows/System32/winevt/Logs/System.evtx",
+      "count": 1
+    },
+    {
+      "filename": "ADAMG-PC.zip/C/Windows/System32/winevt/Logs/Application.evtx",
+      "count": 1
+    },
+    {
+      "filename": "ADMIN-DELL.zip/C/Windows/System32/winevt/Logs/Application.evtx",
+      "count": 1
+    },
+    {
+      "filename": "ADMIN-PC.zip/C/Windows/System32/winevt/Logs/Application.evtx",
+      "count": 1
+    },
+    {
+      "filename": "ADMIN-PC.zip/C/Windows/System32/winevt/Logs/Security.evtx",
+      "count": 1
+    },
+    {
+      "filename": "ANNB-PC.zip/C/Windows/System32/winevt/Logs/Application.evtx",
+      "count": 1
+    },
+    {
+      "filename": "ATN50517.zip/C/Windows/System32/winevt/Logs/Application.evtx",
+      "count": 1
+    },
+    {
+      "filename": "ATN50517.zip/C/Windows/System32/winevt/Logs/Security.evtx",
+      "count": 1
+    },
+    {
+      "filename": "ATN50517.zip/C/Windows/System32/winevt/Logs/System.evtx",
+      "count": 1
+    },
+    {
+      "filename": "ATN55915.zip/C/Windows/System32/winevt/Logs/Application.evtx",
+      "count": 1
+    },
+    {
+      "filename": "ATN55915.zip/C/Windows/System32/winevt/Logs/Security.evtx",
+      "count": 1
+    },
+    {
+      "filename": "ATN55915.zip/C/Windows/System32/winevt/Logs/System.evtx",
+      "count": 1
+    },
+    {
+      "filename": "ATN59736.zip/C/Windows/System32/winevt/Logs/Application.evtx",
+      "count": 1
+    },
+    {
+      "filename": "ATN62287.zip/C/Windows/System32/winevt/Logs/Application.evtx",
+      "count": 1
+    },
+    {
+      "filename": "ATN62287.zip/C/Windows/System32/winevt/Logs/Security.evtx",
+      "count": 1
+    },
+    {
+      "filename": "ATN62287.zip/C/Windows/System32/winevt/Logs/System.evtx",
+      "count": 1
+    },
+    {
+      "filename": "ATN62288.zip/C/Windows/System32/winevt/Logs/Application.evtx",
+      "count": 1
+    },
+    {
+      "filename": "ATN62288.zip/C/Windows/System32/winevt/Logs/Security.evtx",
+      "count": 1
+    },
+    {
+      "filename": "ATN62288.zip/C/Windows/System32/winevt/Logs/System.evtx",
+      "count": 1
+    },
+    {
+      "filename": "ATN62290.zip/C/Windows/System32/winevt/Logs/Application.evtx",
+      "count": 2
+    },
+    {
+      "filename": "ATN62290.zip/C/Windows/System32/winevt/Logs/Security.evtx",
+      "count": 2
+    },
+    {
+      "filename": "ATN62290.zip/C/Windows/System32/winevt/Logs/System.evtx",
+      "count": 2
+    },
+    {
+      "filename": "ATN62291.zip/C/Windows/System32/winevt/Logs/Application.evtx",
+      "count": 1
+    },
+    {
+      "filename": "ATN62291.zip/C/Windows/System32/winevt/Logs/Security.evtx",
+      "count": 1
+    },
+    {
+      "filename": "ATN62291.zip/C/Windows/System32/winevt/Logs/System.evtx",
+      "count": 1
+    },
+    {
+      "filename": "ATN62292.zip/C/Windows/System32/winevt/Logs/Application.evtx",
+      "count": 1
+    },
+    {
+      "filename": "ATN62292.zip/C/Windows/System32/winevt/Logs/Security.evtx",
+      "count": 1
+    },
+    {
+      "filename": "ATN62292.zip/C/Windows/System32/winevt/Logs/System.evtx",
+      "count": 1
+    },
+    {
+      "filename": "ATN65276.zip/C/Windows/System32/winevt/Logs/Application.evtx",
+      "count": 1
+    },
+    {
+      "filename": "ATN65276.zip/C/Windows/System32/winevt/Logs/Security.evtx",
+      "count": 1
+    },
+    {
+      "filename": "ATN65276.zip/C/Windows/System32/winevt/Logs/System.evtx",
+      "count": 1
+    },
+    {
+      "filename": "ATN65900.zip/C/Windows/System32/winevt/Logs/Application.evtx",
+      "count": 1
+    },
+    {
+      "filename": "ATN65900.zip/C/Windows/System32/winevt/Logs/Security.evtx",
+      "count": 1
+    },
+    {
+      "filename": "ATN65900.zip/C/Windows/System32/winevt/Logs/System.evtx",
+      "count": 1
+    },
+    {
+      "filename": "ATN67038.zip/C/Windows/System32/winevt/Logs/Application.evtx",
+      "count": 1
+    },
+    {
+      "filename": "ATN67038.zip/C/Windows/System32/winevt/Logs/Security.evtx",
+      "count": 1
+    },
+    {
+      "filename": "ATN67038.zip/C/Windows/System32/winevt/Logs/System.evtx",
+      "count": 1
+    },
+    {
+      "filename": "ATN67524.zip/C/Windows/System32/winevt/Logs/Application.evtx",
+      "count": 1
+    },
+    {
+      "filename": "ATN67524.zip/C/Windows/System32/winevt/Logs/Security.evtx",
+      "count": 1
+    },
+    {
+      "filename": "ATN67524.zip/C/Windows/System32/winevt/Logs/System.evtx",
+      "count": 1
+    },
+    {
+      "filename": "ATN68830.zip/C/Windows/System32/winevt/Logs/Application.evtx",
+      "count": 1
+    },
+    {
+      "filename": "ATN68830.zip/C/Windows/System32/winevt/Logs/Security.evtx",
+      "count": 1
+    },
+    {
+      "filename": "ATN68830.zip/C/Windows/System32/winevt/Logs/System.evtx",
+      "count": 1
+    },
+    {
+      "filename": "ATN69435.zip/C/Windows/System32/winevt/Logs/Application.evtx",
+      "count": 1
+    },
+    {
+      "filename": "ATN69435.zip/C/Windows/System32/winevt/Logs/Security.evtx",
+      "count": 1
+    },
+    {
+      "filename": "ATN69435.zip/C/Windows/System32/winevt/Logs/System.evtx",
+      "count": 1
+    },
+    {
+      "filename": "ATN71089.zip/C/Windows/System32/winevt/Logs/Application.evtx",
+      "count": 1
+    },
+    {
+      "filename": "ATN71089.zip/C/Windows/System32/winevt/Logs/Security.evtx",
+      "count": 1
+    },
+    {
+      "filename": "ATN71089.zip/C/Windows/System32/winevt/Logs/System.evtx",
+      "count": 1
+    },
+    {
+      "filename": "ATN71401.zip/C/Windows/System32/winevt/Logs/Application.evtx",
+      "count": 1
+    },
+    {
+      "filename": "ATN71401.zip/C/Windows/System32/winevt/Logs/Security.evtx",
+      "count": 1
+    },
+    {
+      "filename": "ATN71401.zip/C/Windows/System32/winevt/Logs/System.evtx",
+      "count": 1
+    },
+    {
+      "filename": "ATN71459.zip/C/Windows/System32/winevt/Logs/Application.evtx",
+      "count": 1
+    },
+    {
+      "filename": "ATN71459.zip/C/Windows/System32/winevt/Logs/Security.evtx",
+      "count": 1
+    },
+    {
+      "filename": "ATN71459.zip/C/Windows/System32/winevt/Logs/System.evtx",
+      "count": 1
+    },
+    {
+      "filename": "ATN71463.zip/C/Windows/System32/winevt/Logs/Application.evtx",
+      "count": 1
+    },
+    {
+      "filename": "ATN71463.zip/C/Windows/System32/winevt/Logs/Security.evtx",
+      "count": 1
+    },
+    {
+      "filename": "ATN71463.zip/C/Windows/System32/winevt/Logs/System.evtx",
+      "count": 1
+    },
+    {
+      "filename": "ATN71575.zip/C/Windows/System32/winevt/Logs/Application.evtx",
+      "count": 1
+    },
+    {
+      "filename": "ATN71575.zip/C/Windows/System32/winevt/Logs/Security.evtx",
+      "count": 1
+    },
+    {
+      "filename": "ATN71575.zip/C/Windows/System32/winevt/Logs/System.evtx",
+      "count": 1
+    },
+    {
+      "filename": "ATN71830.zip/C/Windows/System32/winevt/Logs/Application.evtx",
+      "count": 1
+    },
+    {
+      "filename": "ATN71830.zip/C/Windows/System32/winevt/Logs/Security.evtx",
+      "count": 1
+    },
+    {
+      "filename": "ATN71830.zip/C/Windows/System32/winevt/Logs/System.evtx",
+      "count": 1
+    },
+    {
+      "filename": "ATN71831.zip/C/Windows/System32/winevt/Logs/Application.evtx",
+      "count": 1
+    },
+    {
+      "filename": "ATN71831.zip/C/Windows/System32/winevt/Logs/Security.evtx",
+      "count": 1
+    },
+    {
+      "filename": "ATN71831.zip/C/Windows/System32/winevt/Logs/System.evtx",
+      "count": 1
+    },
+    {
+      "filename": "ATN71888.zip/C/Windows/System32/winevt/Logs/Application.evtx",
+      "count": 1
+    },
+    {
+      "filename": "ATN71888.zip/C/Windows/System32/winevt/Logs/Security.evtx",
+      "count": 1
+    },
+    {
+      "filename": "ATN71888.zip/C/Windows/System32/winevt/Logs/System.evtx",
+      "count": 1
+    },
+    {
+      "filename": "ATN71920.zip/C/Windows/System32/winevt/Logs/Application.evtx",
+      "count": 1
+    },
+    {
+      "filename": "ATN71920.zip/C/Windows/System32/winevt/Logs/Security.evtx",
+      "count": 1
+    },
+    {
+      "filename": "ATN71920.zip/C/Windows/System32/winevt/Logs/System.evtx",
+      "count": 1
+    },
+    {
+      "filename": "ATN74805.zip/C/Windows/System32/winevt/Logs/Application.evtx",
+      "count": 1
+    },
+    {
+      "filename": "ATN74805.zip/C/Windows/System32/winevt/Logs/Security.evtx",
+      "count": 1
+    },
+    {
+      "filename": "ATN74805.zip/C/Windows/System32/winevt/Logs/System.evtx",
+      "count": 1
+    },
+    {
+      "filename": "ATN75349.zip/C/Windows/System32/winevt/Logs/Application.evtx",
+      "count": 1
+    },
+    {
+      "filename": "ATN75349.zip/C/Windows/System32/winevt/Logs/Security.evtx",
+      "count": 1
+    },
+    {
+      "filename": "ATN75349.zip/C/Windows/System32/winevt/Logs/System.evtx",
+      "count": 1
+    },
+    {
+      "filename": "ATN76701.zip/C/Windows/System32/winevt/Logs/Application.evtx",
+      "count": 1
+    },
+    {
+      "filename": "ATN76701.zip/C/Windows/System32/winevt/Logs/Security.evtx",
+      "count": 1
+    },
+    {
+      "filename": "ATN76701.zip/C/Windows/System32/winevt/Logs/System.evtx",
+      "count": 1
+    },
+    {
+      "filename": "ATN77188.zip/C/Windows/System32/winevt/Logs/Application.evtx",
+      "count": 1
+    },
+    {
+      "filename": "ATN77188.zip/C/Windows/System32/winevt/Logs/Security.evtx",
+      "count": 1
+    },
+    {
+      "filename": "ATN77188.zip/C/Windows/System32/winevt/Logs/System.evtx",
+      "count": 1
+    },
+    {
+      "filename": "ATN77371.zip/C/Windows/System32/winevt/Logs/Application.evtx",
+      "count": 1
+    },
+    {
+      "filename": "ATN77371.zip/C/Windows/System32/winevt/Logs/Security.evtx",
+      "count": 1
+    },
+    {
+      "filename": "ATN77371.zip/C/Windows/System32/winevt/Logs/System.evtx",
+      "count": 1
+    },
+    {
+      "filename": "ATN77602.zip/C/Windows/System32/winevt/Logs/Application.evtx",
+      "count": 1
+    },
+    {
+      "filename": "ATN77602.zip/C/Windows/System32/winevt/Logs/Security.evtx",
+      "count": 1
+    },
+    {
+      "filename": "ATN77602.zip/C/Windows/System32/winevt/Logs/System.evtx",
+      "count": 1
+    },
+    {
+      "filename": "ATN77604.zip/C/Windows/System32/winevt/Logs/Application.evtx",
+      "count": 1
+    },
+    {
+      "filename": "ATN77604.zip/C/Windows/System32/winevt/Logs/Security.evtx",
+      "count": 1
+    },
+    {
+      "filename": "ATN77604.zip/C/Windows/System32/winevt/Logs/System.evtx",
+      "count": 1
+    },
+    {
+      "filename": "ATN78183.zip/C/Windows/System32/winevt/Logs/Application.evtx",
+      "count": 1
+    },
+    {
+      "filename": "ATN78183.zip/C/Windows/System32/winevt/Logs/Security.evtx",
+      "count": 1
+    },
+    {
+      "filename": "ATN78183.zip/C/Windows/System32/winevt/Logs/System.evtx",
+      "count": 1
+    },
+    {
+      "filename": "ATN78700.zip/C/Windows/System32/winevt/Logs/Application.evtx",
+      "count": 1
+    },
+    {
+      "filename": "ATN78700.zip/C/Windows/System32/winevt/Logs/Security.evtx",
+      "count": 1
+    },
+    {
+      "filename": "ATN78700.zip/C/Windows/System32/winevt/Logs/System.evtx",
+      "count": 1
+    },
+    {
+      "filename": "ATN78702.zip/C/Windows/System32/winevt/Logs/Application.evtx",
+      "count": 1
+    },
+    {
+      "filename": "ATN78702.zip/C/Windows/System32/winevt/Logs/Security.evtx",
+      "count": 1
+    },
+    {
+      "filename": "ATN78702.zip/C/Windows/System32/winevt/Logs/System.evtx",
+      "count": 1
+    },
+    {
+      "filename": "ATN78703.zip/C/Windows/System32/winevt/Logs/Application.evtx",
+      "count": 1
+    },
+    {
+      "filename": "ATN78703.zip/C/Windows/System32/winevt/Logs/Security.evtx",
+      "count": 1
+    },
+    {
+      "filename": "ATN78703.zip/C/Windows/System32/winevt/Logs/System.evtx",
+      "count": 1
+    },
+    {
+      "filename": "ATN78860.zip/C/Windows/System32/winevt/Logs/Application.evtx",
+      "count": 1
+    },
+    {
+      "filename": "ATN78860.zip/C/Windows/System32/winevt/Logs/Security.evtx",
+      "count": 1
+    },
+    {
+      "filename": "ATN78860.zip/C/Windows/System32/winevt/Logs/System.evtx",
+      "count": 1
+    },
+    {
+      "filename": "ATN78920.zip/C/Windows/System32/winevt/Logs/Application.evtx",
+      "count": 1
+    },
+    {
+      "filename": "ATN78920.zip/C/Windows/System32/winevt/Logs/Security.evtx",
+      "count": 1
+    },
+    {
+      "filename": "ATN78920.zip/C/Windows/System32/winevt/Logs/System.evtx",
+      "count": 1
+    },
+    {
+      "filename": "ATN79684.zip/C/Windows/System32/winevt/Logs/Application.evtx",
+      "count": 1
+    },
+    {
+      "filename": "ATN79684.zip/C/Windows/System32/winevt/Logs/Security.evtx",
+      "count": 1
+    },
+    {
+      "filename": "ATN79684.zip/C/Windows/System32/winevt/Logs/System.evtx",
+      "count": 1
+    },
+    {
+      "filename": "ATN79685.zip/C/Windows/System32/winevt/Logs/Application.evtx",
+      "count": 1
+    },
+    {
+      "filename": "ATN79685.zip/C/Windows/System32/winevt/Logs/Security.evtx",
+      "count": 1
+    },
+    {
+      "filename": "ATN79685.zip/C/Windows/System32/winevt/Logs/System.evtx",
+      "count": 1
+    },
+    {
+      "filename": "ATN80117.zip/C/Windows/System32/winevt/Logs/Application.evtx",
+      "count": 1
+    },
+    {
+      "filename": "ATN80117.zip/C/Windows/System32/winevt/Logs/Security.evtx",
+      "count": 1
+    },
+    {
+      "filename": "ATN80117.zip/C/Windows/System32/winevt/Logs/System.evtx",
+      "count": 1
+    },
+    {
+      "filename": "ATN80539.zip/C/Windows/System32/winevt/Logs/Application.evtx",
+      "count": 1
+    },
+    {
+      "filename": "ATN80539.zip/C/Windows/System32/winevt/Logs/Security.evtx",
+      "count": 1
+    },
+    {
+      "filename": "ATN80539.zip/C/Windows/System32/winevt/Logs/System.evtx",
+      "count": 1
+    },
+    {
+      "filename": "ATN80575.zip/C/Windows/System32/winevt/Logs/Application.evtx",
+      "count": 1
+    },
+    {
+      "filename": "ATN80575.zip/C/Windows/System32/winevt/Logs/Security.evtx",
+      "count": 1
+    },
+    {
+      "filename": "ATN80575.zip/C/Windows/System32/winevt/Logs/System.evtx",
+      "count": 1
+    },
+    {
+      "filename": "ATN80645.zip/C/Windows/System32/winevt/Logs/Application.evtx",
+      "count": 1
+    },
+    {
+      "filename": "ATN80645.zip/C/Windows/System32/winevt/Logs/Security.evtx",
+      "count": 1
+    },
+    {
+      "filename": "ATN80645.zip/C/Windows/System32/winevt/Logs/System.evtx",
+      "count": 1
+    },
+    {
+      "filename": "ATN81108.zip/C/Windows/System32/winevt/Logs/Application.evtx",
+      "count": 1
+    },
+    {
+      "filename": "ATN81108.zip/C/Windows/System32/winevt/Logs/Security.evtx",
+      "count": 1
+    },
+    {
+      "filename": "ATN81108.zip/C/Windows/System32/winevt/Logs/System.evtx",
+      "count": 1
+    },
+    {
+      "filename": "ATN81301.zip/C/Windows/System32/winevt/Logs/Application.evtx",
+      "count": 1
+    },
+    {
+      "filename": "ATN81301.zip/C/Windows/System32/winevt/Logs/Security.evtx",
+      "count": 1
+    },
+    {
+      "filename": "ATN81301.zip/C/Windows/System32/winevt/Logs/System.evtx",
+      "count": 1
+    },
+    {
+      "filename": "ATN81971.zip/C/Windows/System32/winevt/Logs/Application.evtx",
+      "count": 1
+    },
+    {
+      "filename": "ATN81971.zip/C/Windows/System32/winevt/Logs/Security.evtx",
+      "count": 1
+    },
+    {
+      "filename": "ATN81971.zip/C/Windows/System32/winevt/Logs/System.evtx",
+      "count": 1
+    },
+    {
+      "filename": "ATN82151.zip/C/Windows/System32/winevt/Logs/Application.evtx",
+      "count": 1
+    },
+    {
+      "filename": "ATN82151.zip/C/Windows/System32/winevt/Logs/Security.evtx",
+      "count": 1
+    },
+    {
+      "filename": "ATN82151.zip/C/Windows/System32/winevt/Logs/System.evtx",
+      "count": 1
+    },
+    {
+      "filename": "ATN82198.zip/C/Windows/System32/winevt/Logs/Application.evtx",
+      "count": 1
+    },
+    {
+      "filename": "ATN82198.zip/C/Windows/System32/winevt/Logs/Security.evtx",
+      "count": 1
+    },
+    {
+      "filename": "ATN82198.zip/C/Windows/System32/winevt/Logs/System.evtx",
+      "count": 1
+    },
+    {
+      "filename": "ATN83066.zip/C/Windows/System32/winevt/Logs/Application.evtx",
+      "count": 2
+    },
+    {
+      "filename": "ATN83066.zip/C/Windows/System32/winevt/Logs/Security.evtx",
+      "count": 2
+    },
+    {
+      "filename": "ATN83066.zip/C/Windows/System32/winevt/Logs/System.evtx",
+      "count": 2
+    },
+    {
+      "filename": "ATN83518.zip/C/Windows/System32/winevt/Logs/Application.evtx",
+      "count": 1
+    },
+    {
+      "filename": "ATN83518.zip/C/Windows/System32/winevt/Logs/Security.evtx",
+      "count": 1
+    },
+    {
+      "filename": "ATN83518.zip/C/Windows/System32/winevt/Logs/System.evtx",
+      "count": 1
+    },
+    {
+      "filename": "ATN83526.zip/C/Windows/System32/winevt/Logs/Application.evtx",
+      "count": 1
+    },
+    {
+      "filename": "ATN83526.zip/C/Windows/System32/winevt/Logs/Security.evtx",
+      "count": 1
+    },
+    {
+      "filename": "ATN83526.zip/C/Windows/System32/winevt/Logs/System.evtx",
+      "count": 1
+    },
+    {
+      "filename": "ATN83607.zip/C/Windows/System32/winevt/Logs/Application.evtx",
+      "count": 1
+    },
+    {
+      "filename": "ATN83607.zip/C/Windows/System32/winevt/Logs/Security.evtx",
+      "count": 1
+    },
+    {
+      "filename": "ATN83607.zip/C/Windows/System32/winevt/Logs/System.evtx",
+      "count": 1
+    },
+    {
+      "filename": "ATN83675.zip/C/Windows/System32/winevt/Logs/Application.evtx",
+      "count": 1
+    },
+    {
+      "filename": "ATN83675.zip/C/Windows/System32/winevt/Logs/Security.evtx",
+      "count": 1
+    },
+    {
+      "filename": "ATN83675.zip/C/Windows/System32/winevt/Logs/System.evtx",
+      "count": 1
+    },
+    {
+      "filename": "ATN83924.zip/C/Windows/System32/winevt/Logs/Application.evtx",
+      "count": 1
+    },
+    {
+      "filename": "ATN83924.zip/C/Windows/System32/winevt/Logs/Security.evtx",
+      "count": 1
+    },
+    {
+      "filename": "ATN83924.zip/C/Windows/System32/winevt/Logs/System.evtx",
+      "count": 1
+    },
+    {
+      "filename": "ATN83948.zip/C/Windows/System32/winevt/Logs/Application.evtx",
+      "count": 1
+    },
+    {
+      "filename": "ATN83948.zip/C/Windows/System32/winevt/Logs/Security.evtx",
+      "count": 1
+    },
+    {
+      "filename": "ATN83948.zip/C/Windows/System32/winevt/Logs/System.evtx",
+      "count": 1
+    },
+    {
+      "filename": "ATN84014.zip/C/Windows/System32/winevt/Logs/Application.evtx",
+      "count": 1
+    },
+    {
+      "filename": "ATN84014.zip/C/Windows/System32/winevt/Logs/Security.evtx",
+      "count": 1
+    },
+    {
+      "filename": "ATN84014.zip/C/Windows/System32/winevt/Logs/System.evtx",
+      "count": 1
+    },
+    {
+      "filename": "ATN84794.zip/C/Windows/System32/winevt/Logs/Application.evtx",
+      "count": 1
+    },
+    {
+      "filename": "ATN84794.zip/C/Windows/System32/winevt/Logs/Security.evtx",
+      "count": 1
+    },
+    {
+      "filename": "ATN84794.zip/C/Windows/System32/winevt/Logs/System.evtx",
+      "count": 1
+    },
+    {
+      "filename": "ATN86143.zip/C/Windows/System32/winevt/Logs/Application.evtx",
+      "count": 1
+    },
+    {
+      "filename": "ATN86143.zip/C/Windows/System32/winevt/Logs/Security.evtx",
+      "count": 1
+    },
+    {
+      "filename": "ATN86143.zip/C/Windows/System32/winevt/Logs/System.evtx",
+      "count": 1
+    },
+    {
+      "filename": "ATN86573.zip/C/Windows/System32/winevt/Logs/Application.evtx",
+      "count": 1
+    },
+    {
+      "filename": "ATN86573.zip/C/Windows/System32/winevt/Logs/Security.evtx",
+      "count": 1
+    },
+    {
+      "filename": "ATN86573.zip/C/Windows/System32/winevt/Logs/System.evtx",
+      "count": 1
+    },
+    {
+      "filename": "ATN86863.zip/C/Windows/System32/winevt/Logs/Application.evtx",
+      "count": 1
+    },
+    {
+      "filename": "ATN86863.zip/C/Windows/System32/winevt/Logs/Security.evtx",
+      "count": 1
+    },
+    {
+      "filename": "ATN86863.zip/C/Windows/System32/winevt/Logs/System.evtx",
+      "count": 1
+    },
+    {
+      "filename": "AVAST.zip/C/Windows/System32/winevt/Logs/Application.evtx",
+      "count": 1
+    },
+    {
+      "filename": "AVAST.zip/C/Windows/System32/winevt/Logs/Security.evtx",
+      "count": 1
+    },
+    {
+      "filename": "AVAST.zip/C/Windows/System32/winevt/Logs/System.evtx",
+      "count": 1
+    },
+    {
+      "filename": "BDALENE.zip/C/Windows/System32/winevt/Logs/Application.evtx",
+      "count": 1
+    },
+    {
+      "filename": "BDALENE.zip/C/Windows/System32/winevt/Logs/Security.evtx",
+      "count": 1
+    },
+    {
+      "filename": "BDALENE.zip/C/Windows/System32/winevt/Logs/System.evtx",
+      "count": 1
+    },
+    {
+      "filename": "BR-DELL.zip/C/Windows/System32/winevt/Logs/Application.evtx",
+      "count": 1
+    },
+    {
+      "filename": "BR-DELL.zip/C/Windows/System32/winevt/Logs/Security.evtx",
+      "count": 1
+    },
+    {
+      "filename": "BR-DELL.zip/C/Windows/System32/winevt/Logs/System.evtx",
+      "count": 1
+    },
+    {
+      "filename": "CA4K.zip/C/Windows/System32/winevt/Logs/Application.evtx",
+      "count": 1
+    },
+    {
+      "filename": "CA4K.zip/C/Windows/System32/winevt/Logs/Security.evtx",
+      "count": 1
+    },
+    {
+      "filename": "CA4K.zip/C/Windows/System32/winevt/Logs/System.evtx",
+      "count": 1
+    },
+    {
+      "filename": "CAMDC.zip/C/Windows/System32/winevt/Logs/Application.evtx",
+      "count": 1
+    },
+    {
+      "filename": "CAMDC.zip/C/Windows/System32/winevt/Logs/Security.evtx",
+      "count": 1
+    },
+    {
+      "filename": "CAMDC.zip/C/Windows/System32/winevt/Logs/System.evtx",
+      "count": 1
+    },
+    {
+      "filename": "CAMRDG.zip/C/Windows/System32/winevt/Logs/Application.evtx",
+      "count": 1
+    },
+    {
+      "filename": "CAMRDG.zip/C/Windows/System32/winevt/Logs/Security.evtx",
+      "count": 1
+    },
+    {
+      "filename": "CAMRDG.zip/C/Windows/System32/winevt/Logs/System.evtx",
+      "count": 1
+    },
+    {
+      "filename": "CAMRDS.zip/C/Windows/System32/winevt/Logs/Application.evtx",
+      "count": 1
+    },
+    {
+      "filename": "CAMRDS.zip/C/Windows/System32/winevt/Logs/Security.evtx",
+      "count": 1
+    },
+    {
+      "filename": "CAMRDS.zip/C/Windows/System32/winevt/Logs/System.evtx",
+      "count": 1
+    },
+    {
+      "filename": "CANHH-PC.zip/C/Windows/System32/winevt/Logs/Application.evtx",
+      "count": 1
+    },
+    {
+      "filename": "CANHH-PC.zip/C/Windows/System32/winevt/Logs/Security.evtx",
+      "count": 1
+    },
+    {
+      "filename": "CANHH-PC.zip/C/Windows/System32/winevt/Logs/System.evtx",
+      "count": 1
+    },
+    {
+      "filename": "CAROLYND-PC.zip/C/Windows/System32/winevt/Logs/Application.evtx",
+      "count": 1
+    },
+    {
+      "filename": "CCASTOR.zip/C/Windows/System32/winevt/Logs/Application.evtx",
+      "count": 1
+    },
+    {
+      "filename": "CCASTOR.zip/C/Windows/System32/winevt/Logs/Security.evtx",
+      "count": 1
+    },
+    {
+      "filename": "CCASTOR.zip/C/Windows/System32/winevt/Logs/System.evtx",
+      "count": 1
+    },
+    {
+      "filename": "CM-APP01.zip/C/Windows/System32/winevt/Logs/Application.evtx",
+      "count": 1
+    },
+    {
+      "filename": "CM-APP01.zip/C/Windows/System32/winevt/Logs/Security.evtx",
+      "count": 1
+    },
+    {
+      "filename": "CM-APP01.zip/C/Windows/System32/winevt/Logs/System.evtx",
+      "count": 1
+    },
+    {
+      "filename": "CM-VMHOST.zip/C/Windows/System32/winevt/Logs/Application.evtx",
+      "count": 1
+    },
+    {
+      "filename": "CM-VMHOST.zip/C/Windows/System32/winevt/Logs/Security.evtx",
+      "count": 1
+    },
+    {
+      "filename": "CM-VMHOST.zip/C/Windows/System32/winevt/Logs/System.evtx",
+      "count": 1
+    },
+    {
+      "filename": "COLLEENH-PC.zip/C/Windows/System32/winevt/Logs/Application.evtx",
+      "count": 1
+    },
+    {
+      "filename": "COLLEENH-PC.zip/C/Windows/System32/winevt/Logs/Security.evtx",
+      "count": 1
+    },
+    {
+      "filename": "COLLEENH-PC.zip/C/Windows/System32/winevt/Logs/System.evtx",
+      "count": 1
+    },
+    {
+      "filename": "CSCI-DC.zip/C/Windows/System32/winevt/Logs/Application.evtx",
+      "count": 1
+    },
+    {
+      "filename": "CSCI-DC.zip/C/Windows/System32/winevt/Logs/Security.evtx",
+      "count": 1
+    },
+    {
+      "filename": "CSCI-DC.zip/C/Windows/System32/winevt/Logs/System.evtx",
+      "count": 1
+    },
+    {
+      "filename": "DDS-17210090.zip/C/Windows/System32/winevt/Logs/Application.evtx",
+      "count": 1
+    },
+    {
+      "filename": "DDS-17210090.zip/C/Windows/System32/winevt/Logs/Security.evtx",
+      "count": 1
+    },
+    {
+      "filename": "DDS-17210090.zip/C/Windows/System32/winevt/Logs/System.evtx",
+      "count": 1
+    },
+    {
+      "filename": "DELL1-PC.zip/C/Windows/System32/winevt/Logs/Application.evtx",
+      "count": 1
+    },
+    {
+      "filename": "DEPCO-DC01.zip/C/Windows/System32/winevt/Logs/Application.evtx",
+      "count": 1
+    },
+    {
+      "filename": "DEPCO-DC01.zip/C/Windows/System32/winevt/Logs/Security.evtx",
+      "count": 1
+    },
+    {
+      "filename": "DEPCO-DC01.zip/C/Windows/System32/winevt/Logs/System.evtx",
+      "count": 1
+    },
+    {
+      "filename": "DEPCO-VMHOST.zip/C/Windows/System32/winevt/Logs/Application.evtx",
+      "count": 1
+    },
+    {
+      "filename": "DEPCO-VMHOST.zip/C/Windows/System32/winevt/Logs/Security.evtx",
+      "count": 1
+    },
+    {
+      "filename": "DEPCO-VMHOST.zip/C/Windows/System32/winevt/Logs/System.evtx",
+      "count": 1
+    },
+    {
+      "filename": "DESKTOP-JK2019.zip/C/Windows/System32/winevt/Logs/Application.evtx",
+      "count": 1
+    },
+    {
+      "filename": "DESKTOP-JK2019.zip/C/Windows/System32/winevt/Logs/Security.evtx",
+      "count": 1
+    },
+    {
+      "filename": "DESKTOP-JK2019.zip/C/Windows/System32/winevt/Logs/System.evtx",
+      "count": 1
+    },
+    {
+      "filename": "DESKTOP-P86DFTL.zip/C/Windows/System32/winevt/Logs/Application.evtx",
+      "count": 1
+    },
+    {
+      "filename": "DESKTOP-P86DFTL.zip/C/Windows/System32/winevt/Logs/Security.evtx",
+      "count": 1
+    },
+    {
+      "filename": "DESKTOP-P86DFTL.zip/C/Windows/System32/winevt/Logs/System.evtx",
+      "count": 1
+    },
+    {
+      "filename": "DT-SC-0001.zip/C/Windows/System32/winevt/Logs/Application.evtx",
+      "count": 1
+    },
+    {
+      "filename": "DT-SC-0001.zip/C/Windows/System32/winevt/Logs/Security.evtx",
+      "count": 1
+    },
+    {
+      "filename": "DT-SC-0001.zip/C/Windows/System32/winevt/Logs/System.evtx",
+      "count": 1
+    },
+    {
+      "filename": "FRIAR-APPS.zip/C/Windows/System32/winevt/Logs/Application.evtx",
+      "count": 1
+    },
+    {
+      "filename": "FRIAR-APPS.zip/C/Windows/System32/winevt/Logs/Security.evtx",
+      "count": 1
+    },
+    {
+      "filename": "FRIAR-APPS.zip/C/Windows/System32/winevt/Logs/System.evtx",
+      "count": 1
+    },
+    {
+      "filename": "FRIAR-DC01.zip/C/Windows/System32/winevt/Logs/Application.evtx",
+      "count": 1
+    },
+    {
+      "filename": "FRIAR-DC01.zip/C/Windows/System32/winevt/Logs/Security.evtx",
+      "count": 1
+    },
+    {
+      "filename": "FRIAR-DC01.zip/C/Windows/System32/winevt/Logs/System.evtx",
+      "count": 1
+    },
+    {
+      "filename": "FRIAR-VMHOST.zip/C/Windows/System32/winevt/Logs/Application.evtx",
+      "count": 1
+    },
+    {
+      "filename": "FRIAR-VMHOST.zip/C/Windows/System32/winevt/Logs/Security.evtx",
+      "count": 1
+    },
+    {
+      "filename": "FRIAR-VMHOST.zip/C/Windows/System32/winevt/Logs/System.evtx",
+      "count": 1
+    },
+    {
+      "filename": "HEATLOSS.zip/C/Windows/System32/winevt/Logs/Application.evtx",
+      "count": 1
+    },
+    {
+      "filename": "HEATLOSS.zip/C/Windows/System32/winevt/Logs/Security.evtx",
+      "count": 1
+    },
+    {
+      "filename": "HEATLOSS.zip/C/Windows/System32/winevt/Logs/System.evtx",
+      "count": 1
+    },
+    {
+      "filename": "HENRYG-PC.zip/C/Windows/System32/winevt/Logs/Application.evtx",
+      "count": 1
+    },
+    {
+      "filename": "HENRYG-PC.zip/C/Windows/System32/winevt/Logs/Security.evtx",
+      "count": 1
+    },
+    {
+      "filename": "HENRYG-PC.zip/C/Windows/System32/winevt/Logs/System.evtx",
+      "count": 1
+    },
+    {
+      "filename": "HOBBYTYMESALES.zip/C/Windows/System32/winevt/Logs/Application.evtx",
+      "count": 1
+    },
+    {
+      "filename": "HOBBYTYMESALES.zip/C/Windows/System32/winevt/Logs/Security.evtx",
+      "count": 1
+    },
+    {
+      "filename": "HOBBYTYMESALES.zip/C/Windows/System32/winevt/Logs/System.evtx",
+      "count": 1
+    },
+    {
+      "filename": "JB-02-PC.zip/C/Windows/System32/winevt/Logs/Application.evtx",
+      "count": 1
+    },
+    {
+      "filename": "KEITHW-PC.zip/C/Windows/System32/winevt/Logs/Application.evtx",
+      "count": 1
+    },
+    {
+      "filename": "LAPTOP-A00AEIGT.zip/C/Windows/System32/winevt/Logs/Application.evtx",
+      "count": 1
+    },
+    {
+      "filename": "LAPTOP-A00AEIGT.zip/C/Windows/System32/winevt/Logs/Security.evtx",
+      "count": 1
+    },
+    {
+      "filename": "LAPTOP-A00AEIGT.zip/C/Windows/System32/winevt/Logs/System.evtx",
+      "count": 1
+    },
+    {
+      "filename": "LAPTOP-LVSSD6KH.zip/C/Windows/System32/winevt/Logs/Application.evtx",
+      "count": 1
+    },
+    {
+      "filename": "LAPTOP-LVSSD6KH.zip/C/Windows/System32/winevt/Logs/Security.evtx",
+      "count": 1
+    },
+    {
+      "filename": "LAPTOP-LVSSD6KH.zip/C/Windows/System32/winevt/Logs/System.evtx",
+      "count": 1
+    },
+    {
+      "filename": "LCI-CS1-PC.zip/C/Windows/System32/winevt/Logs/Application.evtx",
+      "count": 1
+    },
+    {
+      "filename": "LCI-CS3-PC.zip/C/Windows/System32/winevt/Logs/Application.evtx",
+      "count": 1
+    },
+    {
+      "filename": "LCI-CS3-PC.zip/C/Windows/System32/winevt/Logs/Security.evtx",
+      "count": 1
+    },
+    {
+      "filename": "LCI-CS3-PC.zip/C/Windows/System32/winevt/Logs/System.evtx",
+      "count": 1
+    },
+    {
+      "filename": "LCI-DC3.zip/C/Windows/System32/winevt/Logs/Application.evtx",
+      "count": 1
+    },
+    {
+      "filename": "LCI-DC3.zip/C/Windows/System32/winevt/Logs/Security.evtx",
+      "count": 1
+    },
+    {
+      "filename": "LCI-DC3.zip/C/Windows/System32/winevt/Logs/System.evtx",
+      "count": 1
+    },
+    {
+      "filename": "LCI-FS1.zip/C/Windows/System32/winevt/Logs/Application.evtx",
+      "count": 1
+    },
+    {
+      "filename": "LCI-FS1.zip/C/Windows/System32/winevt/Logs/Security.evtx",
+      "count": 1
+    },
+    {
+      "filename": "LCI-FS1.zip/C/Windows/System32/winevt/Logs/System.evtx",
+      "count": 1
+    },
+    {
+      "filename": "LCI-IT01-PC.zip/C/Windows/System32/winevt/Logs/Application.evtx",
+      "count": 1
+    },
+    {
+      "filename": "LCI-IT01-PC.zip/C/Windows/System32/winevt/Logs/Security.evtx",
+      "count": 1
+    },
+    {
+      "filename": "LCI-IT01-PC.zip/C/Windows/System32/winevt/Logs/System.evtx",
+      "count": 1
+    },
+    {
+      "filename": "LCI-RDS2.zip/C/Windows/System32/winevt/Logs/Application.evtx",
+      "count": 1
+    },
+    {
+      "filename": "LCI-RDS2.zip/C/Windows/System32/winevt/Logs/Security.evtx",
+      "count": 1
+    },
+    {
+      "filename": "LCI-RDS2.zip/C/Windows/System32/winevt/Logs/System.evtx",
+      "count": 1
+    },
+    {
+      "filename": "LCI-SQL1.zip/C/Windows/System32/winevt/Logs/Application.evtx",
+      "count": 1
+    },
+    {
+      "filename": "LCI-SQL1.zip/C/Windows/System32/winevt/Logs/Security.evtx",
+      "count": 1
+    },
+    {
+      "filename": "LCI-SQL1.zip/C/Windows/System32/winevt/Logs/System.evtx",
+      "count": 1
+    },
+    {
+      "filename": "LCI-VMHOST.zip/C/Windows/System32/winevt/Logs/Application.evtx",
+      "count": 1
+    },
+    {
+      "filename": "LCI-VMHOST.zip/C/Windows/System32/winevt/Logs/Security.evtx",
+      "count": 1
+    },
+    {
+      "filename": "LCI-VMHOST.zip/C/Windows/System32/winevt/Logs/System.evtx",
+      "count": 1
+    },
+    {
+      "filename": "LSG-120.zip/C/Windows/System32/winevt/Logs/Application.evtx",
+      "count": 1
+    },
+    {
+      "filename": "LSG-120.zip/C/Windows/System32/winevt/Logs/Security.evtx",
+      "count": 1
+    },
+    {
+      "filename": "LSG-120.zip/C/Windows/System32/winevt/Logs/System.evtx",
+      "count": 1
+    },
+    {
+      "filename": "LSG-121.zip/C/Windows/System32/winevt/Logs/Application.evtx",
+      "count": 1
+    },
+    {
+      "filename": "LSG-121.zip/C/Windows/System32/winevt/Logs/Security.evtx",
+      "count": 1
+    },
+    {
+      "filename": "LSG-121.zip/C/Windows/System32/winevt/Logs/System.evtx",
+      "count": 1
+    },
+    {
+      "filename": "LSG-122.zip/C/Windows/System32/winevt/Logs/Application.evtx",
+      "count": 1
+    },
+    {
+      "filename": "LSG-122.zip/C/Windows/System32/winevt/Logs/Security.evtx",
+      "count": 1
+    },
+    {
+      "filename": "LSG-122.zip/C/Windows/System32/winevt/Logs/System.evtx",
+      "count": 1
+    },
+    {
+      "filename": "LSG-141.zip/C/Windows/System32/winevt/Logs/Application.evtx",
+      "count": 1
+    },
+    {
+      "filename": "LSG-141.zip/C/Windows/System32/winevt/Logs/Security.evtx",
+      "count": 1
+    },
+    {
+      "filename": "LSG-141.zip/C/Windows/System32/winevt/Logs/System.evtx",
+      "count": 1
+    },
+    {
+      "filename": "LSG-143.zip/C/Windows/System32/winevt/Logs/Application.evtx",
+      "count": 1
+    },
+    {
+      "filename": "LSG-143.zip/C/Windows/System32/winevt/Logs/Security.evtx",
+      "count": 1
+    },
+    {
+      "filename": "LSG-143.zip/C/Windows/System32/winevt/Logs/System.evtx",
+      "count": 1
+    },
+    {
+      "filename": "LSG-148.zip/C/Windows/System32/winevt/Logs/Application.evtx",
+      "count": 1
+    },
+    {
+      "filename": "LSG-148.zip/C/Windows/System32/winevt/Logs/Security.evtx",
+      "count": 1
+    },
+    {
+      "filename": "LSG-148.zip/C/Windows/System32/winevt/Logs/System.evtx",
+      "count": 1
+    },
+    {
+      "filename": "LSG-149.zip/C/Windows/System32/winevt/Logs/Application.evtx",
+      "count": 1
+    },
+    {
+      "filename": "LSG-149.zip/C/Windows/System32/winevt/Logs/Security.evtx",
+      "count": 1
+    },
+    {
+      "filename": "LSG-149.zip/C/Windows/System32/winevt/Logs/System.evtx",
+      "count": 1
+    },
+    {
+      "filename": "LSG-150X.zip/C/Windows/System32/winevt/Logs/Application.evtx",
+      "count": 1
+    },
+    {
+      "filename": "LSG-150X.zip/C/Windows/System32/winevt/Logs/Security.evtx",
+      "count": 1
+    },
+    {
+      "filename": "LSG-150X.zip/C/Windows/System32/winevt/Logs/System.evtx",
+      "count": 1
+    },
+    {
+      "filename": "LSG-152.zip/C/Windows/System32/winevt/Logs/Application.evtx",
+      "count": 1
+    },
+    {
+      "filename": "LSG-152.zip/C/Windows/System32/winevt/Logs/Security.evtx",
+      "count": 1
+    },
+    {
+      "filename": "LSG-152.zip/C/Windows/System32/winevt/Logs/System.evtx",
+      "count": 1
+    },
+    {
+      "filename": "LSG-155.zip/C/Windows/System32/winevt/Logs/Application.evtx",
+      "count": 1
+    },
+    {
+      "filename": "LSG-155.zip/C/Windows/System32/winevt/Logs/Security.evtx",
+      "count": 1
+    },
+    {
+      "filename": "LSG-155.zip/C/Windows/System32/winevt/Logs/System.evtx",
+      "count": 1
+    },
+    {
+      "filename": "LSG-156.zip/C/Windows/System32/winevt/Logs/Application.evtx",
+      "count": 1
+    },
+    {
+      "filename": "LSG-156.zip/C/Windows/System32/winevt/Logs/Security.evtx",
+      "count": 1
+    },
+    {
+      "filename": "LSG-156.zip/C/Windows/System32/winevt/Logs/System.evtx",
+      "count": 1
+    },
+    {
+      "filename": "LSG-165.zip/C/Windows/System32/winevt/Logs/Application.evtx",
+      "count": 1
+    },
+    {
+      "filename": "LSG-165.zip/C/Windows/System32/winevt/Logs/Security.evtx",
+      "count": 1
+    },
+    {
+      "filename": "LSG-165.zip/C/Windows/System32/winevt/Logs/System.evtx",
+      "count": 1
+    },
+    {
+      "filename": "LSG-DC01.zip/C/Windows/System32/winevt/Logs/Application.evtx",
+      "count": 1
+    },
+    {
+      "filename": "LSG-DC01.zip/C/Windows/System32/winevt/Logs/Security.evtx",
+      "count": 1
+    },
+    {
+      "filename": "LSG-DC01.zip/C/Windows/System32/winevt/Logs/System.evtx",
+      "count": 1
+    },
+    {
+      "filename": "LSG-EXCH01.zip/C/Windows/System32/winevt/Logs/Application.evtx",
+      "count": 1
+    },
+    {
+      "filename": "LSG-EXCH01.zip/C/Windows/System32/winevt/Logs/Security.evtx",
+      "count": 1
+    },
+    {
+      "filename": "LSG-EXCH01.zip/C/Windows/System32/winevt/Logs/System.evtx",
+      "count": 1
+    },
+    {
+      "filename": "LSG-RDS01.zip/C/Windows/System32/winevt/Logs/Application.evtx",
+      "count": 1
+    },
+    {
+      "filename": "LSG-RDS01.zip/C/Windows/System32/winevt/Logs/Security.evtx",
+      "count": 1
+    },
+    {
+      "filename": "LSG-RDS01.zip/C/Windows/System32/winevt/Logs/System.evtx",
+      "count": 1
+    },
+    {
+      "filename": "LSG-SQL01.zip/C/Windows/System32/winevt/Logs/Application.evtx",
+      "count": 1
+    },
+    {
+      "filename": "LSG-SQL01.zip/C/Windows/System32/winevt/Logs/Security.evtx",
+      "count": 1
+    },
+    {
+      "filename": "LSG-SQL01.zip/C/Windows/System32/winevt/Logs/System.evtx",
+      "count": 1
+    },
+    {
+      "filename": "LSG-VMHOST01.zip/C/Windows/System32/winevt/Logs/Application.evtx",
+      "count": 1
+    },
+    {
+      "filename": "LSG-VMHOST01.zip/C/Windows/System32/winevt/Logs/Security.evtx",
+      "count": 1
+    },
+    {
+      "filename": "LSG-VMHOST01.zip/C/Windows/System32/winevt/Logs/System.evtx",
+      "count": 1
+    },
+    {
+      "filename": "MARC5124.zip/C/Windows/System32/winevt/Logs/Application.evtx",
+      "count": 1
+    },
+    {
+      "filename": "MARC5124.zip/C/Windows/System32/winevt/Logs/Security.evtx",
+      "count": 1
+    },
+    {
+      "filename": "MARC5124.zip/C/Windows/System32/winevt/Logs/System.evtx",
+      "count": 1
+    },
+    {
+      "filename": "MARKA-PC.zip/C/Windows/System32/winevt/Logs/Application.evtx",
+      "count": 1
+    },
+    {
+      "filename": "MIKE-UPSTAIRS.zip/C/Windows/System32/winevt/Logs/Application.evtx",
+      "count": 1
+    },
+    {
+      "filename": "MIKE-UPSTAIRS.zip/C/Windows/System32/winevt/Logs/Security.evtx",
+      "count": 1
+    },
+    {
+      "filename": "MIKE-UPSTAIRS.zip/C/Windows/System32/winevt/Logs/System.evtx",
+      "count": 1
+    },
+    {
+      "filename": "PATG-PC.zip/C/Windows/System32/winevt/Logs/Application.evtx",
+      "count": 1
+    },
+    {
+      "filename": "PATG-PC.zip/C/Windows/System32/winevt/Logs/Security.evtx",
+      "count": 1
+    },
+    {
+      "filename": "PROCESSING10-PC.zip/C/Windows/System32/winevt/Logs/Application.evtx",
+      "count": 1
+    },
+    {
+      "filename": "PROCESSING2-PC.zip/C/Windows/System32/winevt/Logs/Application.evtx",
+      "count": 1
+    },
+    {
+      "filename": "PROCESSING2-PC.zip/C/Windows/System32/winevt/Logs/Security.evtx",
+      "count": 1
+    },
+    {
+      "filename": "PROCESSING2-PC.zip/C/Windows/System32/winevt/Logs/System.evtx",
+      "count": 1
+    },
+    {
+      "filename": "PROCESSING3-PC.zip/C/Windows/System32/winevt/Logs/Application.evtx",
+      "count": 1
+    },
+    {
+      "filename": "PROCESSING5-PC.zip/C/Windows/System32/winevt/Logs/Application.evtx",
+      "count": 1
+    },
+    {
+      "filename": "PROCESSING5-PC.zip/C/Windows/System32/winevt/Logs/Security.evtx",
+      "count": 1
+    },
+    {
+      "filename": "PROCESSING5-PC.zip/C/Windows/System32/winevt/Logs/System.evtx",
+      "count": 1
+    },
+    {
+      "filename": "PROCESSING6-PC.zip/C/Windows/System32/winevt/Logs/Application.evtx",
+      "count": 1
+    },
+    {
+      "filename": "PROCESSING6-PC.zip/C/Windows/System32/winevt/Logs/Security.evtx",
+      "count": 1
+    },
+    {
+      "filename": "PROCESSING6-PC.zip/C/Windows/System32/winevt/Logs/System.evtx",
+      "count": 1
+    },
+    {
+      "filename": "PROCESSING8-PC.zip/C/Windows/System32/winevt/Logs/Application.evtx",
+      "count": 1
+    },
+    {
+      "filename": "PROCESSING8-PC.zip/C/Windows/System32/winevt/Logs/Security.evtx",
+      "count": 1
+    },
+    {
+      "filename": "PROCESSING8-PC.zip/C/Windows/System32/winevt/Logs/System.evtx",
+      "count": 1
+    },
+    {
+      "filename": "PROCESSING9-PC.zip/C/Windows/System32/winevt/Logs/Application.evtx",
+      "count": 1
+    },
+    {
+      "filename": "PROCESSING9-PC.zip/C/Windows/System32/winevt/Logs/Security.evtx",
+      "count": 1
+    },
+    {
+      "filename": "PROCESSING9-PC.zip/C/Windows/System32/winevt/Logs/System.evtx",
+      "count": 1
+    },
+    {
+      "filename": "PROJM1-PC.zip/C/Windows/System32/winevt/Logs/Application.evtx",
+      "count": 1
+    },
+    {
+      "filename": "PROJM1-PC.zip/C/Windows/System32/winevt/Logs/Security.evtx",
+      "count": 1
+    },
+    {
+      "filename": "PROJM1-PC.zip/C/Windows/System32/winevt/Logs/System.evtx",
+      "count": 1
+    },
+    {
+      "filename": "QUALITYPC2.zip/C/Windows/System32/winevt/Logs/Application.evtx",
+      "count": 1
+    },
+    {
+      "filename": "QUALITYPC2.zip/C/Windows/System32/winevt/Logs/Security.evtx",
+      "count": 1
+    },
+    {
+      "filename": "QUALITYPC2.zip/C/Windows/System32/winevt/Logs/System.evtx",
+      "count": 1
+    },
+    {
+      "filename": "ROSEN-PC.zip/C/Windows/System32/winevt/Logs/Application.evtx",
+      "count": 1
+    },
+    {
+      "filename": "ROSEN-PC.zip/C/Windows/System32/winevt/Logs/Security.evtx",
+      "count": 1
+    },
+    {
+      "filename": "ROSEN-PC.zip/C/Windows/System32/winevt/Logs/System.evtx",
+      "count": 1
+    }
+  ],
+  "clickhouse_exact_source_path_matches": [
+    {
+      "path": "/opt/casescope-benchmark/phase0a_evtx/Application.evtx",
+      "events_source_path_or_file_count": 0
+    },
+    {
+      "path": "/opt/casescope-benchmark/phase0a_evtx/Microsoft-Windows-PowerShell-Operational.evtx",
+      "events_source_path_or_file_count": 0
+    },
+    {
+      "path": "/opt/casescope-benchmark/phase0a_evtx/Microsoft-Windows-TaskScheduler-Operational.evtx",
+      "events_source_path_or_file_count": 0
+    },
+    {
+      "path": "/opt/casescope-benchmark/phase0a_evtx/Microsoft-Windows-TerminalServices-LocalSessionManager.evtx",
+      "events_source_path_or_file_count": 0
+    },
+    {
+      "path": "/opt/casescope-benchmark/phase0a_evtx/Microsoft-Windows-WMI-Activity-Operational.evtx",
+      "events_source_path_or_file_count": 0
+    },
+    {
+      "path": "/opt/casescope-benchmark/phase0a_evtx/Microsoft-Windows-Windows-Defender-Operational.evtx",
+      "events_source_path_or_file_count": 0
+    },
+    {
+      "path": "/opt/casescope-benchmark/phase0a_evtx/Security.evtx",
+      "events_source_path_or_file_count": 0
+    },
+    {
+      "path": "/opt/casescope-benchmark/phase0a_evtx/System.evtx",
+      "events_source_path_or_file_count": 0
+    }
+  ],
+  "clickhouse_exact_source_match_count": 0
+}

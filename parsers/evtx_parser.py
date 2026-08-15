@@ -15,18 +15,63 @@ References:
 """
 import os
 import json
+import shutil
 import subprocess
 import tempfile
 import logging
 import re
+import time
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
-from typing import Generator, Dict, List, Any, Optional, Tuple
+from typing import Generator, Dict, List, Any, Optional, Sequence, Tuple
 from pathlib import Path
 
 from parsers.base import BaseParser, ParsedEvent, ParseResult
+from utils.ingest_metrics import emit_metric, timed_stage
+from utils.evtx_directory_mode import lookup_hayabusa_detections
+
+try:
+    import orjson
+except ImportError:  # pragma: no cover - orjson is a required ingest dependency
+    orjson = None
 
 logger = logging.getLogger(__name__)
+
+
+def _evtx_json_loads(raw: Any) -> Any:
+    """Decode EVTX JSONL / Payload JSON using orjson with stdlib fallback.
+
+    orjson differences handled here:
+    - accepts str or bytes; JSON object keys remain str
+    - does not coerce ISO timestamps into datetime
+    - rejects NaN/Infinity; stdlib json.loads is used as a compatibility fallback
+    - JSONDecodeError is not a subclass of json.JSONDecodeError, so callers
+      continue to catch json.JSONDecodeError after normalization
+    """
+    if isinstance(raw, (dict, list)):
+        return raw
+    if raw is None:
+        raise json.JSONDecodeError('Expected JSON value', '', 0)
+    if isinstance(raw, bytes):
+        payload = raw
+        text = None
+    else:
+        text = str(raw)
+        payload = text
+    if orjson is not None:
+        try:
+            return orjson.loads(payload)
+        except orjson.JSONDecodeError as exc:
+            if text is None:
+                try:
+                    text = payload.decode('utf-8')
+                except Exception:
+                    raise json.JSONDecodeError(str(exc), '', 0) from exc
+            try:
+                return json.loads(text)
+            except json.JSONDecodeError:
+                raise json.JSONDecodeError(str(exc), text[:80], 0) from exc
+    return json.loads(text if text is not None else payload.decode('utf-8'))
 
 
 def _flatten_evtx_named_fields(container: Any) -> Dict[str, Any]:
@@ -101,6 +146,7 @@ class EvtxECmdParser(BaseParser):
     EVTXECMD_MAPS = '/opt/casescope/bin/EvtxECmd/EvtxeCmd/Maps'
     HAYABUSA_BIN = '/opt/casescope/bin/hayabusa'
     HAYABUSA_RULES = '/opt/casescope/rules/hayabusa-rules'
+    HAYABUSA_RULES_CONFIG = '/opt/casescope/rules/config'
     HAYABUSA_PROFILE = 'all-field-info-verbose'
     
     # Level mapping for Hayabusa detections
@@ -160,6 +206,7 @@ class EvtxECmdParser(BaseParser):
         self.maps_dir = maps_dir or self.EVTXECMD_MAPS
         self.hayabusa_bin = hayabusa_bin or self.HAYABUSA_BIN
         self.rules_dir = rules_dir or self.HAYABUSA_RULES
+        self.rules_config_dir = self.HAYABUSA_RULES_CONFIG
         self.hayabusa_profile = hayabusa_profile or self.HAYABUSA_PROFILE
         self.enrich_detections = enrich_detections
         
@@ -179,6 +226,9 @@ class EvtxECmdParser(BaseParser):
             logger.info("Hayabusa available for detection enrichment")
         else:
             logger.info("Hayabusa not available, detection enrichment disabled")
+        self._evtx_payload_decode_ms = 0.0
+        self._evtx_normalization_ms = 0.0
+        self._evtx_search_blob_ms = 0.0
     
     @property
     def artifact_type(self) -> str:
@@ -202,6 +252,15 @@ class EvtxECmdParser(BaseParser):
         normalized = str(value or "").strip()
         if normalized and normalized not in values:
             values.append(normalized)
+
+    def _ensure_phase0a_metric_counters(self) -> None:
+        """Initialize Phase 0A counters for tests that bypass __init__."""
+        if not hasattr(self, '_evtx_payload_decode_ms'):
+            self._evtx_payload_decode_ms = 0.0
+        if not hasattr(self, '_evtx_normalization_ms'):
+            self._evtx_normalization_ms = 0.0
+        if not hasattr(self, '_evtx_search_blob_ms'):
+            self._evtx_search_blob_ms = 0.0
     
     def can_parse(self, file_path: str) -> bool:
         """Check if file is an EVTX file"""
@@ -309,12 +368,13 @@ class EvtxECmdParser(BaseParser):
         
         logger.info(f"Running EvtxECmd (parallel): {' '.join(cmd)}")
         
-        result = subprocess.run(
-            cmd,
-            capture_output=True,
-            text=True,
-            timeout=3600,
-        )
+        with timed_stage("evtxecmd_process", case_id=self.case_id, case_file_id=self.case_file_id):
+            result = subprocess.run(
+                cmd,
+                capture_output=True,
+                text=True,
+                timeout=3600,
+            )
         
         if result.returncode != 0:
             error_msg = result.stderr or result.stdout or 'Unknown error'
@@ -328,14 +388,20 @@ class EvtxECmdParser(BaseParser):
     def _process_evtxecmd_output(self, output_path: str, file_path: str,
                                   source_file: str, detections: Dict) -> Generator[ParsedEvent, None, None]:
         """Process EvtxECmd JSON output file and yield ParsedEvents"""
+        rows_consumed = 0
+        outer_json_decode_ms = 0.0
+        started = time.perf_counter()
         with open(output_path, 'r', encoding='utf-8-sig', errors='replace') as f:
             for line_num, line in enumerate(f, 1):
                 line = line.strip()
                 if not line:
                     continue
+                rows_consumed += 1
                 
                 try:
-                    event = json.loads(line)
+                    decode_started = time.perf_counter()
+                    event = _evtx_json_loads(line)
+                    outer_json_decode_ms += (time.perf_counter() - decode_started) * 1000.0
                     parsed_event = self._transform_evtxecmd_event(
                         event, file_path, source_file, detections
                     )
@@ -345,6 +411,17 @@ class EvtxECmdParser(BaseParser):
                     self.warnings.append(f"JSON error line {line_num}: {e}")
                 except Exception as e:
                     self.warnings.append(f"Error processing line {line_num}: {e}")
+        emit_metric(
+            "evtx_jsonl_consume",
+            case_id=self.case_id,
+            case_file_id=self.case_file_id,
+            jsonl_rows_consumed=rows_consumed,
+            duration_ms=(time.perf_counter() - started) * 1000.0,
+            outer_json_decode_ms=outer_json_decode_ms,
+            nested_payload_json_decode_ms=self._evtx_payload_decode_ms,
+            normalization_ms=self._evtx_normalization_ms,
+            search_blob_construction_ms=self._evtx_search_blob_ms,
+        )
     
     def _get_hayabusa_detections(self, file_path: str) -> Dict[str, List[Dict[str, Any]]]:
         """Run Hayabusa and index detections by RecordID for enrichment
@@ -377,22 +454,28 @@ class EvtxECmdParser(BaseParser):
             
             logger.info(f"Running Hayabusa for detection enrichment...")
             
-            result = subprocess.run(
-                cmd,
-                capture_output=True,
-                text=True,
-                timeout=3600
-            )
+            with timed_stage("hayabusa_process", case_id=self.case_id, case_file_id=self.case_file_id):
+                result = subprocess.run(
+                    cmd,
+                    capture_output=True,
+                    text=True,
+                    timeout=3600
+                )
             
             # Hayabusa may return non-zero even on success with no matches
             if os.path.exists(output_path) and os.path.getsize(output_path) > 0:
+                rows_consumed = 0
+                outer_json_decode_ms = 0.0
                 with open(output_path, 'r', encoding='utf-8', errors='replace') as f:
                     for line in f:
                         line = line.strip()
                         if not line:
                             continue
+                        rows_consumed += 1
                         try:
-                            event = json.loads(line)
+                            decode_started = time.perf_counter()
+                            event = _evtx_json_loads(line)
+                            outer_json_decode_ms += (time.perf_counter() - decode_started) * 1000.0
                             # Key by RecordID only for correlation
                             # (Hayabusa abbreviates channel names: Security->Sec, etc.)
                             record_id = event.get('RecordID')
@@ -419,6 +502,14 @@ class EvtxECmdParser(BaseParser):
                                 })
                         except json.JSONDecodeError:
                             pass
+                emit_metric(
+                    "hayabusa_jsonl_consume",
+                    case_id=self.case_id,
+                    case_file_id=self.case_file_id,
+                    jsonl_rows_consumed=rows_consumed,
+                    outer_json_decode_ms=outer_json_decode_ms,
+                    detection_count=sum(len(items) for items in detections.values()),
+                )
             elif result.returncode != 0 and result.stderr:
                 self.warnings.append(f"Hayabusa error: {result.stderr[:500]}")
             else:
@@ -457,12 +548,13 @@ class EvtxECmdParser(BaseParser):
             logger.info(f"Running EvtxECmd: {' '.join(cmd)}")
             
             try:
-                result = subprocess.run(
-                    cmd,
-                    capture_output=True,
-                    text=True,
-                    timeout=3600,
-                )
+                with timed_stage("evtxecmd_process", case_id=self.case_id, case_file_id=self.case_file_id):
+                    result = subprocess.run(
+                        cmd,
+                        capture_output=True,
+                        text=True,
+                        timeout=3600,
+                    )
                 
                 if result.returncode != 0:
                     error_msg = result.stderr or result.stdout or 'Unknown error'
@@ -476,14 +568,20 @@ class EvtxECmdParser(BaseParser):
                     return
                 
                 # Handle UTF-8 BOM that EvtxECmd adds
+                rows_consumed = 0
+                outer_json_decode_ms = 0.0
+                started = time.perf_counter()
                 with open(output_path, 'r', encoding='utf-8-sig', errors='replace') as f:
                     for line_num, line in enumerate(f, 1):
                         line = line.strip()
                         if not line:
                             continue
+                        rows_consumed += 1
                         
                         try:
-                            event = json.loads(line)
+                            decode_started = time.perf_counter()
+                            event = _evtx_json_loads(line)
+                            outer_json_decode_ms += (time.perf_counter() - decode_started) * 1000.0
                             parsed_event = self._transform_evtxecmd_event(
                                 event, file_path, source_file, detections
                             )
@@ -493,6 +591,17 @@ class EvtxECmdParser(BaseParser):
                             self.warnings.append(f"JSON error line {line_num}: {e}")
                         except Exception as e:
                             self.warnings.append(f"Error processing line {line_num}: {e}")
+                emit_metric(
+                    "evtx_jsonl_consume",
+                    case_id=self.case_id,
+                    case_file_id=self.case_file_id,
+                    jsonl_rows_consumed=rows_consumed,
+                    duration_ms=(time.perf_counter() - started) * 1000.0,
+                    outer_json_decode_ms=outer_json_decode_ms,
+                    nested_payload_json_decode_ms=self._evtx_payload_decode_ms,
+                    normalization_ms=self._evtx_normalization_ms,
+                    search_blob_construction_ms=self._evtx_search_blob_ms,
+                )
                             
             except subprocess.TimeoutExpired:
                 self.errors.append("EvtxECmd timed out after 1 hour")
@@ -500,8 +609,240 @@ class EvtxECmdParser(BaseParser):
                 self.errors.append(f"EvtxECmd execution error: {e}")
                 logger.exception(f"EvtxECmd error: {e}")
     
+    def parse_directory_group(self, members: Sequence[Any]) -> Generator[ParsedEvent, None, None]:
+        """Parse a bounded EVTX group with one Hayabusa and one EvtxECmd invocation.
+
+        Detection correlation is (canonical_source_file, RecordID). RecordID-only
+        correlation is forbidden. Tool/attribution failures raise DirectoryModeError
+        so the caller can fall back to per-file parsing.
+        """
+        from utils.evtx_directory_mode import (
+            AttributionError,
+            DirectoryModeError,
+            EvtxGroupMember,
+            EVTXECMD_DIRECTORY_TIMEOUT_SECONDS,
+            HAYABUSA_DIRECTORY_TIMEOUT_SECONDS,
+            evtxecmd_json_cmd,
+            hayabusa_directory_had_errors,
+            hayabusa_json_timeline_cmd,
+            index_hayabusa_detections,
+            remap_evtxecmd_sourcefile,
+            stage_evtx_group,
+        )
+
+        group: List[EvtxGroupMember] = []
+        for item in members:
+            if isinstance(item, EvtxGroupMember):
+                group.append(item)
+            else:
+                group.append(EvtxGroupMember(
+                    file_path=item['file_path'],
+                    case_file_id=item.get('case_file_id'),
+                    source_host=item.get('source_host') or '',
+                    source_file=item.get('source_file') or '',
+                ))
+        if not group:
+            raise DirectoryModeError('empty_group', 'EVTX directory group is empty')
+
+        work_dir = None
+        try:
+            work_dir = tempfile.mkdtemp(prefix='evtx_dir_group_')
+            staged_dir = os.path.join(work_dir, 'staged')
+            os.makedirs(staged_dir, exist_ok=True)
+            manifest = stage_evtx_group(group, staging_dir=staged_dir)
+            evtx_out_dir = os.path.join(work_dir, 'evtxecmd_out')
+            os.makedirs(evtx_out_dir, exist_ok=True)
+            evtx_output_name = 'group.json'
+            evtx_output_path = os.path.join(evtx_out_dir, evtx_output_name)
+            hayabusa_output = os.path.join(work_dir, 'hayabusa.jsonl')
+
+            def run_hayabusa():
+                if not self._hayabusa_available:
+                    return {}
+                if not os.path.isdir(self.rules_config_dir):
+                    raise DirectoryModeError(
+                        'hayabusa_directory_failure',
+                        f'Hayabusa rules-config missing at {self.rules_config_dir}',
+                    )
+                cmd = hayabusa_json_timeline_cmd(
+                    hayabusa_bin=self.hayabusa_bin,
+                    output_path=hayabusa_output,
+                    directory=staged_dir,
+                    rules_dir=self.rules_dir if os.path.isdir(self.rules_dir) else None,
+                    rules_config_dir=self.rules_config_dir,
+                    profile=self.hayabusa_profile,
+                    min_level='informational',
+                )
+                logger.info("Running Hayabusa directory mode: %s", ' '.join(cmd))
+                with timed_stage("hayabusa_process", case_id=self.case_id, case_file_id=None):
+                    result = subprocess.run(
+                        cmd,
+                        capture_output=True,
+                        text=True,
+                        timeout=HAYABUSA_DIRECTORY_TIMEOUT_SECONDS,
+                        cwd=work_dir,
+                    )
+                if hayabusa_directory_had_errors(result.stdout, result.stderr):
+                    raise DirectoryModeError(
+                        'hayabusa_directory_failure',
+                        (result.stderr or result.stdout or 'Hayabusa directory errors')[:500],
+                    )
+                if result.returncode != 0 and not (
+                    os.path.exists(hayabusa_output) and os.path.getsize(hayabusa_output) > 0
+                ):
+                    raise DirectoryModeError(
+                        'hayabusa_directory_failure',
+                        (result.stderr or result.stdout or f'returncode={result.returncode}')[:500],
+                    )
+                rows_consumed = 0
+                decode_ms = 0.0
+
+                def _rows():
+                    nonlocal rows_consumed, decode_ms
+                    if not os.path.exists(hayabusa_output) or os.path.getsize(hayabusa_output) == 0:
+                        return
+                    with open(hayabusa_output, 'r', encoding='utf-8', errors='replace') as handle:
+                        for line in handle:
+                            line = line.strip()
+                            if not line:
+                                continue
+                            rows_consumed += 1
+                            started = time.perf_counter()
+                            yield _evtx_json_loads(line)
+                            decode_ms += (time.perf_counter() - started) * 1000.0
+
+                try:
+                    detections = index_hayabusa_detections(_rows(), manifest=manifest)
+                except AttributionError as exc:
+                    raise DirectoryModeError('attribution_ambiguity', str(exc), unsafe_retry=True) from exc
+                emit_metric(
+                    "hayabusa_jsonl_consume",
+                    case_id=self.case_id,
+                    jsonl_rows_consumed=rows_consumed,
+                    outer_json_decode_ms=decode_ms,
+                    detection_count=sum(len(items) for items in detections.values()),
+                    directory_mode=True,
+                )
+                return detections
+
+            def run_evtxecmd():
+                cmd = evtxecmd_json_cmd(
+                    evtxecmd_bin=self.evtxecmd_bin,
+                    json_dir=evtx_out_dir,
+                    json_name=evtx_output_name,
+                    directory=staged_dir,
+                    maps_dir=self.maps_dir,
+                )
+                logger.info("Running EvtxECmd directory mode: %s", ' '.join(cmd))
+                with timed_stage("evtxecmd_process", case_id=self.case_id, case_file_id=None):
+                    result = subprocess.run(
+                        cmd,
+                        capture_output=True,
+                        text=True,
+                        timeout=EVTXECMD_DIRECTORY_TIMEOUT_SECONDS,
+                    )
+                stdout = result.stdout or ''
+                if 'is not an evtx file' in stdout or 'Skipping...' in stdout:
+                    raise DirectoryModeError(
+                        'malformed_member',
+                        stdout[-500:] or 'EvtxECmd skipped a malformed EVTX in the group',
+                    )
+                if result.returncode != 0:
+                    raise DirectoryModeError(
+                        'evtxecmd_directory_failure',
+                        (result.stderr or stdout or 'EvtxECmd directory failed')[:500],
+                    )
+                if not os.path.exists(evtx_output_path):
+                    raise DirectoryModeError('empty_output', 'EvtxECmd directory mode produced no output')
+                return evtx_output_path, stdout
+
+            detections = {}
+            with ThreadPoolExecutor(max_workers=2) as executor:
+                hayabusa_future = executor.submit(run_hayabusa)
+                evtx_future = executor.submit(run_evtxecmd)
+                try:
+                    evtx_output_path, _evtx_stdout = evtx_future.result(
+                        timeout=EVTXECMD_DIRECTORY_TIMEOUT_SECONDS + 30
+                    )
+                except DirectoryModeError:
+                    raise
+                except subprocess.TimeoutExpired as exc:
+                    raise DirectoryModeError('timeout', 'EvtxECmd directory mode timed out') from exc
+                except Exception as exc:
+                    raise DirectoryModeError('evtxecmd_directory_failure', str(exc)[:500]) from exc
+                try:
+                    detections = hayabusa_future.result(
+                        timeout=HAYABUSA_DIRECTORY_TIMEOUT_SECONDS + 30
+                    )
+                except DirectoryModeError:
+                    raise
+                except subprocess.TimeoutExpired as exc:
+                    raise DirectoryModeError('timeout', 'Hayabusa directory mode timed out') from exc
+                except Exception as exc:
+                    raise DirectoryModeError('hayabusa_directory_failure', str(exc)[:500]) from exc
+
+            rows_consumed = 0
+            outer_json_decode_ms = 0.0
+            started = time.perf_counter()
+            with open(evtx_output_path, 'r', encoding='utf-8-sig', errors='replace') as handle:
+                for line_num, line in enumerate(handle, 1):
+                    line = line.strip()
+                    if not line:
+                        continue
+                    rows_consumed += 1
+                    try:
+                        decode_started = time.perf_counter()
+                        event = _evtx_json_loads(line)
+                        outer_json_decode_ms += (time.perf_counter() - decode_started) * 1000.0
+                        remapped, member = remap_evtxecmd_sourcefile(event, manifest)
+                        parsed_event = self._transform_evtxecmd_event(
+                            remapped,
+                            member.file_path,
+                            member.source_file,
+                            detections,
+                            source_token=member.canonical_token,
+                            source_host_override=member.source_host,
+                            case_file_id_override=member.case_file_id,
+                        )
+                        if parsed_event:
+                            yield parsed_event
+                    except AttributionError as exc:
+                        raise DirectoryModeError(
+                            'attribution_ambiguity',
+                            f'line {line_num}: {exc}',
+                            unsafe_retry=True,
+                        ) from exc
+                    except json.JSONDecodeError as exc:
+                        raise DirectoryModeError(
+                            'output_parse_failure',
+                            f'EvtxECmd JSON error line {line_num}: {exc}',
+                        ) from exc
+                    except DirectoryModeError:
+                        raise
+                    except Exception as exc:
+                        self.warnings.append(f"Error processing directory line {line_num}: {exc}")
+            emit_metric(
+                "evtx_jsonl_consume",
+                case_id=self.case_id,
+                jsonl_rows_consumed=rows_consumed,
+                duration_ms=(time.perf_counter() - started) * 1000.0,
+                outer_json_decode_ms=outer_json_decode_ms,
+                nested_payload_json_decode_ms=self._evtx_payload_decode_ms,
+                normalization_ms=self._evtx_normalization_ms,
+                search_blob_construction_ms=self._evtx_search_blob_ms,
+                directory_mode=True,
+            )
+        except subprocess.TimeoutExpired as exc:
+            raise DirectoryModeError('timeout', 'Directory-mode tool timed out') from exc
+        finally:
+            if work_dir:
+                shutil.rmtree(work_dir, ignore_errors=True)
+
     def _transform_evtxecmd_event(self, event: Dict[str, Any], file_path: str,
-                                  source_file: str, detections: Dict) -> Optional[ParsedEvent]:
+                                  source_file: str, detections: Dict,
+                                  source_token: Optional[str] = None,
+                                  source_host_override: Optional[str] = None,
+                                  case_file_id_override: Optional[int] = None) -> Optional[ParsedEvent]:
         """Transform EvtxECmd JSON output to ParsedEvent
         
         EvtxECmd JSON schema (with Maps applied):
@@ -517,6 +858,8 @@ class EvtxECmdParser(BaseParser):
         - UserName: normalized username
         - Payload: raw XML payload as JSON string
         """
+        self._ensure_phase0a_metric_counters()
+        normalization_started = time.perf_counter()
         try:
             # Get timestamp — skip events with unparseable timestamps
             timestamp = self.parse_timestamp(event.get('TimeCreated'))
@@ -529,14 +872,23 @@ class EvtxECmdParser(BaseParser):
             
             # Get basic fields
             computer = event.get('Computer', '')
-            hostname = self.extract_hostname(file_path, {'Computer': computer})
+            if source_host_override:
+                hostname = source_host_override
+            else:
+                hostname = self.extract_hostname(file_path, {'Computer': computer})
             channel = event.get('Channel', '')
             event_id = str(event.get('EventId', ''))
             record_id = event.get('EventRecordId') or event.get('RecordNumber')
-            
-            # Check for Hayabusa detection enrichment (keyed by EventRecordId)
-            detection_key = str(record_id) if record_id else ''
-            detection_entries = detections.get(detection_key, [])
+            resolved_case_file_id = (
+                self.case_file_id if case_file_id_override is None else case_file_id_override
+            )
+
+            detection_entries = lookup_hayabusa_detections(
+                detections,
+                record_id,
+                source_token=source_token,
+                allow_record_id_only=not any(isinstance(key, tuple) for key in detections),
+            )
             primary_detection = max(
                 detection_entries,
                 key=lambda entry: self._severity_rank(entry.get('rule_level')),
@@ -549,7 +901,9 @@ class EvtxECmdParser(BaseParser):
             payload_str = event.get('Payload', '')
             if payload_str:
                 try:
-                    payload = json.loads(payload_str)
+                    payload_decode_started = time.perf_counter()
+                    payload = _evtx_json_loads(payload_str)
+                    self._evtx_payload_decode_ms += (time.perf_counter() - payload_decode_started) * 1000.0
                     event_data = _flatten_evtx_named_fields(payload.get('EventData', {}))
                     user_data = _flatten_evtx_userdata(payload.get('UserData', {}))
                 except:
@@ -720,6 +1074,10 @@ class EvtxECmdParser(BaseParser):
             
             # Logon process (Advapi, User32, etc.)
             logon_process = self.safe_str(event_data.get('LogonProcessName'))
+
+            # Windows Security logon KeyLength. Keep raw_json/search_blob as the
+            # forensic source and promote only values that fit the typed column.
+            key_length = self.safe_uint16(event_data.get('KeyLength'))
             
             # Elevated token indicator
             elevated_token = self.safe_str(event_data.get('ElevatedToken'))
@@ -793,6 +1151,7 @@ class EvtxECmdParser(BaseParser):
                 remote_host, workstation_name, auth_package,
                 executable_info, logon_id,
             ]
+            search_blob_started = time.perf_counter()
             search_blob = ' '.join(str(p) for p in search_parts if p)
             
             # Add EventData key:value pairs for easy field-based searching
@@ -815,6 +1174,7 @@ class EvtxECmdParser(BaseParser):
             # Add Payload content for full-text search (truncated)
             if payload_str and len(payload_str) < 3000:
                 search_blob += f" {payload_str}"
+            self._evtx_search_blob_ms += (time.perf_counter() - search_blob_started) * 1000.0
             
             # Build raw JSON (include key fields, exclude large Payload)
             raw_data = {
@@ -851,6 +1211,7 @@ class EvtxECmdParser(BaseParser):
 
             hayabusa_confidence = self._hayabusa_confidence(primary_detection.get('rule_level'))
 
+            self._evtx_normalization_ms += (time.perf_counter() - normalization_started) * 1000.0
             return ParsedEvent(
                 case_id=self.case_id,
                 artifact_type=self.artifact_type,
@@ -858,7 +1219,7 @@ class EvtxECmdParser(BaseParser):
                 source_file=source_file,
                 source_path=file_path,
                 source_host=hostname,
-                case_file_id=self.case_file_id,
+                case_file_id=resolved_case_file_id,
                 event_id=event_id,
                 channel=channel,
                 provider=event.get('Provider'),
@@ -873,6 +1234,7 @@ class EvtxECmdParser(BaseParser):
                 workstation_name=workstation_name,
                 auth_package=auth_package,
                 logon_process=logon_process,
+                key_length=key_length,
                 elevated_token=elevated_token,
                 process_name=self.safe_str(process_name),
                 process_path=self.safe_str(process_path),

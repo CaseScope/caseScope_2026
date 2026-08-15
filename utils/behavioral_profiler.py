@@ -136,56 +136,60 @@ class BehavioralProfiler:
     def profile_users(self) -> int:
         """
         Profile all users in known_users for this case.
-        
-        Returns:
-            int: Count of users profiled
+
+        Uses a bounded set-based ClickHouse query (username OR SID) instead of
+        one query per user. Aggregation semantics are unchanged.
         """
+        from utils.phase1_step3_profiler import fetch_user_rows_set_based
+
         users = KnownUser.query.filter_by(case_id=self.case_id).all()
         total_users = len(users)
         profiled_count = 0
-        
+        rows_by_user = fetch_user_rows_set_based(self, users)
+
         for i, user in enumerate(users):
             try:
-                profile = self._calculate_user_profile(user.id, user.username, user.sid)
+                profile = self._materialize_user_profile(
+                    user.id, user.username, rows_by_user.get(user.id, [])
+                )
                 if profile:
                     profiled_count += 1
-                
-                # Update progress within user profiling (5-70%)
                 progress = int(5 + (i / max(total_users, 1)) * 65)
                 self._update_progress('profiling', progress, f'Profiling user {i+1}/{total_users}')
-                
             except Exception as e:
                 logger.error(f"Error profiling user {user.id}: {e}")
                 continue
-        
+
         db.session.commit()
         return profiled_count
-    
+
     def profile_systems(self) -> int:
         """
         Profile all systems in known_systems for this case.
-        
-        Returns:
-            int: Count of systems profiled
+
+        Uses a bounded set-based ClickHouse query. Hostname matching remains
+        source_host OR workstation_name OR remote_host, counted once per event.
         """
+        from utils.phase1_step3_profiler import fetch_system_rows_set_based
+
         systems = KnownSystem.query.filter_by(case_id=self.case_id).all()
         total_systems = len(systems)
         profiled_count = 0
-        
+        rows_by_system, _role_stats = fetch_system_rows_set_based(self, systems)
+
         for i, system in enumerate(systems):
             try:
-                profile = self._calculate_system_profile(system.id, system.hostname)
+                profile = self._materialize_system_profile(
+                    system.id, system.hostname, rows_by_system.get(system.id, [])
+                )
                 if profile:
                     profiled_count += 1
-                
-                # Update progress within system profiling (70-100%)
                 progress = int(70 + (i / max(total_systems, 1)) * 30)
                 self._update_progress('profiling', progress, f'Profiling system {i+1}/{total_systems}')
-                
             except Exception as e:
                 logger.error(f"Error profiling system {system.id}: {e}")
                 continue
-        
+
         db.session.commit()
         return profiled_count
     
@@ -243,100 +247,13 @@ class BehavioralProfiler:
         """
         
         result = client.query(query, parameters=parameters)
-        rows = result.result_rows
-        
-        if not rows:
-            return None
-        
-        # Process results
-        activity_hours = defaultdict(int)
-        activity_days = defaultdict(int)
-        daily_logons = defaultdict(int)
-        daily_failures = defaultdict(int)
-        source_hosts = defaultdict(int)
-        target_hosts = defaultdict(int)
-        auth_types = defaultdict(int)
-        total_events = 0
-        total_logons = 0
-        total_failures = 0
-        min_date = None
-        max_date = None
-        
-        for row in rows:
-            hour, day, date, event_id, source_host, remote_host, auth_package, logon_type, count = row
-            
-            total_events += count
-            activity_hours[hour] += count
-            activity_days[day] += count
-            
-            if min_date is None or date < min_date:
-                min_date = date
-            if max_date is None or date > max_date:
-                max_date = date
-            
-            # Track authentication events
-            if event_id in ('4624', '4625', '4648'):
-                if event_id == '4624':
-                    total_logons += count
-                    daily_logons[date] += count
-                elif event_id == '4625':
-                    total_failures += count
-                    daily_failures[date] += count
-                
-                if source_host:
-                    source_hosts[source_host.upper()] += count
-                if remote_host:
-                    target_hosts[remote_host.upper()] += count
-                if auth_package:
-                    auth_types[auth_package.upper()] += count
+        return self._materialize_user_profile(user_id, username, result.result_rows)
 
-        # The row count is the cardinality of a wide GROUP BY, not a volume of
-        # evidence, so the minimum is applied to the events those rows carry.
-        if total_events < self.min_events_for_profile:
+    def _materialize_user_profile(self, user_id: int, username: str, rows) -> Optional[UserBehaviorProfile]:
+        metrics = self._user_metrics_from_rows(rows)
+        if not metrics:
             return None
-        
-        # Calculate metrics
-        total_auth = total_logons + total_failures
-        logon_success_rate = (total_logons / total_auth * 100) if total_auth > 0 else 0
-        failure_rate = (total_failures / total_auth * 100) if total_auth > 0 else 0
-        
-        # Off-hours calculation (hours are already in the case timezone)
-        off_hours_events = sum(count for hour, count in activity_hours.items() 
-                              if hour < self.business_hours_start or hour >= self.business_hours_end)
-        off_hours_percentage = (off_hours_events / total_events * 100) if total_events > 0 else 0
-        
-        # Peak hours (top 3 hours by activity)
-        peak_hours = sorted(activity_hours.keys(), key=lambda h: activity_hours[h], reverse=True)[:3]
-        
-        # Daily statistics
-        daily_logon_values = list(daily_logons.values()) or [0]
-        avg_daily_logons = statistics.mean(daily_logon_values) if daily_logon_values else 0
-        std_daily_logons = statistics.stdev(daily_logon_values) if len(daily_logon_values) > 1 else 0
-        max_daily_logons = max(daily_logon_values) if daily_logon_values else 0
-        
-        daily_failure_values = list(daily_failures.values()) or [0]
-        avg_daily_failures = statistics.mean(daily_failure_values) if daily_failure_values else 0
-        
-        # Top hosts
-        typical_source = self._get_top_n(source_hosts, 10)
-        typical_target = self._get_top_n(target_hosts, 10)
-        
-        # Auth type distribution
-        auth_distribution = {}
-        total_auth_typed = sum(auth_types.values())
-        if total_auth_typed > 0:
-            for auth_type, count in auth_types.items():
-                auth_distribution[auth_type] = round(count / total_auth_typed * 100, 1)
-        
-        # Calculate anomaly thresholds
-        anomaly_thresholds = self._calculate_anomaly_thresholds({
-            'avg_daily_logons': avg_daily_logons,
-            'std_daily_logons': std_daily_logons,
-            'failure_rate': failure_rate,
-            'off_hours_percentage': off_hours_percentage,
-            'unique_hosts': len(target_hosts)
-        })
-        
+
         # Create or update profile
         with db.session.no_autoflush:
             profile = UserBehaviorProfile.query.filter_by(
@@ -353,25 +270,25 @@ class BehavioralProfiler:
             db.session.add(profile)
         
         # Update profile
-        profile.profile_period_start = min_date
-        profile.profile_period_end = max_date
-        profile.total_events = total_events
-        profile.activity_hours = dict(activity_hours)
-        profile.activity_days = dict(activity_days)
-        profile.peak_hours = peak_hours
-        profile.off_hours_percentage = off_hours_percentage
-        profile.total_logons = total_logons
-        profile.logon_success_rate = logon_success_rate
-        profile.auth_types = auth_distribution
-        profile.typical_source_hosts = typical_source
-        profile.typical_target_hosts = typical_target
-        profile.unique_hosts_accessed = len(target_hosts)
-        profile.avg_daily_logons = avg_daily_logons
-        profile.std_daily_logons = std_daily_logons
-        profile.max_daily_logons = max_daily_logons
-        profile.failure_rate = failure_rate
-        profile.avg_daily_failures = avg_daily_failures
-        profile.anomaly_thresholds = anomaly_thresholds
+        profile.profile_period_start = metrics['profile_period_start']
+        profile.profile_period_end = metrics['profile_period_end']
+        profile.total_events = metrics['total_events']
+        profile.activity_hours = metrics['activity_hours']
+        profile.activity_days = metrics['activity_days']
+        profile.peak_hours = metrics['peak_hours']
+        profile.off_hours_percentage = metrics['off_hours_percentage']
+        profile.total_logons = metrics['total_logons']
+        profile.logon_success_rate = metrics['logon_success_rate']
+        profile.auth_types = metrics['auth_types']
+        profile.typical_source_hosts = metrics['typical_source_hosts']
+        profile.typical_target_hosts = metrics['typical_target_hosts']
+        profile.unique_hosts_accessed = metrics['unique_hosts_accessed']
+        profile.avg_daily_logons = metrics['avg_daily_logons']
+        profile.std_daily_logons = metrics['std_daily_logons']
+        profile.max_daily_logons = metrics['max_daily_logons']
+        profile.failure_rate = metrics['failure_rate']
+        profile.avg_daily_failures = metrics['avg_daily_failures']
+        profile.anomaly_thresholds = metrics['anomaly_thresholds']
         
         return self._flush_profile_within_savepoint(
             profile,
@@ -420,78 +337,13 @@ class BehavioralProfiler:
         """
         
         result = client.query(query, parameters=parameters)
-        rows = result.result_rows
-        
-        if not rows:
-            return None
-        
-        # Process results
-        activity_hours = defaultdict(int)
-        daily_auth = defaultdict(int)
-        users = defaultdict(int)
-        source_ips = defaultdict(int)
-        processes = defaultdict(int)
-        total_events = 0
-        min_date = None
-        max_date = None
-        
-        # Track events for role inference
-        event_counts = defaultdict(int)
-        
-        for row in rows:
-            hour, date, username, src_ip, event_id, process_name, count = row
-            
-            total_events += count
-            activity_hours[hour] += count
-            event_counts[event_id] += count
-            
-            if min_date is None or date < min_date:
-                min_date = date
-            if max_date is None or date > max_date:
-                max_date = date
-            
-            if event_id in ('4624', '4625'):
-                daily_auth[date] += count
-            
-            if username:
-                users[username.upper()] += count
-            if src_ip:
-                source_ips[str(src_ip)] += count
-            if process_name:
-                processes[process_name.upper()] += count
+        return self._materialize_system_profile(system_id, hostname, result.result_rows)
 
-        # The row count is the cardinality of a wide GROUP BY, not a volume of
-        # evidence, so the minimum is applied to the events those rows carry.
-        if total_events < self.min_events_for_profile:
+    def _materialize_system_profile(self, system_id: int, hostname: str, rows) -> Optional[SystemBehaviorProfile]:
+        metrics = self._system_metrics_from_rows(rows, hostname)
+        if not metrics:
             return None
-        
-        # Calculate metrics
-        daily_auth_values = list(daily_auth.values()) or [0]
-        auth_stats = {
-            'mean_daily': statistics.mean(daily_auth_values) if daily_auth_values else 0,
-            'std_daily': statistics.stdev(daily_auth_values) if len(daily_auth_values) > 1 else 0,
-            'max_daily': max(daily_auth_values) if daily_auth_values else 0
-        }
-        
-        # Infer system role
-        system_role = self._infer_system_role(hostname, {
-            'event_counts': dict(event_counts),
-            'unique_users': len(users),
-            'processes': list(processes.keys())
-        })
-        
-        # Top users and IPs
-        typical_users = self._get_top_n(users, 10)
-        typical_source_ips = self._get_top_n(source_ips, 10)
-        typical_processes = self._get_top_n(processes, 10)
-        
-        # Calculate anomaly thresholds
-        anomaly_thresholds = self._calculate_anomaly_thresholds({
-            'mean_daily_auth': auth_stats['mean_daily'],
-            'std_daily_auth': auth_stats['std_daily'],
-            'unique_users': len(users)
-        })
-        
+
         # Create or update profile
         with db.session.no_autoflush:
             profile = SystemBehaviorProfile.query.filter_by(
@@ -508,17 +360,17 @@ class BehavioralProfiler:
             db.session.add(profile)
         
         # Update profile
-        profile.profile_period_start = min_date
-        profile.profile_period_end = max_date
-        profile.total_events = total_events
-        profile.system_role = system_role
-        profile.activity_hours = dict(activity_hours)
-        profile.typical_users = typical_users
-        profile.unique_users = len(users)
-        profile.typical_source_ips = typical_source_ips
-        profile.typical_processes = typical_processes
-        profile.auth_destination_volume = auth_stats
-        profile.anomaly_thresholds = anomaly_thresholds
+        profile.profile_period_start = metrics['profile_period_start']
+        profile.profile_period_end = metrics['profile_period_end']
+        profile.total_events = metrics['total_events']
+        profile.system_role = metrics['system_role']
+        profile.activity_hours = metrics['activity_hours']
+        profile.typical_users = metrics['typical_users']
+        profile.unique_users = metrics['unique_users']
+        profile.typical_source_ips = metrics['typical_source_ips']
+        profile.typical_processes = metrics['typical_processes']
+        profile.auth_destination_volume = metrics['auth_destination_volume']
+        profile.anomaly_thresholds = metrics['anomaly_thresholds']
         
         return self._flush_profile_within_savepoint(
             profile,
@@ -527,6 +379,170 @@ class BehavioralProfiler:
                 system_id=system_id,
             ).first(),
         )
+
+    def _user_metrics_from_rows(self, rows) -> Optional[Dict[str, Any]]:
+        """Aggregate one user's grouped ClickHouse rows into profile metrics."""
+        if not rows:
+            return None
+
+        activity_hours = defaultdict(int)
+        activity_days = defaultdict(int)
+        daily_logons = defaultdict(int)
+        daily_failures = defaultdict(int)
+        source_hosts = defaultdict(int)
+        target_hosts = defaultdict(int)
+        auth_types = defaultdict(int)
+        total_events = 0
+        total_logons = 0
+        total_failures = 0
+        min_date = None
+        max_date = None
+
+        for row in rows:
+            hour, day, date, event_id, source_host, remote_host, auth_package, logon_type, count = row
+
+            total_events += count
+            activity_hours[hour] += count
+            activity_days[day] += count
+
+            if min_date is None or date < min_date:
+                min_date = date
+            if max_date is None or date > max_date:
+                max_date = date
+
+            if event_id in ('4624', '4625', '4648'):
+                if event_id == '4624':
+                    total_logons += count
+                    daily_logons[date] += count
+                elif event_id == '4625':
+                    total_failures += count
+                    daily_failures[date] += count
+
+                if source_host:
+                    source_hosts[source_host.upper()] += count
+                if remote_host:
+                    target_hosts[remote_host.upper()] += count
+                if auth_package:
+                    auth_types[auth_package.upper()] += count
+
+        if total_events < self.min_events_for_profile:
+            return None
+
+        total_auth = total_logons + total_failures
+        logon_success_rate = (total_logons / total_auth * 100) if total_auth > 0 else 0
+        failure_rate = (total_failures / total_auth * 100) if total_auth > 0 else 0
+        off_hours_events = sum(
+            count for hour, count in activity_hours.items()
+            if hour < self.business_hours_start or hour >= self.business_hours_end
+        )
+        off_hours_percentage = (off_hours_events / total_events * 100) if total_events > 0 else 0
+        peak_hours = sorted(activity_hours.keys(), key=lambda h: activity_hours[h], reverse=True)[:3]
+        daily_logon_values = list(daily_logons.values()) or [0]
+        avg_daily_logons = statistics.mean(daily_logon_values) if daily_logon_values else 0
+        std_daily_logons = statistics.stdev(daily_logon_values) if len(daily_logon_values) > 1 else 0
+        max_daily_logons = max(daily_logon_values) if daily_logon_values else 0
+        daily_failure_values = list(daily_failures.values()) or [0]
+        avg_daily_failures = statistics.mean(daily_failure_values) if daily_failure_values else 0
+        typical_source = self._get_top_n(source_hosts, 10)
+        typical_target = self._get_top_n(target_hosts, 10)
+        auth_distribution = {}
+        total_auth_typed = sum(auth_types.values())
+        if total_auth_typed > 0:
+            for auth_type, count in auth_types.items():
+                auth_distribution[auth_type] = round(count / total_auth_typed * 100, 1)
+        anomaly_thresholds = self._calculate_anomaly_thresholds({
+            'avg_daily_logons': avg_daily_logons,
+            'std_daily_logons': std_daily_logons,
+            'failure_rate': failure_rate,
+            'off_hours_percentage': off_hours_percentage,
+            'unique_hosts': len(target_hosts)
+        })
+        return {
+            'profile_period_start': min_date,
+            'profile_period_end': max_date,
+            'total_events': total_events,
+            'activity_hours': dict(activity_hours),
+            'activity_days': dict(activity_days),
+            'peak_hours': peak_hours,
+            'off_hours_percentage': off_hours_percentage,
+            'total_logons': total_logons,
+            'logon_success_rate': logon_success_rate,
+            'auth_types': auth_distribution,
+            'typical_source_hosts': typical_source,
+            'typical_target_hosts': typical_target,
+            'unique_hosts_accessed': len(target_hosts),
+            'avg_daily_logons': avg_daily_logons,
+            'std_daily_logons': std_daily_logons,
+            'max_daily_logons': max_daily_logons,
+            'failure_rate': failure_rate,
+            'avg_daily_failures': avg_daily_failures,
+            'anomaly_thresholds': anomaly_thresholds,
+        }
+
+    def _system_metrics_from_rows(self, rows, hostname: str) -> Optional[Dict[str, Any]]:
+        """Aggregate one system's grouped ClickHouse rows into profile metrics."""
+        if not rows:
+            return None
+
+        activity_hours = defaultdict(int)
+        daily_auth = defaultdict(int)
+        users = defaultdict(int)
+        source_ips = defaultdict(int)
+        processes = defaultdict(int)
+        total_events = 0
+        min_date = None
+        max_date = None
+        event_counts = defaultdict(int)
+
+        for row in rows:
+            hour, date, username, src_ip, event_id, process_name, count = row
+            total_events += count
+            activity_hours[hour] += count
+            event_counts[event_id] += count
+            if min_date is None or date < min_date:
+                min_date = date
+            if max_date is None or date > max_date:
+                max_date = date
+            if event_id in ('4624', '4625'):
+                daily_auth[date] += count
+            if username:
+                users[username.upper()] += count
+            if src_ip:
+                source_ips[str(src_ip)] += count
+            if process_name:
+                processes[process_name.upper()] += count
+
+        if total_events < self.min_events_for_profile:
+            return None
+
+        daily_auth_values = list(daily_auth.values()) or [0]
+        auth_stats = {
+            'mean_daily': statistics.mean(daily_auth_values) if daily_auth_values else 0,
+            'std_daily': statistics.stdev(daily_auth_values) if len(daily_auth_values) > 1 else 0,
+            'max_daily': max(daily_auth_values) if daily_auth_values else 0
+        }
+        system_role = self._infer_system_role(hostname, {
+            'event_counts': dict(event_counts),
+            'unique_users': len(users),
+            'processes': list(processes.keys())
+        })
+        return {
+            'profile_period_start': min_date,
+            'profile_period_end': max_date,
+            'total_events': total_events,
+            'system_role': system_role,
+            'activity_hours': dict(activity_hours),
+            'typical_users': self._get_top_n(users, 10),
+            'unique_users': len(users),
+            'typical_source_ips': self._get_top_n(source_ips, 10),
+            'typical_processes': self._get_top_n(processes, 10),
+            'auth_destination_volume': auth_stats,
+            'anomaly_thresholds': self._calculate_anomaly_thresholds({
+                'mean_daily_auth': auth_stats['mean_daily'],
+                'std_daily_auth': auth_stats['std_daily'],
+                'unique_users': len(users)
+            }),
+        }
 
     def _flush_profile_within_savepoint(self, profile, reload_existing: Callable):
         """Flush one profile inside a savepoint so a conflict is contained.

@@ -264,6 +264,17 @@ TEXT_FIELD_SCAN_LIMIT = 20000
 # address contacted. Scanning them unbounded produced vaults of several hundred
 # thousand rows, which the substitution matcher cannot work with.
 TYPED_FIELD_SCAN_LIMIT = 20000
+_ALIAS_SCAN_TABLES = frozenset({'events', 'events_buffer'})
+_ALIAS_SCAN_FIELDS = frozenset({
+    'username',
+    'domain',
+    'source_host',
+    'remote_host',
+    'workstation_name',
+    'src_ip',
+    'dst_ip',
+    *SCANNED_TEXT_FIELDS,
+})
 # Substitution is linear in vault size, so the vault has to stay small enough
 # to compile and match against. Candidates are kept by descending seen_count,
 # so what survives truncation is what the evidence actually talks about.
@@ -1547,6 +1558,57 @@ def _candidate_is_vaultable(
     return len(candidate.normalized_value or '') <= MAX_VAULTED_VALUE_LENGTH
 
 
+def _validate_generation_scope(generation: Any) -> None:
+    """Generation storage does not exist yet; only generation=None is valid."""
+    if generation is not None:
+        raise ValueError(
+            'generation-scoped alias scans are not implemented; '
+            'source_generation storage does not exist yet'
+        )
+
+
+def _alias_scope_filter_sql(
+    *,
+    case_file_id: int | None = None,
+    generation: Any = None,
+) -> tuple[str, dict[str, Any]]:
+    _validate_generation_scope(generation)
+    if case_file_id is None:
+        return '', {}
+    return ' AND case_file_id = {case_file_id:UInt32}', {'case_file_id': int(case_file_id)}
+
+
+def resolve_alias_scan_table(client: Any) -> str:
+    """Scan durable ``events`` rows.
+
+    Direct inserts land in ``events``. Historical Buffer-visible scans are no
+    longer required on the production ingest path.
+    """
+    del client
+    return 'events'
+
+
+def canonical_alias_identity_set(
+    candidates: dict[AliasKey, AliasCandidate] | Iterable[Any],
+    *,
+    allowed_types: set[str] | None = None,
+) -> set[tuple[str, str]]:
+    """Return canonical (entity_type, normalized_value) identities."""
+    identities: set[tuple[str, str]] = set()
+    values = candidates.values() if isinstance(candidates, dict) else candidates
+    for candidate in values:
+        entity_type = getattr(candidate, 'entity_type', None)
+        normalized_value = getattr(candidate, 'normalized_value', None)
+        if entity_type is None and isinstance(candidate, tuple) and len(candidate) >= 2:
+            entity_type, normalized_value = candidate[0], candidate[1]
+        if not entity_type or normalized_value is None:
+            continue
+        if allowed_types is not None and entity_type not in allowed_types:
+            continue
+        identities.add((str(entity_type), str(normalized_value)))
+    return identities
+
+
 def _scan_distinct_field(
     *,
     client: Any,
@@ -1557,9 +1619,19 @@ def _scan_distinct_field(
     candidates: dict[AliasKey, AliasCandidate],
     limit: int | None = None,
     allowed_types: set[str] | None = None,
+    table_name: str = 'events',
+    scope_sql: str = '',
+    scope_params: dict[str, Any] | None = None,
 ) -> int:
+    if field_name not in _ALIAS_SCAN_FIELDS:
+        raise ValueError(f'Unsupported alias scan field: {field_name}')
+    if table_name not in _ALIAS_SCAN_TABLES:
+        raise ValueError(f'Unsupported alias scan table: {table_name}')
     value_sql = f"ifNull(toString({field_name}), '')" if field_name in {'src_ip', 'dst_ip'} else field_name
     limit_sql = f'ORDER BY seen_count DESC LIMIT {int(limit)}' if limit else ''
+    parameters = {'case_id': case_id}
+    if scope_params:
+        parameters.update(scope_params)
     result = client.query(
         f"""
         SELECT
@@ -1567,13 +1639,14 @@ def _scan_distinct_field(
             count() AS seen_count,
             min(timestamp_utc) AS first_seen_at,
             max(timestamp_utc) AS last_seen_at
-        FROM events
+        FROM {table_name}
         WHERE case_id = {{case_id:UInt32}}
+          {scope_sql}
           AND {value_sql} != ''
         GROUP BY value
         {limit_sql}
         """,
-        parameters={'case_id': case_id},
+        parameters=parameters,
     )
     distinct_count = 0
     for value, seen_count, first_seen_at, last_seen_at in result.result_rows:
@@ -1601,9 +1674,19 @@ def _scan_distinct_ip_field(
     candidates: dict[AliasKey, AliasCandidate],
     limit: int | None = None,
     allowed_types: set[str] | None = None,
+    table_name: str = 'events',
+    scope_sql: str = '',
+    scope_params: dict[str, Any] | None = None,
 ) -> int:
+    if field_name not in {'src_ip', 'dst_ip'}:
+        raise ValueError(f'Unsupported alias IP scan field: {field_name}')
+    if table_name not in _ALIAS_SCAN_TABLES:
+        raise ValueError(f'Unsupported alias scan table: {table_name}')
     value_sql = f"ifNull(toString({field_name}), '')"
     limit_sql = f'ORDER BY seen_count DESC LIMIT {int(limit)}' if limit else ''
+    parameters = {'case_id': case_id}
+    if scope_params:
+        parameters.update(scope_params)
     result = client.query(
         f"""
         SELECT
@@ -1611,13 +1694,14 @@ def _scan_distinct_ip_field(
             count() AS seen_count,
             min(timestamp_utc) AS first_seen_at,
             max(timestamp_utc) AS last_seen_at
-        FROM events
+        FROM {table_name}
         WHERE case_id = {{case_id:UInt32}}
+          {scope_sql}
           AND {value_sql} != ''
         GROUP BY value
         {limit_sql}
         """,
-        parameters={'case_id': case_id},
+        parameters=parameters,
     )
     distinct_count = 0
     for value, seen_count, first_seen_at, last_seen_at in result.result_rows:
@@ -1644,14 +1728,18 @@ def _scan_distinct_ip_field(
 def scan_clickhouse_case_alias_candidates(
     case_id: int,
     *,
+    case_file_id: int | None = None,
+    generation: Any = None,
     batch_size: int = 5000,
     privacy_level: str | None = None,
+    client: Any = None,
 ) -> dict[str, Any]:
-    """Scan original ClickHouse indexed fields for a case and return alias candidates.
+    """Scan original ClickHouse indexed fields and return alias candidates.
 
-    This uses ClickHouse aggregation over distinct indexed/event columns instead of
-    replaying every event row through Python. It keeps ClickHouse original data intact
-    and models the aliases that would be available at the AI egress boundary.
+    This uses independent per-column DISTINCT aggregations, never a tuple DISTINCT
+    across protected fields. Scope may be the whole case or one CaseFile.
+    `generation` is accepted for future compatibility and must be None until
+    source_generation storage exists.
 
     Only the entity types the configured privacy level actually substitutes are
     vaulted. Vaulting the rest builds a large index of values that are never
@@ -1661,6 +1749,7 @@ def scan_clickhouse_case_alias_candidates(
     from models.case import Case
     from utils.clickhouse import get_client
 
+    _validate_generation_scope(generation)
     case = Case.get_by_id(case_id)
     if not case:
         raise ValueError(f'Case {case_id} not found')
@@ -1668,72 +1757,78 @@ def scan_clickhouse_case_alias_candidates(
     level = normalize_privacy_level(privacy_level) if privacy_level else get_configured_privacy_level()
     allowed_types = set(PRIVACY_ENTITY_TYPES_BY_LEVEL.get(level, set()))
     client_public_ips = _client_public_ips_for_case(case)
-    client = get_client()
+    client = client or get_client()
+    table_name = resolve_alias_scan_table(client)
+    scope_sql, scope_params = _alias_scope_filter_sql(
+        case_file_id=case_file_id,
+        generation=generation,
+    )
+    count_parameters = {'case_id': case_id, **scope_params}
     count_result = client.query(
-        'SELECT count() FROM events WHERE case_id = {case_id:UInt32}',
-        parameters={'case_id': case_id},
+        f'SELECT count() FROM {table_name} WHERE case_id = {{case_id:UInt32}}{scope_sql}',
+        parameters=count_parameters,
     )
     event_count = count_result.result_rows[0][0] if count_result.result_rows else 0
+
+    # File-scoped ingest scans are bounded by one CaseFile; skip the whole-case
+    # frequency caps so rare protected values are not dropped versus the former
+    # per-event extractor. Whole-case backfill keeps the existing limits.
+    typed_limit = None if case_file_id is not None else TYPED_FIELD_SCAN_LIMIT
+    text_limit = None if case_file_id is not None else TEXT_FIELD_SCAN_LIMIT
+    scan_kwargs = {
+        'client': client,
+        'case_id': case_id,
+        'client_public_ips': client_public_ips,
+        'allowed_types': allowed_types,
+        'table_name': table_name,
+        'scope_sql': scope_sql,
+        'scope_params': scope_params,
+    }
 
     candidates: dict[AliasKey, AliasCandidate] = {}
     distinct_sources = {}
     distinct_sources['username'] = _scan_distinct_field(
-        client=client,
-        case_id=case_id,
         field_name='username',
         extractor=_add_username,
-        client_public_ips=client_public_ips,
         candidates=candidates,
-        limit=TYPED_FIELD_SCAN_LIMIT,
-        allowed_types=allowed_types,
+        limit=typed_limit,
+        **scan_kwargs,
     )
     distinct_sources['domain'] = _scan_distinct_field(
-        client=client,
-        case_id=case_id,
         field_name='domain',
         extractor=_add_domain,
-        client_public_ips=client_public_ips,
         candidates=candidates,
-        limit=TYPED_FIELD_SCAN_LIMIT,
-        allowed_types=allowed_types,
+        limit=typed_limit,
+        **scan_kwargs,
     )
     for host_field in ('source_host', 'remote_host', 'workstation_name'):
         distinct_sources[host_field] = _scan_distinct_field(
-            client=client,
-            case_id=case_id,
             field_name=host_field,
             extractor=_add_host,
-            client_public_ips=client_public_ips,
             candidates=candidates,
-            limit=TYPED_FIELD_SCAN_LIMIT,
-            allowed_types=allowed_types,
+            limit=typed_limit,
+            **scan_kwargs,
         )
     # Free-text columns carry the SIDs, GUIDs and paths that the typed columns
     # never expose. These are high cardinality, so only the most frequent
-    # distinct values are scanned.
+    # distinct values are scanned on whole-case backfill.
     for text_field in SCANNED_TEXT_FIELDS:
         def _extract_text(temp, value, field, ts, _ips=client_public_ips):
             _extract_text_entities(temp, value, field, ts, _ips)
 
         distinct_sources[text_field] = _scan_distinct_field(
-            client=client,
-            case_id=case_id,
             field_name=text_field,
             extractor=_extract_text,
-            client_public_ips=client_public_ips,
             candidates=candidates,
-            limit=TEXT_FIELD_SCAN_LIMIT,
-            allowed_types=allowed_types,
+            limit=text_limit,
+            **scan_kwargs,
         )
     for ip_field in ('src_ip', 'dst_ip'):
         distinct_sources[ip_field] = _scan_distinct_ip_field(
-            client=client,
-            case_id=case_id,
             field_name=ip_field,
-            client_public_ips=client_public_ips,
             candidates=candidates,
-            limit=TYPED_FIELD_SCAN_LIMIT,
-            allowed_types=allowed_types,
+            limit=typed_limit,
+            **scan_kwargs,
         )
 
     truncated = max(0, len(candidates) - MAX_CASE_VAULT_CANDIDATES)
@@ -1756,11 +1851,14 @@ def scan_clickhouse_case_alias_candidates(
     by_type = Counter(candidate.entity_type for candidate in candidates.values())
     return {
         'case_id': case_id,
+        'case_file_id': case_file_id,
+        'generation': generation,
         'event_count': event_count,
         'client_public_ips': sorted(client_public_ips),
         'privacy_level': level,
         'distinct_source_values': dict(sorted(distinct_sources.items())),
         'scan_mode': 'clickhouse_distinct_indexed_fields',
+        'scan_table': table_name,
         'candidates': candidates,
         'candidate_count': len(candidates),
         'candidates_truncated': truncated,
@@ -1798,26 +1896,62 @@ def compare_candidates_to_stored(case_id: int, candidates: dict[AliasKey, AliasC
 def populate_case_privacy_aliases(
     case_id: int,
     *,
+    case_file_id: int | None = None,
+    generation: Any = None,
     batch_size: int = 5000,
     reset_generated: bool = False,
     privacy_level: str | None = None,
+    source: str = 'ai_privacy_event_backfill',
+    client: Any = None,
 ) -> dict[str, Any]:
-    """Populate the alias vault for a case from original ClickHouse event data."""
+    """Populate the alias vault from original ClickHouse event data.
+
+    Scope defaults to the whole case. Pass case_file_id for file-grained ingest.
+    generation must remain None until source_generation storage exists.
+    """
+    from utils.ingest_metrics import timed_stage
+
+    _validate_generation_scope(generation)
     if reset_generated:
         PrivacyAlias.query.filter_by(case_id=case_id, source='ai_privacy_event_backfill').delete()
         PrivacyAliasCounter.query.filter_by(case_id=case_id).delete()
         db.session.commit()
 
-    scan = scan_clickhouse_case_alias_candidates(
-        case_id,
-        batch_size=batch_size,
-        privacy_level=privacy_level,
-    )
-    upsert = upsert_alias_candidates(case_id, scan['candidates'])
+    with timed_stage(
+        "alias_scoped_scan",
+        case_id=case_id,
+        case_file_id=case_file_id,
+    ) as scan_metric:
+        scan = scan_clickhouse_case_alias_candidates(
+            case_id,
+            case_file_id=case_file_id,
+            generation=generation,
+            batch_size=batch_size,
+            privacy_level=privacy_level,
+            client=client,
+        )
+        scan_metric["candidate_count"] = scan['candidate_count']
+        scan_metric["event_count"] = scan['event_count']
+        scan_metric["scan_table"] = scan.get('scan_table')
+    with timed_stage(
+        "alias_pg_write",
+        case_id=case_id,
+        case_file_id=case_file_id,
+        candidate_count=scan['candidate_count'],
+        unique_candidate_count=scan['candidate_count'],
+    ):
+        upsert = upsert_alias_candidates(
+            case_id,
+            scan['candidates'],
+            source=source,
+            commit_every=0 if case_file_id is not None else 500,
+        )
     stored = stored_alias_summary(case_id)
     comparison = compare_candidates_to_stored(case_id, scan['candidates'])
     return {
         'case_id': case_id,
+        'case_file_id': case_file_id,
+        'generation': generation,
         'event_count': scan['event_count'],
         'client_public_ips': scan['client_public_ips'],
         'privacy_level': scan.get('privacy_level'),
@@ -1827,6 +1961,7 @@ def populate_case_privacy_aliases(
             'candidates_truncated': scan.get('candidates_truncated', 0),
             'distinct_source_values': scan.get('distinct_source_values', {}),
             'scan_mode': scan.get('scan_mode'),
+            'scan_table': scan.get('scan_table'),
         },
         'upsert': upsert,
         'stored': stored,

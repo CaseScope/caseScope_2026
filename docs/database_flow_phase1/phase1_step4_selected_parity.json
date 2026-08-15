@@ -1,0 +1,43 @@
+{
+  "captured_at": "2026-08-15T17:28:35.188739+00:00",
+  "policy": "eager_first_target_8_files_128MiB_max_32_files_512MiB",
+  "selected_wall_seconds": 119.681,
+  "first_parsed_event_seconds": 5.62,
+  "plan": [
+    {
+      "mode": "per_file",
+      "files": [
+        "Application.evtx"
+      ],
+      "bytes": 11603968
+    },
+    {
+      "mode": "directory",
+      "files": [
+        "Microsoft-Windows-PowerShell-Operational.evtx",
+        "Microsoft-Windows-TaskScheduler-Operational.evtx",
+        "Microsoft-Windows-TerminalServices-LocalSessionManager.evtx",
+        "Microsoft-Windows-WMI-Activity-Operational.evtx",
+        "Microsoft-Windows-Windows-Defender-Operational.evtx",
+        "Security.evtx",
+        "System.evtx"
+      ],
+      "bytes": 65499136
+    }
+  ],
+  "legacy_events": 110742,
+  "selected_events": 110742,
+  "legacy_detections": 7436,
+  "selected_detections": 7436,
+  "erk_legacy_minus_selected": 0,
+  "erk_selected_minus_legacy": 0,
+  "events_with_field_differences": 0,
+  "field_diff_examples": [],
+  "legacy_detections_minus_selected": 0,
+  "selected_detections_minus_legacy": 0,
+  "incorrect_cross_file_attachments": 0,
+  "parser_errors": [],
+  "parser_warnings_count": 0,
+  "event_parity": true,
+  "detection_parity": true
+}

@@ -1,0 +1,265 @@
+{
+  "phase": "1",
+  "step": "4",
+  "scope": "Phase 1.7 latency closure only",
+  "verdict": "STEP4_ACCEPTED",
+  "full_phase1_complete": false,
+  "forbidden_scope_not_started": [
+    "Phase 1.8",
+    "Phase 1B",
+    "typed columns",
+    "Phase 2",
+    "generations/manifests/LEK/surfaces",
+    "RecordID-only directory matching"
+  ],
+  "corpus": {
+    "path": "/opt/casescope-benchmark/phase0a_evtx",
+    "files": 8,
+    "bytes": 77103104,
+    "events": 110742,
+    "erk_set_sha256": "6ad87fe76520d18bde4cfb421bbd4fce0b410c00d60abaf642769aa303515b7c",
+    "cross_file_record_id_collisions": 5536
+  },
+  "locked_semantics": {
+    "events": 110742,
+    "detections": 7436,
+    "deterministic_event_diffs": 0,
+    "cross_file_detection_attachments": 0,
+    "directory_correlation_rule": [
+      "source identity",
+      "RecordID"
+    ],
+    "record_id_only_directory_correlation": false
+  },
+  "previous_latency_problem": {
+    "per_file_median_ingest_wall": 175.092,
+    "per_file_median_first_searchable": 18.4,
+    "current_directory_median_ingest_wall": 136.707,
+    "current_directory_median_first_searchable": 41.0965,
+    "first_searchable_regression_seconds": 22.697,
+    "first_searchable_regression_percent": 123.35
+  },
+  "parser_group_size_study": {
+    "pairs": 2,
+    "artifact": "docs/database_flow_phase1/phase1_step4_latency_parser.json",
+    "rows": [
+      {
+        "policy": "g1_per_file",
+        "median_wall": 123.549,
+        "median_first_event": 5.779,
+        "median_second_group_searchable": 15.88,
+        "hayabusa_launches": 8,
+        "evtxecmd_launches": 8
+      },
+      {
+        "policy": "g2",
+        "median_wall": 96.462,
+        "median_first_event": 6.619,
+        "median_second_group_searchable": 18.029,
+        "hayabusa_launches": 4,
+        "evtxecmd_launches": 4
+      },
+      {
+        "policy": "g4",
+        "median_wall": 88.093,
+        "median_first_event": 6.662,
+        "median_second_group_searchable": 38.534,
+        "hayabusa_launches": 2,
+        "evtxecmd_launches": 2
+      },
+      {
+        "policy": "g8_current",
+        "median_wall": 84.046,
+        "median_first_event": 28.184,
+        "median_second_group_searchable": null,
+        "hayabusa_launches": 1,
+        "evtxecmd_launches": 1
+      },
+      {
+        "policy": "eager1_rest7",
+        "median_wall": 85.045,
+        "median_first_event": 5.564,
+        "median_second_group_searchable": 35.764,
+        "hayabusa_launches": 2,
+        "evtxecmd_launches": 2
+      },
+      {
+        "policy": "eager1_g2",
+        "median_wall": 93.02,
+        "median_first_event": 5.806,
+        "median_second_group_searchable": 15.784,
+        "hayabusa_launches": 5,
+        "evtxecmd_launches": 5
+      },
+      {
+        "policy": "eager1_g4",
+        "median_wall": 91.115,
+        "median_first_event": 5.724,
+        "median_second_group_searchable": 15.659,
+        "hayabusa_launches": 3,
+        "evtxecmd_launches": 3
+      },
+      {
+        "policy": "small_first_g8",
+        "median_wall": 85.753,
+        "median_first_event": 28.355,
+        "median_second_group_searchable": null,
+        "hayabusa_launches": 1,
+        "evtxecmd_launches": 1
+      },
+      {
+        "policy": "small_first_eager1_rest",
+        "median_wall": 89.868,
+        "median_first_event": 34.066,
+        "median_second_group_searchable": 34.066,
+        "hayabusa_launches": 2,
+        "evtxecmd_launches": 2
+      }
+    ]
+  },
+  "group_byte_distribution": {
+    "artifact": "docs/database_flow_phase1/phase1_step4_latency_groups.json",
+    "g1_per_file": [11603968, 15798272, 69632, 1118208, 1118208, 5312512, 21041152, 21041152],
+    "g2": [27402240, 1187840, 6430720, 42082304],
+    "g4": [28590080, 48513024],
+    "g8_current": [77103104],
+    "eager1_rest7": [11603968, 65499136],
+    "eager1_g2": [11603968, 15867904, 2236416, 26353664, 21041152],
+    "eager1_g4": [11603968, 18104320, 47394816]
+  },
+  "ingest_pareto_study": {
+    "pairs": 2,
+    "artifacts": [
+      "docs/database_flow_phase1/phase1_step4_latency_ingest_P1_g1.json",
+      "docs/database_flow_phase1/phase1_step4_latency_ingest_P1_eager1_rest7.json",
+      "docs/database_flow_phase1/phase1_step4_latency_ingest_P1_g4.json",
+      "docs/database_flow_phase1/phase1_step4_latency_ingest_P1_g8.json",
+      "docs/database_flow_phase1/phase1_step4_latency_ingest_P2_g8.json",
+      "docs/database_flow_phase1/phase1_step4_latency_ingest_P2_g4.json",
+      "docs/database_flow_phase1/phase1_step4_latency_ingest_P2_eager1_rest7.json",
+      "docs/database_flow_phase1/phase1_step4_latency_ingest_P2_g1.json"
+    ],
+    "rows": [
+      {
+        "policy": "g1_per_file",
+        "median_wall": 174.654,
+        "median_first_searchable": 18.4545,
+        "median_events_per_second": 634.065,
+        "median_peak_rss_mb": 233.085,
+        "hayabusa_launches": 8,
+        "evtxecmd_launches": 8
+      },
+      {
+        "policy": "g4",
+        "median_wall": 139.769,
+        "median_first_searchable": 18.429,
+        "median_second_group_searchable": 60.424,
+        "median_events_per_second": 792.324,
+        "median_peak_rss_mb": 276.075,
+        "hayabusa_launches": 2,
+        "evtxecmd_launches": 2
+      },
+      {
+        "policy": "g8_current",
+        "median_wall": 136.177,
+        "median_first_searchable": 40.2305,
+        "median_events_per_second": 813.2285,
+        "median_peak_rss_mb": 226.42,
+        "hayabusa_launches": 1,
+        "evtxecmd_launches": 1
+      },
+      {
+        "policy": "eager1_rest7",
+        "median_wall": 138.5895,
+        "median_first_searchable": 18.271,
+        "median_second_group_searchable": 45.2845,
+        "median_events_per_second": 799.088,
+        "median_peak_rss_mb": 224.105,
+        "hayabusa_launches": 2,
+        "evtxecmd_launches": 2
+      }
+    ]
+  },
+  "group_fill_window": {
+    "seconds": 0,
+    "needed": false,
+    "finding": "Grouping receives the current queued set immediately; no debounce or wait for later uploads was added."
+  },
+  "progressive_searchable_timeline_selected": {
+    "P1": {
+      "first_unit_searchable": 18.331,
+      "second_unit_searchable": 44.792,
+      "final_wall": 137.86
+    },
+    "P2": {
+      "first_unit_searchable": 18.211,
+      "second_unit_searchable": 45.777,
+      "final_wall": 139.319
+    },
+    "median": {
+      "first_unit_searchable": 18.271,
+      "second_unit_searchable": 45.2845,
+      "final_wall": 138.5895
+    }
+  },
+  "ordering_findings": {
+    "selected_order": "queue",
+    "smallest_first_selected": false,
+    "reason": "Smallest-first did not improve parser first event and smallest-first eager chose a zero-event first file, delaying useful evidence to 34.066 s."
+  },
+  "selected_policy": {
+    "name": "eager1_rest7",
+    "description": "First currently-ready EVTX uses the current safe per-file path; remaining queued EVTX files use bounded directory groups.",
+    "eager_first": true,
+    "preferred_target_files": 8,
+    "preferred_target_bytes": 134217728,
+    "absolute_max_files": 32,
+    "absolute_max_bytes": 536870912,
+    "order": "queue",
+    "fill_window_seconds": 0,
+    "duplicate_processes_eager_first_file": false
+  },
+  "final_metrics": {
+    "first_searchable_latency_seconds": 18.271,
+    "total_ingest_wall_seconds": 138.5895,
+    "events_per_second": 799.088,
+    "ingest_improvement_over_paired_per_file": 1.26,
+    "first_searchable_reduction_vs_current_directory_seconds": 21.9595,
+    "completion_cost_vs_current_directory_seconds": 2.4125,
+    "target_first_searchable_lte_25s": true,
+    "target_ingest_improvement_gte_1_15x": true
+  },
+  "semantic_parity_selected_policy": {
+    "artifact": "docs/database_flow_phase1/phase1_step4_selected_parity.json",
+    "events": 110742,
+    "detections": 7436,
+    "erk_missing": 0,
+    "erk_extra": 0,
+    "events_with_field_differences": 0,
+    "incorrect_cross_file_attachments": 0,
+    "event_parity": true,
+    "detection_parity": true,
+    "raw_json_search_blob_extra_fields_identical": true,
+    "source_file_identity_identical": true,
+    "case_file_association_identical": true
+  },
+  "failure_fallback_regression": {
+    "tests": 27,
+    "result": "OK",
+    "covered": [
+      "directory failure -> bounded per-file fallback",
+      "malformed EVTX does not poison unrelated files",
+      "duplicate basenames remain safe",
+      "eager first file is not reprocessed",
+      "directory fallback does not process the eager file",
+      "single EVTX remains per-file"
+    ]
+  },
+  "final_verdict_basis": {
+    "semantic_parity_exact": true,
+    "cross_file_attachment_zero": true,
+    "directory_throughput_advantage_meaningful": true,
+    "selected_policy_measurement_based": true,
+    "first_searchable_regression_materially_reduced": true
+  }
+}

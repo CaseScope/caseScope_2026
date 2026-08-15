@@ -16,6 +16,13 @@ from contextlib import contextmanager
 
 import clickhouse_connect
 
+from utils.ingest_fence import (
+    IngestFenceUnavailable,
+    exclusive_ingest_fence,
+    get_active_exclusive_fence,
+)
+from utils.ingest_metrics import diagnostic_counts_enabled, emit_metric, timed_stage
+
 logger = logging.getLogger(__name__)
 
 
@@ -114,174 +121,40 @@ class ClickHouseMutationGuardActive(RuntimeError):
         )
 
 
-def _get_destructive_rewrite_redis_client(*, required=False):
-    """Get the Redis client used for destructive rewrite admission control."""
-    try:
-        import redis
-
-        client = redis.Redis(
-            host=os.environ.get('REDIS_HOST') or 'localhost',
-            port=int(os.environ.get('REDIS_PORT', 6379)),
-            db=int(os.environ.get('REDIS_DB', 0)),
-            password=os.environ.get('REDIS_PASSWORD') or None,
-            socket_connect_timeout=float(
-                os.environ.get('REDIS_CONNECT_TIMEOUT_SECONDS', 5)
-            ),
-            socket_timeout=float(os.environ.get('REDIS_SOCKET_TIMEOUT_SECONDS', 5)),
-        )
-        client.ping()
-        return client
-    except Exception as exc:
-        if required:
-            raise RuntimeError(
-                "Unable to acquire Redis-backed destructive rewrite lock; "
-                f"refusing to run unlocked ({exc})"
-            ) from exc
-        return None
-
-
-def _decode_destructive_rewrite_payload(raw_payload):
-    if not raw_payload:
-        return None
-    if isinstance(raw_payload, bytes):
-        raw_payload = raw_payload.decode('utf-8', errors='replace')
-    try:
-        payload = json.loads(raw_payload)
-    except Exception:
-        return {'raw': str(raw_payload)}
-    if isinstance(payload, dict):
-        return payload
-    return {'raw': payload}
-
-
 def get_active_destructive_event_rewrite():
-    """Return metadata for the active destructive events rewrite, if any."""
-    client = _get_destructive_rewrite_redis_client()
-    if client is None:
-        return None
-    try:
-        return _decode_destructive_rewrite_payload(client.get(_DESTRUCTIVE_REWRITE_LOCK_KEY))
-    except Exception:
-        return None
+    """Return metadata for the active exclusive events fence, if any."""
+    return get_active_exclusive_fence()
 
 
 @contextmanager
 def destructive_event_rewrite_guard(operation, *, case_id=None, ttl_seconds=None, require_lock=False):
-    """Serialize explicit destructive rewrites against the `events` table."""
-    client = _get_destructive_rewrite_redis_client(required=require_lock)
-    if client is None:
-        yield None
-        return
+    """Serialize correctness-sensitive rewrites against the `events` table.
 
-    ttl = max(int(ttl_seconds or _destructive_rewrite_lock_ttl_seconds()), 300)
-    payload = {
-        'token': str(uuid.uuid4()),
-        'operation': str(operation),
-        'case_id': int(case_id) if case_id is not None else None,
-        'started_at': time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime()),
-    }
-    serialized = json.dumps(payload)
-    stop_renewal = threading.Event()
-    renewal_error = {'message': None}
-
+    Fail-closed: Redis/admission unavailability refuses the operation.
+    ``require_lock`` is retained for call-site compatibility and is ignored as a
+    fail-open switch; correctness-sensitive rewrites always require the exclusive
+    ingest fence.
+    """
+    del require_lock
     try:
-        acquired = client.set(_DESTRUCTIVE_REWRITE_LOCK_KEY, serialized, nx=True, ex=ttl)
-    except Exception as exc:
-        if require_lock:
-            raise RuntimeError(
-                "Unable to acquire Redis-backed destructive rewrite lock; "
-                f"refusing to run unlocked ({exc})"
-            ) from exc
-        yield None
-        return
-
-    if not acquired:
-        raise ClickHouseMutationGuardActive(get_active_destructive_event_rewrite())
-
-    def assert_active():
-        if renewal_error['message']:
-            raise RuntimeError(renewal_error['message'])
-        try:
-            current = client.get(_DESTRUCTIVE_REWRITE_LOCK_KEY)
-            if isinstance(current, bytes):
-                current = current.decode('utf-8', errors='replace')
-            if current != serialized:
-                renewal_error['message'] = (
-                    "Lost Redis-backed destructive rewrite lock; refusing to continue"
-                )
-                raise RuntimeError(renewal_error['message'])
-        except RuntimeError:
-            raise
-        except Exception as exc:
-            renewal_error['message'] = (
-                "Unable to verify Redis-backed destructive rewrite lock; "
-                f"refusing to continue ({exc})"
-            )
-            raise RuntimeError(renewal_error['message']) from exc
-
-    def renew_loop():
-        renew_interval = _destructive_rewrite_lock_renew_interval(ttl)
-        renew_script = """
-        local key = KEYS[1]
-        local expected = ARGV[1]
-        local ttl = tonumber(ARGV[2])
-        local current = redis.call('GET', key)
-        if current == expected then
-            return redis.call('EXPIRE', key, ttl)
-        end
-        return 0
-        """
-        while not stop_renewal.wait(renew_interval):
-            try:
-                renewed = client.eval(
-                    renew_script,
-                    1,
-                    _DESTRUCTIVE_REWRITE_LOCK_KEY,
-                    serialized,
-                    int(ttl),
-                )
-                if int(renewed or 0) != 1:
-                    renewal_error['message'] = (
-                        "Lost Redis-backed destructive rewrite lock; refusing to continue"
-                    )
-                    stop_renewal.set()
-                    return
-            except Exception as exc:
-                renewal_error['message'] = (
-                    "Unable to renew Redis-backed destructive rewrite lock; "
-                    f"refusing to continue ({exc})"
-                )
-                stop_renewal.set()
-                return
-
-    renewal_thread = threading.Thread(
-        target=renew_loop,
-        name='clickhouse-destructive-rewrite-lock-renewer',
-        daemon=True,
-    )
-    renewal_thread.start()
-    payload['assert_active'] = assert_active
-
-    try:
-        assert_active()
-        yield payload
-        assert_active()
-    finally:
-        stop_renewal.set()
-        renewal_thread.join(timeout=5)
-        try:
-            release_script = """
-            local key = KEYS[1]
-            local expected = ARGV[1]
-            local current = redis.call('GET', key)
-            if current == expected then
-                return redis.call('DEL', key)
-            end
-            return 0
-            """
-            client.eval(release_script, 1, _DESTRUCTIVE_REWRITE_LOCK_KEY, serialized)
-        except Exception:
-            pass
+        with exclusive_ingest_fence(
+            operation,
+            case_id=case_id,
+            ttl_seconds=ttl_seconds,
+        ) as lease:
+            yield {
+                'token': lease.token,
+                'operation': lease.operation,
+                'case_id': lease.case_id,
+                'started_at': time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime()),
+                'epoch': lease.epoch,
+                'assert_active': lease.assert_active,
+            }
+    except IngestFenceUnavailable as exc:
+        raise RuntimeError(
+            "Unable to acquire Redis-backed destructive rewrite lock; "
+            f"refusing to run unlocked ({exc})"
+        ) from exc
 
 
 def get_client():
@@ -395,12 +268,16 @@ def run_events_update(assignments_sql, where_sql, *, client=None, wait=True, aud
     change for the forensic audit log. It is optional only so that internal
     repair paths can opt out deliberately; callers that modify evidence on
     behalf of a user are expected to supply it, and omitting it is logged.
+
+    Broad and overlay ALTER UPDATE paths are exclusive-fenced and fail closed.
+    Nested callers that already hold exclusive ownership reuse that fence.
     """
     client = client or get_client()
     settings_clause = ' SETTINGS mutations_sync = 1' if wait else ''
-    client.command(
-        f"ALTER TABLE events UPDATE {assignments_sql} WHERE {where_sql}{settings_clause}"
-    )
+    with exclusive_ingest_fence('events_alter_update'):
+        client.command(
+            f"ALTER TABLE events UPDATE {assignments_sql} WHERE {where_sql}{settings_clause}"
+        )
 
     if audit is not None:
         from utils.evidence_audit import record_bulk_change
@@ -496,16 +373,32 @@ def delete_case_events(case_id, *, wait=False, client=None):
     """
     client = client or get_client()
     command_fragment = f"DELETE WHERE case_id = {int(case_id)}"
+    existing_rows = None
+    if diagnostic_counts_enabled():
+        with timed_stage("delete_case_events_existing_count", case_id=case_id):
+            count_result = client.query(
+                "SELECT count() FROM events WHERE case_id = {case_id:UInt32}",
+                parameters={"case_id": int(case_id)},
+            )
+            existing_rows = count_result.result_rows[0][0] if count_result.result_rows else 0
     with destructive_event_rewrite_guard('case_event_delete', case_id=case_id):
         for table_name in ('events', 'events_buffer'):
             try:
-                client.command(f"ALTER TABLE {table_name} {command_fragment}")
+                with timed_stage(
+                    "delete_case_events_command",
+                    case_id=case_id,
+                    table_name=table_name,
+                    wait=wait,
+                    existing_rows=existing_rows,
+                ):
+                    client.command(f"ALTER TABLE {table_name} {command_fragment}")
             except Exception as exc:
                 if table_name == 'events_buffer' and 'doesn\'t support mutations' in str(exc).lower():
                     continue
                 raise
         if wait:
-            wait_for_mutation_completion('events', command_fragment, client=client)
+            with timed_stage("delete_case_events_mutation_wait", case_id=case_id):
+                wait_for_mutation_completion('events', command_fragment, client=client)
     return True
 
 
@@ -615,34 +508,135 @@ def wait_for_mutation_completion(
         time.sleep(max(poll_interval_seconds, 0.1))
 
 
+def _case_file_events_exist(client, case_file_id):
+    """Cheap case_file_id existence probe. Exceptions propagate for fail-safe DELETE."""
+    params = {"case_file_id": int(case_file_id)}
+    result = client.query(
+        """
+        SELECT 1
+        FROM events
+        WHERE case_file_id = {case_file_id:UInt32}
+        LIMIT 1
+        """,
+        parameters=params,
+    )
+    if result.result_rows:
+        return True, "events"
+    try:
+        result = client.query(
+            """
+            SELECT 1
+            FROM events_buffer
+            WHERE case_file_id = {case_file_id:UInt32}
+            LIMIT 1
+            """,
+            parameters=params,
+        )
+    except Exception as exc:
+        message = str(exc).lower()
+        if "doesn't exist" in message or "unknown table" in message:
+            return False, None
+        raise
+    if result.result_rows:
+        return True, "events_buffer"
+    return False, None
+
+
 def delete_file_events(case_file_id, *, wait=False, client=None):
     """Delete all events for a specific case file
     
     Uses ALTER TABLE DELETE for MergeTree tables.
     When `wait=True`, block until the durable `events` mutation completes.
+
+    Before issuing the destructive mutation, a cheap existence probe runs.
+    Zero-row sources skip ALTER DELETE. Probe failures fail-safe and still
+    issue the current guarded DELETE.
     
     Args:
         case_file_id: The case_file_id to delete events for
         wait: Whether to wait for the `events` mutation to finish applying
     
     Returns:
-        True if delete command was issued
+        True if delete command was issued or safely skipped
     """
     client = client or get_client()
     command_fragment = f"DELETE WHERE case_file_id = {int(case_file_id)}"
-    for table_name in ('events', 'events_buffer'):
+    with exclusive_ingest_fence(
+        'file_event_delete',
+        source_ref=f'case_file:{int(case_file_id)}',
+    ) as lease:
+        lease.assert_active()
+        existing_rows = None
+        probe_hit = True
+        probe_source = None
         try:
-            client.command(f"ALTER TABLE {table_name} {command_fragment}")
+            with timed_stage("delete_file_events_existence_probe", case_file_id=case_file_id) as probe_metric:
+                probe_hit, probe_source = _case_file_events_exist(client, case_file_id)
+                probe_metric["probe_hit"] = bool(probe_hit)
+                probe_metric["probe_miss"] = not bool(probe_hit)
+                probe_metric["probe_source"] = probe_source
         except Exception as exc:
-            # Buffer engine deployments do not support mutations. Keep the
-            # durable events delete and skip the buffer mutation when the
-            # server rejects it as unsupported.
-            if table_name == 'events_buffer' and 'doesn\'t support mutations' in str(exc).lower():
-                continue
-            raise
-    if wait:
-        wait_for_mutation_completion('events', command_fragment, client=client)
-    return True
+            probe_hit = True
+            emit_metric(
+                "delete_file_events_existence_probe_failed",
+                case_file_id=case_file_id,
+                error_type=exc.__class__.__name__,
+            )
+            logger.warning(
+                "Existence probe failed for case_file_id=%s; issuing DELETE fail-safe: %s",
+                case_file_id,
+                exc,
+            )
+        if not probe_hit:
+            emit_metric(
+                "delete_file_events_skipped",
+                case_file_id=case_file_id,
+                reason="existence_miss",
+                wait=wait,
+            )
+            return True
+        if diagnostic_counts_enabled():
+            with timed_stage("delete_file_events_existing_count", case_file_id=case_file_id):
+                count_result = client.query(
+                    "SELECT count() FROM events WHERE case_file_id = {case_file_id:UInt32}",
+                    parameters={"case_file_id": int(case_file_id)},
+                )
+                existing_rows = count_result.result_rows[0][0] if count_result.result_rows else 0
+        lease.assert_active()
+        for table_name in ('events', 'events_buffer'):
+            try:
+                with timed_stage(
+                    "delete_file_events_command",
+                    case_file_id=case_file_id,
+                    table_name=table_name,
+                    wait=wait,
+                    existing_rows=existing_rows,
+                    probe_source=probe_source,
+                ):
+                    client.command(f"ALTER TABLE {table_name} {command_fragment}")
+            except Exception as exc:
+                # Buffer engine deployments do not support mutations. Keep the
+                # durable events delete and skip the buffer mutation when the
+                # server rejects it as unsupported.
+                if table_name == 'events_buffer' and 'doesn\'t support mutations' in str(exc).lower():
+                    emit_metric(
+                        "delete_file_events_buffer_mutation_skipped",
+                        case_file_id=case_file_id,
+                        reason="buffer_engine_no_mutations",
+                    )
+                    continue
+                raise
+        if wait:
+            with timed_stage("delete_file_events_mutation_wait", case_file_id=case_file_id):
+                wait_for_mutation_completion('events', command_fragment, client=client)
+        lease.assert_active()
+        emit_metric(
+            "delete_file_events_executed",
+            case_file_id=case_file_id,
+            wait=wait,
+            probe_source=probe_source,
+        )
+        return True
 
 
 def count_file_events(case_file_id):

@@ -1,0 +1,1768 @@
+{
+  "phase": "0A",
+  "source_of_truth": "casescope_database_flow_plan_v4_locked.md",
+  "status": "executed_bounded_read_only",
+  "cases_analyzed": [
+    3,
+    23,
+    1,
+    37
+  ],
+  "case_count": 4,
+  "source_generation_metrics": "NOT CURRENTLY MEASURABLE",
+  "totals": {
+    "event_count": 20894468,
+    "currently_dedup_eligible_count": 20880291,
+    "duplicate_group_count": 4048681,
+    "duplicate_count_under_legacy_semantics": 9392460,
+    "duplicates_within_same_case_file": 2552676,
+    "duplicates_across_case_files": 6839784,
+    "same_erk_duplicates": 2480028,
+    "different_erk_duplicates": 6912432
+  },
+  "artifact_results": [
+    {
+      "artifact_type": "registry",
+      "unique_fields": [
+        "source_host",
+        "source_file",
+        "reg_key",
+        "reg_value",
+        "timestamp",
+        "raw_json"
+      ],
+      "event_count": 10341459,
+      "currently_dedup_eligible_count": 10341459,
+      "duplicate_group_count": 2030231,
+      "duplicate_count_under_legacy_semantics": 4924939,
+      "duplicates_within_same_case_file": 3,
+      "duplicates_across_case_files": 4924936,
+      "same_erk_duplicates": 3,
+      "different_erk_duplicates": 4924936,
+      "source_generation_metrics": "NOT CURRENTLY MEASURABLE",
+      "skipped_by_current_auto_dedup_threshold_cases": [
+        3,
+        23,
+        1,
+        37
+      ]
+    },
+    {
+      "artifact_type": "mft",
+      "unique_fields": [
+        "source_host",
+        "source_file",
+        "record_id",
+        "timestamp"
+      ],
+      "event_count": 5549327,
+      "currently_dedup_eligible_count": 5549327,
+      "duplicate_group_count": 1080000,
+      "duplicate_count_under_legacy_semantics": 2480000,
+      "duplicates_within_same_case_file": 2480000,
+      "duplicates_across_case_files": 0,
+      "same_erk_duplicates": 2480000,
+      "different_erk_duplicates": 0,
+      "source_generation_metrics": "NOT CURRENTLY MEASURABLE",
+      "skipped_by_current_auto_dedup_threshold_cases": [
+        3,
+        23,
+        1,
+        37
+      ]
+    },
+    {
+      "artifact_type": "srum",
+      "unique_fields": [
+        "source_host",
+        "source_file",
+        "timestamp",
+        "process_name"
+      ],
+      "event_count": 2989816,
+      "currently_dedup_eligible_count": 2989800,
+      "duplicate_group_count": 844811,
+      "duplicate_count_under_legacy_semantics": 1883822,
+      "duplicates_within_same_case_file": 62647,
+      "duplicates_across_case_files": 1821175,
+      "same_erk_duplicates": 0,
+      "different_erk_duplicates": 1883822,
+      "source_generation_metrics": "NOT CURRENTLY MEASURABLE",
+      "skipped_by_current_auto_dedup_threshold_cases": [
+        3,
+        23,
+        1,
+        37
+      ]
+    },
+    {
+      "artifact_type": "evtx",
+      "unique_fields": [
+        "source_host",
+        "source_file",
+        "record_id"
+      ],
+      "event_count": 1957105,
+      "currently_dedup_eligible_count": 1957105,
+      "duplicate_group_count": 93609,
+      "duplicate_count_under_legacy_semantics": 93646,
+      "duplicates_within_same_case_file": 0,
+      "duplicates_across_case_files": 93646,
+      "same_erk_duplicates": 0,
+      "different_erk_duplicates": 93646,
+      "source_generation_metrics": "NOT CURRENTLY MEASURABLE",
+      "skipped_by_current_auto_dedup_threshold_cases": [
+        3,
+        1,
+        37
+      ]
+    },
+    {
+      "artifact_type": "huntress",
+      "unique_fields": [
+        "event_id"
+      ],
+      "event_count": 25327,
+      "currently_dedup_eligible_count": 25327,
+      "duplicate_group_count": 1,
+      "duplicate_count_under_legacy_semantics": 9999,
+      "duplicates_within_same_case_file": 9999,
+      "duplicates_across_case_files": 0,
+      "same_erk_duplicates": 0,
+      "different_erk_duplicates": 9999,
+      "source_generation_metrics": "NOT CURRENTLY MEASURABLE",
+      "skipped_by_current_auto_dedup_threshold_cases": []
+    },
+    {
+      "artifact_type": "lnk",
+      "unique_fields": [
+        "source_host",
+        "source_file",
+        "target_path"
+      ],
+      "event_count": 1109,
+      "currently_dedup_eligible_count": 1109,
+      "duplicate_group_count": 8,
+      "duplicate_count_under_legacy_semantics": 27,
+      "duplicates_within_same_case_file": 0,
+      "duplicates_across_case_files": 27,
+      "same_erk_duplicates": 0,
+      "different_erk_duplicates": 27,
+      "source_generation_metrics": "NOT CURRENTLY MEASURABLE",
+      "skipped_by_current_auto_dedup_threshold_cases": []
+    },
+    {
+      "artifact_type": "csv_log",
+      "unique_fields": [
+        "source_file",
+        "timestamp",
+        "search_blob"
+      ],
+      "event_count": 10780,
+      "currently_dedup_eligible_count": 5367,
+      "duplicate_group_count": 19,
+      "duplicate_count_under_legacy_semantics": 25,
+      "duplicates_within_same_case_file": 25,
+      "duplicates_across_case_files": 0,
+      "same_erk_duplicates": 25,
+      "different_erk_duplicates": 0,
+      "source_generation_metrics": "NOT CURRENTLY MEASURABLE",
+      "skipped_by_current_auto_dedup_threshold_cases": []
+    },
+    {
+      "artifact_type": "prefetch",
+      "unique_fields": [
+        "source_host",
+        "source_file",
+        "timestamp"
+      ],
+      "event_count": 6638,
+      "currently_dedup_eligible_count": 6638,
+      "duplicate_group_count": 2,
+      "duplicate_count_under_legacy_semantics": 2,
+      "duplicates_within_same_case_file": 2,
+      "duplicates_across_case_files": 0,
+      "same_erk_duplicates": 0,
+      "different_erk_duplicates": 2,
+      "source_generation_metrics": "NOT CURRENTLY MEASURABLE",
+      "skipped_by_current_auto_dedup_threshold_cases": []
+    },
+    {
+      "artifact_type": "browser",
+      "unique_fields": [
+        "source_host",
+        "source_file",
+        "timestamp",
+        "target_path"
+      ],
+      "event_count": 0,
+      "currently_dedup_eligible_count": 0,
+      "duplicate_group_count": 0,
+      "duplicate_count_under_legacy_semantics": 0,
+      "duplicates_within_same_case_file": 0,
+      "duplicates_across_case_files": 0,
+      "same_erk_duplicates": 0,
+      "different_erk_duplicates": 0,
+      "source_generation_metrics": "NOT CURRENTLY MEASURABLE",
+      "skipped_by_current_auto_dedup_threshold_cases": []
+    },
+    {
+      "artifact_type": "jumplist",
+      "unique_fields": [
+        "source_host",
+        "source_file",
+        "target_path",
+        "timestamp"
+      ],
+      "event_count": 11282,
+      "currently_dedup_eligible_count": 4159,
+      "duplicate_group_count": 0,
+      "duplicate_count_under_legacy_semantics": 0,
+      "duplicates_within_same_case_file": 0,
+      "duplicates_across_case_files": 0,
+      "same_erk_duplicates": 0,
+      "different_erk_duplicates": 0,
+      "source_generation_metrics": "NOT CURRENTLY MEASURABLE",
+      "skipped_by_current_auto_dedup_threshold_cases": []
+    },
+    {
+      "artifact_type": "scheduled_task",
+      "unique_fields": [
+        "source_host",
+        "source_file",
+        "target_path"
+      ],
+      "event_count": 866,
+      "currently_dedup_eligible_count": 0,
+      "duplicate_group_count": 0,
+      "duplicate_count_under_legacy_semantics": 0,
+      "duplicates_within_same_case_file": 0,
+      "duplicates_across_case_files": 0,
+      "same_erk_duplicates": 0,
+      "different_erk_duplicates": 0,
+      "source_generation_metrics": "NOT CURRENTLY MEASURABLE",
+      "skipped_by_current_auto_dedup_threshold_cases": []
+    },
+    {
+      "artifact_type": "activities_cache",
+      "unique_fields": [
+        "source_host",
+        "source_file",
+        "timestamp",
+        "target_path"
+      ],
+      "event_count": 138,
+      "currently_dedup_eligible_count": 0,
+      "duplicate_group_count": 0,
+      "duplicate_count_under_legacy_semantics": 0,
+      "duplicates_within_same_case_file": 0,
+      "duplicates_across_case_files": 0,
+      "same_erk_duplicates": 0,
+      "different_erk_duplicates": 0,
+      "source_generation_metrics": "NOT CURRENTLY MEASURABLE",
+      "skipped_by_current_auto_dedup_threshold_cases": []
+    },
+    {
+      "artifact_type": "webcache",
+      "unique_fields": [
+        "source_host",
+        "source_file",
+        "timestamp",
+        "target_path"
+      ],
+      "event_count": 0,
+      "currently_dedup_eligible_count": 0,
+      "duplicate_group_count": 0,
+      "duplicate_count_under_legacy_semantics": 0,
+      "duplicates_within_same_case_file": 0,
+      "duplicates_across_case_files": 0,
+      "same_erk_duplicates": 0,
+      "different_erk_duplicates": 0,
+      "source_generation_metrics": "NOT CURRENTLY MEASURABLE",
+      "skipped_by_current_auto_dedup_threshold_cases": []
+    },
+    {
+      "artifact_type": "iis",
+      "unique_fields": [
+        "source_host",
+        "source_file",
+        "timestamp",
+        "src_ip",
+        "target_path"
+      ],
+      "event_count": 0,
+      "currently_dedup_eligible_count": 0,
+      "duplicate_group_count": 0,
+      "duplicate_count_under_legacy_semantics": 0,
+      "duplicates_within_same_case_file": 0,
+      "duplicates_across_case_files": 0,
+      "same_erk_duplicates": 0,
+      "different_erk_duplicates": 0,
+      "source_generation_metrics": "NOT CURRENTLY MEASURABLE",
+      "skipped_by_current_auto_dedup_threshold_cases": []
+    },
+    {
+      "artifact_type": "firewall",
+      "unique_fields": [
+        "source_host",
+        "timestamp",
+        "src_ip",
+        "dst_ip",
+        "src_port",
+        "dst_port"
+      ],
+      "event_count": 496,
+      "currently_dedup_eligible_count": 0,
+      "duplicate_group_count": 0,
+      "duplicate_count_under_legacy_semantics": 0,
+      "duplicates_within_same_case_file": 0,
+      "duplicates_across_case_files": 0,
+      "same_erk_duplicates": 0,
+      "different_erk_duplicates": 0,
+      "source_generation_metrics": "NOT CURRENTLY MEASURABLE",
+      "skipped_by_current_auto_dedup_threshold_cases": []
+    },
+    {
+      "artifact_type": "json_log",
+      "unique_fields": [
+        "source_file",
+        "timestamp",
+        "event_id"
+      ],
+      "event_count": 125,
+      "currently_dedup_eligible_count": 0,
+      "duplicate_group_count": 0,
+      "duplicate_count_under_legacy_semantics": 0,
+      "duplicates_within_same_case_file": 0,
+      "duplicates_across_case_files": 0,
+      "same_erk_duplicates": 0,
+      "different_erk_duplicates": 0,
+      "source_generation_metrics": "NOT CURRENTLY MEASURABLE",
+      "skipped_by_current_auto_dedup_threshold_cases": []
+    },
+    {
+      "artifact_type": "firefox_session",
+      "unique_fields": [
+        "source_host",
+        "source_file",
+        "timestamp",
+        "target_path"
+      ],
+      "event_count": 0,
+      "currently_dedup_eligible_count": 0,
+      "duplicate_group_count": 0,
+      "duplicate_count_under_legacy_semantics": 0,
+      "duplicates_within_same_case_file": 0,
+      "duplicates_across_case_files": 0,
+      "same_erk_duplicates": 0,
+      "different_erk_duplicates": 0,
+      "source_generation_metrics": "NOT CURRENTLY MEASURABLE",
+      "skipped_by_current_auto_dedup_threshold_cases": []
+    },
+    {
+      "artifact_type": "sonicwall",
+      "unique_fields": [
+        "source_file",
+        "timestamp",
+        "src_ip",
+        "dst_ip",
+        "event_id"
+      ],
+      "event_count": 0,
+      "currently_dedup_eligible_count": 0,
+      "duplicate_group_count": 0,
+      "duplicate_count_under_legacy_semantics": 0,
+      "duplicates_within_same_case_file": 0,
+      "duplicates_across_case_files": 0,
+      "same_erk_duplicates": 0,
+      "different_erk_duplicates": 0,
+      "source_generation_metrics": "NOT CURRENTLY MEASURABLE",
+      "skipped_by_current_auto_dedup_threshold_cases": []
+    }
+  ],
+  "case_results": [
+    {
+      "case_id": 3,
+      "artifacts": [
+        {
+          "artifact_type": "evtx",
+          "unique_fields": [
+            "source_host",
+            "source_file",
+            "record_id"
+          ],
+          "event_count": 532352,
+          "currently_dedup_eligible_count": 532352,
+          "duplicate_group_count": 59542,
+          "duplicate_count_under_legacy_semantics": 59579,
+          "duplicates_within_same_case_file": 0,
+          "duplicates_across_case_files": 59579,
+          "same_erk_duplicates": 0,
+          "different_erk_duplicates": 59579,
+          "source_generation_metrics": "NOT CURRENTLY MEASURABLE",
+          "skipped_by_current_auto_dedup_threshold": true
+        },
+        {
+          "artifact_type": "prefetch",
+          "unique_fields": [
+            "source_host",
+            "source_file",
+            "timestamp"
+          ],
+          "event_count": 2539,
+          "currently_dedup_eligible_count": 2539,
+          "duplicate_group_count": 0,
+          "duplicate_count_under_legacy_semantics": 0,
+          "duplicates_within_same_case_file": 0,
+          "duplicates_across_case_files": 0,
+          "same_erk_duplicates": 0,
+          "different_erk_duplicates": 0,
+          "source_generation_metrics": "NOT CURRENTLY MEASURABLE",
+          "skipped_by_current_auto_dedup_threshold": false
+        },
+        {
+          "artifact_type": "registry",
+          "unique_fields": [
+            "source_host",
+            "source_file",
+            "reg_key",
+            "reg_value",
+            "timestamp",
+            "raw_json"
+          ],
+          "event_count": 3710654,
+          "currently_dedup_eligible_count": 3710654,
+          "duplicate_group_count": 1053717,
+          "duplicate_count_under_legacy_semantics": 2067369,
+          "duplicates_within_same_case_file": 1,
+          "duplicates_across_case_files": 2067368,
+          "same_erk_duplicates": 1,
+          "different_erk_duplicates": 2067368,
+          "source_generation_metrics": "NOT CURRENTLY MEASURABLE",
+          "skipped_by_current_auto_dedup_threshold": true
+        },
+        {
+          "artifact_type": "browser",
+          "unique_fields": [
+            "source_host",
+            "source_file",
+            "timestamp",
+            "target_path"
+          ],
+          "event_count": 0,
+          "currently_dedup_eligible_count": 0,
+          "duplicate_group_count": 0,
+          "duplicate_count_under_legacy_semantics": 0,
+          "duplicates_within_same_case_file": 0,
+          "duplicates_across_case_files": 0,
+          "same_erk_duplicates": 0,
+          "different_erk_duplicates": 0,
+          "source_generation_metrics": "NOT CURRENTLY MEASURABLE",
+          "skipped_by_current_auto_dedup_threshold": false
+        },
+        {
+          "artifact_type": "lnk",
+          "unique_fields": [
+            "source_host",
+            "source_file",
+            "target_path"
+          ],
+          "event_count": 457,
+          "currently_dedup_eligible_count": 457,
+          "duplicate_group_count": 1,
+          "duplicate_count_under_legacy_semantics": 1,
+          "duplicates_within_same_case_file": 0,
+          "duplicates_across_case_files": 1,
+          "same_erk_duplicates": 0,
+          "different_erk_duplicates": 1,
+          "source_generation_metrics": "NOT CURRENTLY MEASURABLE",
+          "skipped_by_current_auto_dedup_threshold": false
+        },
+        {
+          "artifact_type": "jumplist",
+          "unique_fields": [
+            "source_host",
+            "source_file",
+            "target_path",
+            "timestamp"
+          ],
+          "event_count": 9158,
+          "currently_dedup_eligible_count": 2864,
+          "duplicate_group_count": 0,
+          "duplicate_count_under_legacy_semantics": 0,
+          "duplicates_within_same_case_file": 0,
+          "duplicates_across_case_files": 0,
+          "same_erk_duplicates": 0,
+          "different_erk_duplicates": 0,
+          "source_generation_metrics": "NOT CURRENTLY MEASURABLE",
+          "skipped_by_current_auto_dedup_threshold": false
+        },
+        {
+          "artifact_type": "huntress",
+          "unique_fields": [
+            "event_id"
+          ],
+          "event_count": 15327,
+          "currently_dedup_eligible_count": 15327,
+          "duplicate_group_count": 0,
+          "duplicate_count_under_legacy_semantics": 0,
+          "duplicates_within_same_case_file": 0,
+          "duplicates_across_case_files": 0,
+          "same_erk_duplicates": 0,
+          "different_erk_duplicates": 0,
+          "source_generation_metrics": "NOT CURRENTLY MEASURABLE",
+          "skipped_by_current_auto_dedup_threshold": false
+        },
+        {
+          "artifact_type": "scheduled_task",
+          "unique_fields": [
+            "source_host",
+            "source_file",
+            "target_path"
+          ],
+          "event_count": 283,
+          "currently_dedup_eligible_count": 0,
+          "duplicate_group_count": 0,
+          "duplicate_count_under_legacy_semantics": 0,
+          "duplicates_within_same_case_file": 0,
+          "duplicates_across_case_files": 0,
+          "same_erk_duplicates": 0,
+          "different_erk_duplicates": 0,
+          "source_generation_metrics": "NOT CURRENTLY MEASURABLE",
+          "skipped_by_current_auto_dedup_threshold": false
+        },
+        {
+          "artifact_type": "mft",
+          "unique_fields": [
+            "source_host",
+            "source_file",
+            "record_id",
+            "timestamp"
+          ],
+          "event_count": 1142417,
+          "currently_dedup_eligible_count": 1142417,
+          "duplicate_group_count": 0,
+          "duplicate_count_under_legacy_semantics": 0,
+          "duplicates_within_same_case_file": 0,
+          "duplicates_across_case_files": 0,
+          "same_erk_duplicates": 0,
+          "different_erk_duplicates": 0,
+          "source_generation_metrics": "NOT CURRENTLY MEASURABLE",
+          "skipped_by_current_auto_dedup_threshold": true
+        },
+        {
+          "artifact_type": "activities_cache",
+          "unique_fields": [
+            "source_host",
+            "source_file",
+            "timestamp",
+            "target_path"
+          ],
+          "event_count": 50,
+          "currently_dedup_eligible_count": 0,
+          "duplicate_group_count": 0,
+          "duplicate_count_under_legacy_semantics": 0,
+          "duplicates_within_same_case_file": 0,
+          "duplicates_across_case_files": 0,
+          "same_erk_duplicates": 0,
+          "different_erk_duplicates": 0,
+          "source_generation_metrics": "NOT CURRENTLY MEASURABLE",
+          "skipped_by_current_auto_dedup_threshold": false
+        },
+        {
+          "artifact_type": "webcache",
+          "unique_fields": [
+            "source_host",
+            "source_file",
+            "timestamp",
+            "target_path"
+          ],
+          "event_count": 0,
+          "currently_dedup_eligible_count": 0,
+          "duplicate_group_count": 0,
+          "duplicate_count_under_legacy_semantics": 0,
+          "duplicates_within_same_case_file": 0,
+          "duplicates_across_case_files": 0,
+          "same_erk_duplicates": 0,
+          "different_erk_duplicates": 0,
+          "source_generation_metrics": "NOT CURRENTLY MEASURABLE",
+          "skipped_by_current_auto_dedup_threshold": false
+        },
+        {
+          "artifact_type": "srum",
+          "unique_fields": [
+            "source_host",
+            "source_file",
+            "timestamp",
+            "process_name"
+          ],
+          "event_count": 837818,
+          "currently_dedup_eligible_count": 837818,
+          "duplicate_group_count": 339792,
+          "duplicate_count_under_legacy_semantics": 498026,
+          "duplicates_within_same_case_file": 0,
+          "duplicates_across_case_files": 498026,
+          "same_erk_duplicates": 0,
+          "different_erk_duplicates": 498026,
+          "source_generation_metrics": "NOT CURRENTLY MEASURABLE",
+          "skipped_by_current_auto_dedup_threshold": true
+        },
+        {
+          "artifact_type": "iis",
+          "unique_fields": [
+            "source_host",
+            "source_file",
+            "timestamp",
+            "src_ip",
+            "target_path"
+          ],
+          "event_count": 0,
+          "currently_dedup_eligible_count": 0,
+          "duplicate_group_count": 0,
+          "duplicate_count_under_legacy_semantics": 0,
+          "duplicates_within_same_case_file": 0,
+          "duplicates_across_case_files": 0,
+          "same_erk_duplicates": 0,
+          "different_erk_duplicates": 0,
+          "source_generation_metrics": "NOT CURRENTLY MEASURABLE",
+          "skipped_by_current_auto_dedup_threshold": false
+        },
+        {
+          "artifact_type": "firewall",
+          "unique_fields": [
+            "source_host",
+            "timestamp",
+            "src_ip",
+            "dst_ip",
+            "src_port",
+            "dst_port"
+          ],
+          "event_count": 496,
+          "currently_dedup_eligible_count": 0,
+          "duplicate_group_count": 0,
+          "duplicate_count_under_legacy_semantics": 0,
+          "duplicates_within_same_case_file": 0,
+          "duplicates_across_case_files": 0,
+          "same_erk_duplicates": 0,
+          "different_erk_duplicates": 0,
+          "source_generation_metrics": "NOT CURRENTLY MEASURABLE",
+          "skipped_by_current_auto_dedup_threshold": false
+        },
+        {
+          "artifact_type": "json_log",
+          "unique_fields": [
+            "source_file",
+            "timestamp",
+            "event_id"
+          ],
+          "event_count": 24,
+          "currently_dedup_eligible_count": 0,
+          "duplicate_group_count": 0,
+          "duplicate_count_under_legacy_semantics": 0,
+          "duplicates_within_same_case_file": 0,
+          "duplicates_across_case_files": 0,
+          "same_erk_duplicates": 0,
+          "different_erk_duplicates": 0,
+          "source_generation_metrics": "NOT CURRENTLY MEASURABLE",
+          "skipped_by_current_auto_dedup_threshold": false
+        },
+        {
+          "artifact_type": "csv_log",
+          "unique_fields": [
+            "source_file",
+            "timestamp",
+            "search_blob"
+          ],
+          "event_count": 0,
+          "currently_dedup_eligible_count": 0,
+          "duplicate_group_count": 0,
+          "duplicate_count_under_legacy_semantics": 0,
+          "duplicates_within_same_case_file": 0,
+          "duplicates_across_case_files": 0,
+          "same_erk_duplicates": 0,
+          "different_erk_duplicates": 0,
+          "source_generation_metrics": "NOT CURRENTLY MEASURABLE",
+          "skipped_by_current_auto_dedup_threshold": false
+        },
+        {
+          "artifact_type": "firefox_session",
+          "unique_fields": [
+            "source_host",
+            "source_file",
+            "timestamp",
+            "target_path"
+          ],
+          "event_count": 0,
+          "currently_dedup_eligible_count": 0,
+          "duplicate_group_count": 0,
+          "duplicate_count_under_legacy_semantics": 0,
+          "duplicates_within_same_case_file": 0,
+          "duplicates_across_case_files": 0,
+          "same_erk_duplicates": 0,
+          "different_erk_duplicates": 0,
+          "source_generation_metrics": "NOT CURRENTLY MEASURABLE",
+          "skipped_by_current_auto_dedup_threshold": false
+        },
+        {
+          "artifact_type": "sonicwall",
+          "unique_fields": [
+            "source_file",
+            "timestamp",
+            "src_ip",
+            "dst_ip",
+            "event_id"
+          ],
+          "event_count": 0,
+          "currently_dedup_eligible_count": 0,
+          "duplicate_group_count": 0,
+          "duplicate_count_under_legacy_semantics": 0,
+          "duplicates_within_same_case_file": 0,
+          "duplicates_across_case_files": 0,
+          "same_erk_duplicates": 0,
+          "different_erk_duplicates": 0,
+          "source_generation_metrics": "NOT CURRENTLY MEASURABLE",
+          "skipped_by_current_auto_dedup_threshold": false
+        }
+      ]
+    },
+    {
+      "case_id": 23,
+      "artifacts": [
+        {
+          "artifact_type": "evtx",
+          "unique_fields": [
+            "source_host",
+            "source_file",
+            "record_id"
+          ],
+          "event_count": 63081,
+          "currently_dedup_eligible_count": 63081,
+          "duplicate_group_count": 0,
+          "duplicate_count_under_legacy_semantics": 0,
+          "duplicates_within_same_case_file": 0,
+          "duplicates_across_case_files": 0,
+          "same_erk_duplicates": 0,
+          "different_erk_duplicates": 0,
+          "source_generation_metrics": "NOT CURRENTLY MEASURABLE",
+          "skipped_by_current_auto_dedup_threshold": false
+        },
+        {
+          "artifact_type": "prefetch",
+          "unique_fields": [
+            "source_host",
+            "source_file",
+            "timestamp"
+          ],
+          "event_count": 0,
+          "currently_dedup_eligible_count": 0,
+          "duplicate_group_count": 0,
+          "duplicate_count_under_legacy_semantics": 0,
+          "duplicates_within_same_case_file": 0,
+          "duplicates_across_case_files": 0,
+          "same_erk_duplicates": 0,
+          "different_erk_duplicates": 0,
+          "source_generation_metrics": "NOT CURRENTLY MEASURABLE",
+          "skipped_by_current_auto_dedup_threshold": false
+        },
+        {
+          "artifact_type": "registry",
+          "unique_fields": [
+            "source_host",
+            "source_file",
+            "reg_key",
+            "reg_value",
+            "timestamp",
+            "raw_json"
+          ],
+          "event_count": 3901211,
+          "currently_dedup_eligible_count": 3901211,
+          "duplicate_group_count": 976189,
+          "duplicate_count_under_legacy_semantics": 2857153,
+          "duplicates_within_same_case_file": 0,
+          "duplicates_across_case_files": 2857153,
+          "same_erk_duplicates": 0,
+          "different_erk_duplicates": 2857153,
+          "source_generation_metrics": "NOT CURRENTLY MEASURABLE",
+          "skipped_by_current_auto_dedup_threshold": true
+        },
+        {
+          "artifact_type": "browser",
+          "unique_fields": [
+            "source_host",
+            "source_file",
+            "timestamp",
+            "target_path"
+          ],
+          "event_count": 0,
+          "currently_dedup_eligible_count": 0,
+          "duplicate_group_count": 0,
+          "duplicate_count_under_legacy_semantics": 0,
+          "duplicates_within_same_case_file": 0,
+          "duplicates_across_case_files": 0,
+          "same_erk_duplicates": 0,
+          "different_erk_duplicates": 0,
+          "source_generation_metrics": "NOT CURRENTLY MEASURABLE",
+          "skipped_by_current_auto_dedup_threshold": false
+        },
+        {
+          "artifact_type": "lnk",
+          "unique_fields": [
+            "source_host",
+            "source_file",
+            "target_path"
+          ],
+          "event_count": 110,
+          "currently_dedup_eligible_count": 110,
+          "duplicate_group_count": 3,
+          "duplicate_count_under_legacy_semantics": 12,
+          "duplicates_within_same_case_file": 0,
+          "duplicates_across_case_files": 12,
+          "same_erk_duplicates": 0,
+          "different_erk_duplicates": 12,
+          "source_generation_metrics": "NOT CURRENTLY MEASURABLE",
+          "skipped_by_current_auto_dedup_threshold": false
+        },
+        {
+          "artifact_type": "jumplist",
+          "unique_fields": [
+            "source_host",
+            "source_file",
+            "target_path",
+            "timestamp"
+          ],
+          "event_count": 133,
+          "currently_dedup_eligible_count": 85,
+          "duplicate_group_count": 0,
+          "duplicate_count_under_legacy_semantics": 0,
+          "duplicates_within_same_case_file": 0,
+          "duplicates_across_case_files": 0,
+          "same_erk_duplicates": 0,
+          "different_erk_duplicates": 0,
+          "source_generation_metrics": "NOT CURRENTLY MEASURABLE",
+          "skipped_by_current_auto_dedup_threshold": false
+        },
+        {
+          "artifact_type": "huntress",
+          "unique_fields": [
+            "event_id"
+          ],
+          "event_count": 0,
+          "currently_dedup_eligible_count": 0,
+          "duplicate_group_count": 0,
+          "duplicate_count_under_legacy_semantics": 0,
+          "duplicates_within_same_case_file": 0,
+          "duplicates_across_case_files": 0,
+          "same_erk_duplicates": 0,
+          "different_erk_duplicates": 0,
+          "source_generation_metrics": "NOT CURRENTLY MEASURABLE",
+          "skipped_by_current_auto_dedup_threshold": false
+        },
+        {
+          "artifact_type": "scheduled_task",
+          "unique_fields": [
+            "source_host",
+            "source_file",
+            "target_path"
+          ],
+          "event_count": 0,
+          "currently_dedup_eligible_count": 0,
+          "duplicate_group_count": 0,
+          "duplicate_count_under_legacy_semantics": 0,
+          "duplicates_within_same_case_file": 0,
+          "duplicates_across_case_files": 0,
+          "same_erk_duplicates": 0,
+          "different_erk_duplicates": 0,
+          "source_generation_metrics": "NOT CURRENTLY MEASURABLE",
+          "skipped_by_current_auto_dedup_threshold": false
+        },
+        {
+          "artifact_type": "mft",
+          "unique_fields": [
+            "source_host",
+            "source_file",
+            "record_id",
+            "timestamp"
+          ],
+          "event_count": 0,
+          "currently_dedup_eligible_count": 0,
+          "duplicate_group_count": 0,
+          "duplicate_count_under_legacy_semantics": 0,
+          "duplicates_within_same_case_file": 0,
+          "duplicates_across_case_files": 0,
+          "same_erk_duplicates": 0,
+          "different_erk_duplicates": 0,
+          "source_generation_metrics": "NOT CURRENTLY MEASURABLE",
+          "skipped_by_current_auto_dedup_threshold": true
+        },
+        {
+          "artifact_type": "activities_cache",
+          "unique_fields": [
+            "source_host",
+            "source_file",
+            "timestamp",
+            "target_path"
+          ],
+          "event_count": 18,
+          "currently_dedup_eligible_count": 0,
+          "duplicate_group_count": 0,
+          "duplicate_count_under_legacy_semantics": 0,
+          "duplicates_within_same_case_file": 0,
+          "duplicates_across_case_files": 0,
+          "same_erk_duplicates": 0,
+          "different_erk_duplicates": 0,
+          "source_generation_metrics": "NOT CURRENTLY MEASURABLE",
+          "skipped_by_current_auto_dedup_threshold": false
+        },
+        {
+          "artifact_type": "webcache",
+          "unique_fields": [
+            "source_host",
+            "source_file",
+            "timestamp",
+            "target_path"
+          ],
+          "event_count": 0,
+          "currently_dedup_eligible_count": 0,
+          "duplicate_group_count": 0,
+          "duplicate_count_under_legacy_semantics": 0,
+          "duplicates_within_same_case_file": 0,
+          "duplicates_across_case_files": 0,
+          "same_erk_duplicates": 0,
+          "different_erk_duplicates": 0,
+          "source_generation_metrics": "NOT CURRENTLY MEASURABLE",
+          "skipped_by_current_auto_dedup_threshold": false
+        },
+        {
+          "artifact_type": "srum",
+          "unique_fields": [
+            "source_host",
+            "source_file",
+            "timestamp",
+            "process_name"
+          ],
+          "event_count": 1829831,
+          "currently_dedup_eligible_count": 1829831,
+          "duplicate_group_count": 462096,
+          "duplicate_count_under_legacy_semantics": 1326425,
+          "duplicates_within_same_case_file": 3276,
+          "duplicates_across_case_files": 1323149,
+          "same_erk_duplicates": 0,
+          "different_erk_duplicates": 1326425,
+          "source_generation_metrics": "NOT CURRENTLY MEASURABLE",
+          "skipped_by_current_auto_dedup_threshold": true
+        },
+        {
+          "artifact_type": "iis",
+          "unique_fields": [
+            "source_host",
+            "source_file",
+            "timestamp",
+            "src_ip",
+            "target_path"
+          ],
+          "event_count": 0,
+          "currently_dedup_eligible_count": 0,
+          "duplicate_group_count": 0,
+          "duplicate_count_under_legacy_semantics": 0,
+          "duplicates_within_same_case_file": 0,
+          "duplicates_across_case_files": 0,
+          "same_erk_duplicates": 0,
+          "different_erk_duplicates": 0,
+          "source_generation_metrics": "NOT CURRENTLY MEASURABLE",
+          "skipped_by_current_auto_dedup_threshold": false
+        },
+        {
+          "artifact_type": "firewall",
+          "unique_fields": [
+            "source_host",
+            "timestamp",
+            "src_ip",
+            "dst_ip",
+            "src_port",
+            "dst_port"
+          ],
+          "event_count": 0,
+          "currently_dedup_eligible_count": 0,
+          "duplicate_group_count": 0,
+          "duplicate_count_under_legacy_semantics": 0,
+          "duplicates_within_same_case_file": 0,
+          "duplicates_across_case_files": 0,
+          "same_erk_duplicates": 0,
+          "different_erk_duplicates": 0,
+          "source_generation_metrics": "NOT CURRENTLY MEASURABLE",
+          "skipped_by_current_auto_dedup_threshold": false
+        },
+        {
+          "artifact_type": "json_log",
+          "unique_fields": [
+            "source_file",
+            "timestamp",
+            "event_id"
+          ],
+          "event_count": 0,
+          "currently_dedup_eligible_count": 0,
+          "duplicate_group_count": 0,
+          "duplicate_count_under_legacy_semantics": 0,
+          "duplicates_within_same_case_file": 0,
+          "duplicates_across_case_files": 0,
+          "same_erk_duplicates": 0,
+          "different_erk_duplicates": 0,
+          "source_generation_metrics": "NOT CURRENTLY MEASURABLE",
+          "skipped_by_current_auto_dedup_threshold": false
+        },
+        {
+          "artifact_type": "csv_log",
+          "unique_fields": [
+            "source_file",
+            "timestamp",
+            "search_blob"
+          ],
+          "event_count": 0,
+          "currently_dedup_eligible_count": 0,
+          "duplicate_group_count": 0,
+          "duplicate_count_under_legacy_semantics": 0,
+          "duplicates_within_same_case_file": 0,
+          "duplicates_across_case_files": 0,
+          "same_erk_duplicates": 0,
+          "different_erk_duplicates": 0,
+          "source_generation_metrics": "NOT CURRENTLY MEASURABLE",
+          "skipped_by_current_auto_dedup_threshold": false
+        },
+        {
+          "artifact_type": "firefox_session",
+          "unique_fields": [
+            "source_host",
+            "source_file",
+            "timestamp",
+            "target_path"
+          ],
+          "event_count": 0,
+          "currently_dedup_eligible_count": 0,
+          "duplicate_group_count": 0,
+          "duplicate_count_under_legacy_semantics": 0,
+          "duplicates_within_same_case_file": 0,
+          "duplicates_across_case_files": 0,
+          "same_erk_duplicates": 0,
+          "different_erk_duplicates": 0,
+          "source_generation_metrics": "NOT CURRENTLY MEASURABLE",
+          "skipped_by_current_auto_dedup_threshold": false
+        },
+        {
+          "artifact_type": "sonicwall",
+          "unique_fields": [
+            "source_file",
+            "timestamp",
+            "src_ip",
+            "dst_ip",
+            "event_id"
+          ],
+          "event_count": 0,
+          "currently_dedup_eligible_count": 0,
+          "duplicate_group_count": 0,
+          "duplicate_count_under_legacy_semantics": 0,
+          "duplicates_within_same_case_file": 0,
+          "duplicates_across_case_files": 0,
+          "same_erk_duplicates": 0,
+          "different_erk_duplicates": 0,
+          "source_generation_metrics": "NOT CURRENTLY MEASURABLE",
+          "skipped_by_current_auto_dedup_threshold": false
+        }
+      ]
+    },
+    {
+      "case_id": 1,
+      "artifacts": [
+        {
+          "artifact_type": "evtx",
+          "unique_fields": [
+            "source_host",
+            "source_file",
+            "record_id"
+          ],
+          "event_count": 359020,
+          "currently_dedup_eligible_count": 359020,
+          "duplicate_group_count": 0,
+          "duplicate_count_under_legacy_semantics": 0,
+          "duplicates_within_same_case_file": 0,
+          "duplicates_across_case_files": 0,
+          "same_erk_duplicates": 0,
+          "different_erk_duplicates": 0,
+          "source_generation_metrics": "NOT CURRENTLY MEASURABLE",
+          "skipped_by_current_auto_dedup_threshold": true
+        },
+        {
+          "artifact_type": "prefetch",
+          "unique_fields": [
+            "source_host",
+            "source_file",
+            "timestamp"
+          ],
+          "event_count": 1566,
+          "currently_dedup_eligible_count": 1566,
+          "duplicate_group_count": 0,
+          "duplicate_count_under_legacy_semantics": 0,
+          "duplicates_within_same_case_file": 0,
+          "duplicates_across_case_files": 0,
+          "same_erk_duplicates": 0,
+          "different_erk_duplicates": 0,
+          "source_generation_metrics": "NOT CURRENTLY MEASURABLE",
+          "skipped_by_current_auto_dedup_threshold": false
+        },
+        {
+          "artifact_type": "registry",
+          "unique_fields": [
+            "source_host",
+            "source_file",
+            "reg_key",
+            "reg_value",
+            "timestamp",
+            "raw_json"
+          ],
+          "event_count": 1311252,
+          "currently_dedup_eligible_count": 1311252,
+          "duplicate_group_count": 98,
+          "duplicate_count_under_legacy_semantics": 112,
+          "duplicates_within_same_case_file": 1,
+          "duplicates_across_case_files": 111,
+          "same_erk_duplicates": 1,
+          "different_erk_duplicates": 111,
+          "source_generation_metrics": "NOT CURRENTLY MEASURABLE",
+          "skipped_by_current_auto_dedup_threshold": true
+        },
+        {
+          "artifact_type": "browser",
+          "unique_fields": [
+            "source_host",
+            "source_file",
+            "timestamp",
+            "target_path"
+          ],
+          "event_count": 0,
+          "currently_dedup_eligible_count": 0,
+          "duplicate_group_count": 0,
+          "duplicate_count_under_legacy_semantics": 0,
+          "duplicates_within_same_case_file": 0,
+          "duplicates_across_case_files": 0,
+          "same_erk_duplicates": 0,
+          "different_erk_duplicates": 0,
+          "source_generation_metrics": "NOT CURRENTLY MEASURABLE",
+          "skipped_by_current_auto_dedup_threshold": false
+        },
+        {
+          "artifact_type": "lnk",
+          "unique_fields": [
+            "source_host",
+            "source_file",
+            "target_path"
+          ],
+          "event_count": 208,
+          "currently_dedup_eligible_count": 208,
+          "duplicate_group_count": 0,
+          "duplicate_count_under_legacy_semantics": 0,
+          "duplicates_within_same_case_file": 0,
+          "duplicates_across_case_files": 0,
+          "same_erk_duplicates": 0,
+          "different_erk_duplicates": 0,
+          "source_generation_metrics": "NOT CURRENTLY MEASURABLE",
+          "skipped_by_current_auto_dedup_threshold": false
+        },
+        {
+          "artifact_type": "jumplist",
+          "unique_fields": [
+            "source_host",
+            "source_file",
+            "target_path",
+            "timestamp"
+          ],
+          "event_count": 874,
+          "currently_dedup_eligible_count": 561,
+          "duplicate_group_count": 0,
+          "duplicate_count_under_legacy_semantics": 0,
+          "duplicates_within_same_case_file": 0,
+          "duplicates_across_case_files": 0,
+          "same_erk_duplicates": 0,
+          "different_erk_duplicates": 0,
+          "source_generation_metrics": "NOT CURRENTLY MEASURABLE",
+          "skipped_by_current_auto_dedup_threshold": false
+        },
+        {
+          "artifact_type": "huntress",
+          "unique_fields": [
+            "event_id"
+          ],
+          "event_count": 0,
+          "currently_dedup_eligible_count": 0,
+          "duplicate_group_count": 0,
+          "duplicate_count_under_legacy_semantics": 0,
+          "duplicates_within_same_case_file": 0,
+          "duplicates_across_case_files": 0,
+          "same_erk_duplicates": 0,
+          "different_erk_duplicates": 0,
+          "source_generation_metrics": "NOT CURRENTLY MEASURABLE",
+          "skipped_by_current_auto_dedup_threshold": false
+        },
+        {
+          "artifact_type": "scheduled_task",
+          "unique_fields": [
+            "source_host",
+            "source_file",
+            "target_path"
+          ],
+          "event_count": 271,
+          "currently_dedup_eligible_count": 0,
+          "duplicate_group_count": 0,
+          "duplicate_count_under_legacy_semantics": 0,
+          "duplicates_within_same_case_file": 0,
+          "duplicates_across_case_files": 0,
+          "same_erk_duplicates": 0,
+          "different_erk_duplicates": 0,
+          "source_generation_metrics": "NOT CURRENTLY MEASURABLE",
+          "skipped_by_current_auto_dedup_threshold": false
+        },
+        {
+          "artifact_type": "mft",
+          "unique_fields": [
+            "source_host",
+            "source_file",
+            "record_id",
+            "timestamp"
+          ],
+          "event_count": 3630608,
+          "currently_dedup_eligible_count": 3630608,
+          "duplicate_group_count": 1080000,
+          "duplicate_count_under_legacy_semantics": 2480000,
+          "duplicates_within_same_case_file": 2480000,
+          "duplicates_across_case_files": 0,
+          "same_erk_duplicates": 2480000,
+          "different_erk_duplicates": 0,
+          "source_generation_metrics": "NOT CURRENTLY MEASURABLE",
+          "skipped_by_current_auto_dedup_threshold": true
+        },
+        {
+          "artifact_type": "activities_cache",
+          "unique_fields": [
+            "source_host",
+            "source_file",
+            "timestamp",
+            "target_path"
+          ],
+          "event_count": 35,
+          "currently_dedup_eligible_count": 0,
+          "duplicate_group_count": 0,
+          "duplicate_count_under_legacy_semantics": 0,
+          "duplicates_within_same_case_file": 0,
+          "duplicates_across_case_files": 0,
+          "same_erk_duplicates": 0,
+          "different_erk_duplicates": 0,
+          "source_generation_metrics": "NOT CURRENTLY MEASURABLE",
+          "skipped_by_current_auto_dedup_threshold": false
+        },
+        {
+          "artifact_type": "webcache",
+          "unique_fields": [
+            "source_host",
+            "source_file",
+            "timestamp",
+            "target_path"
+          ],
+          "event_count": 0,
+          "currently_dedup_eligible_count": 0,
+          "duplicate_group_count": 0,
+          "duplicate_count_under_legacy_semantics": 0,
+          "duplicates_within_same_case_file": 0,
+          "duplicates_across_case_files": 0,
+          "same_erk_duplicates": 0,
+          "different_erk_duplicates": 0,
+          "source_generation_metrics": "NOT CURRENTLY MEASURABLE",
+          "skipped_by_current_auto_dedup_threshold": false
+        },
+        {
+          "artifact_type": "srum",
+          "unique_fields": [
+            "source_host",
+            "source_file",
+            "timestamp",
+            "process_name"
+          ],
+          "event_count": 167440,
+          "currently_dedup_eligible_count": 167426,
+          "duplicate_group_count": 22128,
+          "duplicate_count_under_legacy_semantics": 30742,
+          "duplicates_within_same_case_file": 30742,
+          "duplicates_across_case_files": 0,
+          "same_erk_duplicates": 0,
+          "different_erk_duplicates": 30742,
+          "source_generation_metrics": "NOT CURRENTLY MEASURABLE",
+          "skipped_by_current_auto_dedup_threshold": true
+        },
+        {
+          "artifact_type": "iis",
+          "unique_fields": [
+            "source_host",
+            "source_file",
+            "timestamp",
+            "src_ip",
+            "target_path"
+          ],
+          "event_count": 0,
+          "currently_dedup_eligible_count": 0,
+          "duplicate_group_count": 0,
+          "duplicate_count_under_legacy_semantics": 0,
+          "duplicates_within_same_case_file": 0,
+          "duplicates_across_case_files": 0,
+          "same_erk_duplicates": 0,
+          "different_erk_duplicates": 0,
+          "source_generation_metrics": "NOT CURRENTLY MEASURABLE",
+          "skipped_by_current_auto_dedup_threshold": false
+        },
+        {
+          "artifact_type": "firewall",
+          "unique_fields": [
+            "source_host",
+            "timestamp",
+            "src_ip",
+            "dst_ip",
+            "src_port",
+            "dst_port"
+          ],
+          "event_count": 0,
+          "currently_dedup_eligible_count": 0,
+          "duplicate_group_count": 0,
+          "duplicate_count_under_legacy_semantics": 0,
+          "duplicates_within_same_case_file": 0,
+          "duplicates_across_case_files": 0,
+          "same_erk_duplicates": 0,
+          "different_erk_duplicates": 0,
+          "source_generation_metrics": "NOT CURRENTLY MEASURABLE",
+          "skipped_by_current_auto_dedup_threshold": false
+        },
+        {
+          "artifact_type": "json_log",
+          "unique_fields": [
+            "source_file",
+            "timestamp",
+            "event_id"
+          ],
+          "event_count": 94,
+          "currently_dedup_eligible_count": 0,
+          "duplicate_group_count": 0,
+          "duplicate_count_under_legacy_semantics": 0,
+          "duplicates_within_same_case_file": 0,
+          "duplicates_across_case_files": 0,
+          "same_erk_duplicates": 0,
+          "different_erk_duplicates": 0,
+          "source_generation_metrics": "NOT CURRENTLY MEASURABLE",
+          "skipped_by_current_auto_dedup_threshold": false
+        },
+        {
+          "artifact_type": "csv_log",
+          "unique_fields": [
+            "source_file",
+            "timestamp",
+            "search_blob"
+          ],
+          "event_count": 0,
+          "currently_dedup_eligible_count": 0,
+          "duplicate_group_count": 0,
+          "duplicate_count_under_legacy_semantics": 0,
+          "duplicates_within_same_case_file": 0,
+          "duplicates_across_case_files": 0,
+          "same_erk_duplicates": 0,
+          "different_erk_duplicates": 0,
+          "source_generation_metrics": "NOT CURRENTLY MEASURABLE",
+          "skipped_by_current_auto_dedup_threshold": false
+        },
+        {
+          "artifact_type": "firefox_session",
+          "unique_fields": [
+            "source_host",
+            "source_file",
+            "timestamp",
+            "target_path"
+          ],
+          "event_count": 0,
+          "currently_dedup_eligible_count": 0,
+          "duplicate_group_count": 0,
+          "duplicate_count_under_legacy_semantics": 0,
+          "duplicates_within_same_case_file": 0,
+          "duplicates_across_case_files": 0,
+          "same_erk_duplicates": 0,
+          "different_erk_duplicates": 0,
+          "source_generation_metrics": "NOT CURRENTLY MEASURABLE",
+          "skipped_by_current_auto_dedup_threshold": false
+        },
+        {
+          "artifact_type": "sonicwall",
+          "unique_fields": [
+            "source_file",
+            "timestamp",
+            "src_ip",
+            "dst_ip",
+            "event_id"
+          ],
+          "event_count": 0,
+          "currently_dedup_eligible_count": 0,
+          "duplicate_group_count": 0,
+          "duplicate_count_under_legacy_semantics": 0,
+          "duplicates_within_same_case_file": 0,
+          "duplicates_across_case_files": 0,
+          "same_erk_duplicates": 0,
+          "different_erk_duplicates": 0,
+          "source_generation_metrics": "NOT CURRENTLY MEASURABLE",
+          "skipped_by_current_auto_dedup_threshold": false
+        }
+      ]
+    },
+    {
+      "case_id": 37,
+      "artifacts": [
+        {
+          "artifact_type": "evtx",
+          "unique_fields": [
+            "source_host",
+            "source_file",
+            "record_id"
+          ],
+          "event_count": 1002652,
+          "currently_dedup_eligible_count": 1002652,
+          "duplicate_group_count": 34067,
+          "duplicate_count_under_legacy_semantics": 34067,
+          "duplicates_within_same_case_file": 0,
+          "duplicates_across_case_files": 34067,
+          "same_erk_duplicates": 0,
+          "different_erk_duplicates": 34067,
+          "source_generation_metrics": "NOT CURRENTLY MEASURABLE",
+          "skipped_by_current_auto_dedup_threshold": true
+        },
+        {
+          "artifact_type": "prefetch",
+          "unique_fields": [
+            "source_host",
+            "source_file",
+            "timestamp"
+          ],
+          "event_count": 2533,
+          "currently_dedup_eligible_count": 2533,
+          "duplicate_group_count": 2,
+          "duplicate_count_under_legacy_semantics": 2,
+          "duplicates_within_same_case_file": 2,
+          "duplicates_across_case_files": 0,
+          "same_erk_duplicates": 0,
+          "different_erk_duplicates": 2,
+          "source_generation_metrics": "NOT CURRENTLY MEASURABLE",
+          "skipped_by_current_auto_dedup_threshold": false
+        },
+        {
+          "artifact_type": "registry",
+          "unique_fields": [
+            "source_host",
+            "source_file",
+            "reg_key",
+            "reg_value",
+            "timestamp",
+            "raw_json"
+          ],
+          "event_count": 1418342,
+          "currently_dedup_eligible_count": 1418342,
+          "duplicate_group_count": 227,
+          "duplicate_count_under_legacy_semantics": 305,
+          "duplicates_within_same_case_file": 1,
+          "duplicates_across_case_files": 304,
+          "same_erk_duplicates": 1,
+          "different_erk_duplicates": 304,
+          "source_generation_metrics": "NOT CURRENTLY MEASURABLE",
+          "skipped_by_current_auto_dedup_threshold": true
+        },
+        {
+          "artifact_type": "browser",
+          "unique_fields": [
+            "source_host",
+            "source_file",
+            "timestamp",
+            "target_path"
+          ],
+          "event_count": 0,
+          "currently_dedup_eligible_count": 0,
+          "duplicate_group_count": 0,
+          "duplicate_count_under_legacy_semantics": 0,
+          "duplicates_within_same_case_file": 0,
+          "duplicates_across_case_files": 0,
+          "same_erk_duplicates": 0,
+          "different_erk_duplicates": 0,
+          "source_generation_metrics": "NOT CURRENTLY MEASURABLE",
+          "skipped_by_current_auto_dedup_threshold": false
+        },
+        {
+          "artifact_type": "lnk",
+          "unique_fields": [
+            "source_host",
+            "source_file",
+            "target_path"
+          ],
+          "event_count": 334,
+          "currently_dedup_eligible_count": 334,
+          "duplicate_group_count": 4,
+          "duplicate_count_under_legacy_semantics": 14,
+          "duplicates_within_same_case_file": 0,
+          "duplicates_across_case_files": 14,
+          "same_erk_duplicates": 0,
+          "different_erk_duplicates": 14,
+          "source_generation_metrics": "NOT CURRENTLY MEASURABLE",
+          "skipped_by_current_auto_dedup_threshold": false
+        },
+        {
+          "artifact_type": "jumplist",
+          "unique_fields": [
+            "source_host",
+            "source_file",
+            "target_path",
+            "timestamp"
+          ],
+          "event_count": 1117,
+          "currently_dedup_eligible_count": 649,
+          "duplicate_group_count": 0,
+          "duplicate_count_under_legacy_semantics": 0,
+          "duplicates_within_same_case_file": 0,
+          "duplicates_across_case_files": 0,
+          "same_erk_duplicates": 0,
+          "different_erk_duplicates": 0,
+          "source_generation_metrics": "NOT CURRENTLY MEASURABLE",
+          "skipped_by_current_auto_dedup_threshold": false
+        },
+        {
+          "artifact_type": "huntress",
+          "unique_fields": [
+            "event_id"
+          ],
+          "event_count": 10000,
+          "currently_dedup_eligible_count": 10000,
+          "duplicate_group_count": 1,
+          "duplicate_count_under_legacy_semantics": 9999,
+          "duplicates_within_same_case_file": 9999,
+          "duplicates_across_case_files": 0,
+          "same_erk_duplicates": 0,
+          "different_erk_duplicates": 9999,
+          "source_generation_metrics": "NOT CURRENTLY MEASURABLE",
+          "skipped_by_current_auto_dedup_threshold": false
+        },
+        {
+          "artifact_type": "scheduled_task",
+          "unique_fields": [
+            "source_host",
+            "source_file",
+            "target_path"
+          ],
+          "event_count": 312,
+          "currently_dedup_eligible_count": 0,
+          "duplicate_group_count": 0,
+          "duplicate_count_under_legacy_semantics": 0,
+          "duplicates_within_same_case_file": 0,
+          "duplicates_across_case_files": 0,
+          "same_erk_duplicates": 0,
+          "different_erk_duplicates": 0,
+          "source_generation_metrics": "NOT CURRENTLY MEASURABLE",
+          "skipped_by_current_auto_dedup_threshold": false
+        },
+        {
+          "artifact_type": "mft",
+          "unique_fields": [
+            "source_host",
+            "source_file",
+            "record_id",
+            "timestamp"
+          ],
+          "event_count": 776302,
+          "currently_dedup_eligible_count": 776302,
+          "duplicate_group_count": 0,
+          "duplicate_count_under_legacy_semantics": 0,
+          "duplicates_within_same_case_file": 0,
+          "duplicates_across_case_files": 0,
+          "same_erk_duplicates": 0,
+          "different_erk_duplicates": 0,
+          "source_generation_metrics": "NOT CURRENTLY MEASURABLE",
+          "skipped_by_current_auto_dedup_threshold": true
+        },
+        {
+          "artifact_type": "activities_cache",
+          "unique_fields": [
+            "source_host",
+            "source_file",
+            "timestamp",
+            "target_path"
+          ],
+          "event_count": 35,
+          "currently_dedup_eligible_count": 0,
+          "duplicate_group_count": 0,
+          "duplicate_count_under_legacy_semantics": 0,
+          "duplicates_within_same_case_file": 0,
+          "duplicates_across_case_files": 0,
+          "same_erk_duplicates": 0,
+          "different_erk_duplicates": 0,
+          "source_generation_metrics": "NOT CURRENTLY MEASURABLE",
+          "skipped_by_current_auto_dedup_threshold": false
+        },
+        {
+          "artifact_type": "webcache",
+          "unique_fields": [
+            "source_host",
+            "source_file",
+            "timestamp",
+            "target_path"
+          ],
+          "event_count": 0,
+          "currently_dedup_eligible_count": 0,
+          "duplicate_group_count": 0,
+          "duplicate_count_under_legacy_semantics": 0,
+          "duplicates_within_same_case_file": 0,
+          "duplicates_across_case_files": 0,
+          "same_erk_duplicates": 0,
+          "different_erk_duplicates": 0,
+          "source_generation_metrics": "NOT CURRENTLY MEASURABLE",
+          "skipped_by_current_auto_dedup_threshold": false
+        },
+        {
+          "artifact_type": "srum",
+          "unique_fields": [
+            "source_host",
+            "source_file",
+            "timestamp",
+            "process_name"
+          ],
+          "event_count": 154727,
+          "currently_dedup_eligible_count": 154725,
+          "duplicate_group_count": 20795,
+          "duplicate_count_under_legacy_semantics": 28629,
+          "duplicates_within_same_case_file": 28629,
+          "duplicates_across_case_files": 0,
+          "same_erk_duplicates": 0,
+          "different_erk_duplicates": 28629,
+          "source_generation_metrics": "NOT CURRENTLY MEASURABLE",
+          "skipped_by_current_auto_dedup_threshold": true
+        },
+        {
+          "artifact_type": "iis",
+          "unique_fields": [
+            "source_host",
+            "source_file",
+            "timestamp",
+            "src_ip",
+            "target_path"
+          ],
+          "event_count": 0,
+          "currently_dedup_eligible_count": 0,
+          "duplicate_group_count": 0,
+          "duplicate_count_under_legacy_semantics": 0,
+          "duplicates_within_same_case_file": 0,
+          "duplicates_across_case_files": 0,
+          "same_erk_duplicates": 0,
+          "different_erk_duplicates": 0,
+          "source_generation_metrics": "NOT CURRENTLY MEASURABLE",
+          "skipped_by_current_auto_dedup_threshold": false
+        },
+        {
+          "artifact_type": "firewall",
+          "unique_fields": [
+            "source_host",
+            "timestamp",
+            "src_ip",
+            "dst_ip",
+            "src_port",
+            "dst_port"
+          ],
+          "event_count": 0,
+          "currently_dedup_eligible_count": 0,
+          "duplicate_group_count": 0,
+          "duplicate_count_under_legacy_semantics": 0,
+          "duplicates_within_same_case_file": 0,
+          "duplicates_across_case_files": 0,
+          "same_erk_duplicates": 0,
+          "different_erk_duplicates": 0,
+          "source_generation_metrics": "NOT CURRENTLY MEASURABLE",
+          "skipped_by_current_auto_dedup_threshold": false
+        },
+        {
+          "artifact_type": "json_log",
+          "unique_fields": [
+            "source_file",
+            "timestamp",
+            "event_id"
+          ],
+          "event_count": 7,
+          "currently_dedup_eligible_count": 0,
+          "duplicate_group_count": 0,
+          "duplicate_count_under_legacy_semantics": 0,
+          "duplicates_within_same_case_file": 0,
+          "duplicates_across_case_files": 0,
+          "same_erk_duplicates": 0,
+          "different_erk_duplicates": 0,
+          "source_generation_metrics": "NOT CURRENTLY MEASURABLE",
+          "skipped_by_current_auto_dedup_threshold": false
+        },
+        {
+          "artifact_type": "csv_log",
+          "unique_fields": [
+            "source_file",
+            "timestamp",
+            "search_blob"
+          ],
+          "event_count": 10780,
+          "currently_dedup_eligible_count": 5367,
+          "duplicate_group_count": 19,
+          "duplicate_count_under_legacy_semantics": 25,
+          "duplicates_within_same_case_file": 25,
+          "duplicates_across_case_files": 0,
+          "same_erk_duplicates": 25,
+          "different_erk_duplicates": 0,
+          "source_generation_metrics": "NOT CURRENTLY MEASURABLE",
+          "skipped_by_current_auto_dedup_threshold": false
+        },
+        {
+          "artifact_type": "firefox_session",
+          "unique_fields": [
+            "source_host",
+            "source_file",
+            "timestamp",
+            "target_path"
+          ],
+          "event_count": 0,
+          "currently_dedup_eligible_count": 0,
+          "duplicate_group_count": 0,
+          "duplicate_count_under_legacy_semantics": 0,
+          "duplicates_within_same_case_file": 0,
+          "duplicates_across_case_files": 0,
+          "same_erk_duplicates": 0,
+          "different_erk_duplicates": 0,
+          "source_generation_metrics": "NOT CURRENTLY MEASURABLE",
+          "skipped_by_current_auto_dedup_threshold": false
+        },
+        {
+          "artifact_type": "sonicwall",
+          "unique_fields": [
+            "source_file",
+            "timestamp",
+            "src_ip",
+            "dst_ip",
+            "event_id"
+          ],
+          "event_count": 0,
+          "currently_dedup_eligible_count": 0,
+          "duplicate_group_count": 0,
+          "duplicate_count_under_legacy_semantics": 0,
+          "duplicates_within_same_case_file": 0,
+          "duplicates_across_case_files": 0,
+          "same_erk_duplicates": 0,
+          "different_erk_duplicates": 0,
+          "source_generation_metrics": "NOT CURRENTLY MEASURABLE",
+          "skipped_by_current_auto_dedup_threshold": false
+        }
+      ]
+    }
+  ],
+  "notes": [
+    "Read-only diagnostic only; no ALTER DELETE or dedup rewrite executed.",
+    "Large 100M+ row partitions were not included to avoid destabilizing ClickHouse during runtime closure.",
+    "Retry vs overlapping-evidence classification remains heuristic without source_generation."
+  ],
+  "observed_duplicate_percentage_across_analyzed_cases": 44.952,
+  "duplicate_percentage_scope": "OBSERVED ACROSS THE FOUR ANALYZED CASES; not global CaseScope duplicate rate"
+}

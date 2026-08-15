@@ -1,0 +1,300 @@
+{
+  "generated_at": "2026-08-14T21:08:10.553020+00:00",
+  "database": "phase1_step3_ioc_20260814210809",
+  "inserted_events": 14,
+  "legacy": {
+    "path": "legacy",
+    "wall_ms": 88.158,
+    "match_count": 15,
+    "ioc_count": 13
+  },
+  "legacy_match_count": 15,
+  "legacy_raw_json_only": 2,
+  "paths": {
+    "no_lower_sensitive": {
+      "candidate_path": "no_lower_sensitive",
+      "specs": 13,
+      "a_count": 15,
+      "b_count": 13,
+      "a_minus_b": [
+        [
+          900001,
+          "erk:v2:5da7138b3d4f5f0e2145b7504e953d8f1bcec7a0da9642c45f167d2b68cb5443",
+          "32d1d2a0-2dee-5ed4-05cf-86a933ca3fc8"
+        ],
+        [
+          900001,
+          "erk:v2:e4f88923b71397c6bd0b1a5c1fdd2b2618ba3f80082a6c77940ade65853cdf85",
+          "b395003c-4ef9-ec1e-0c19-fc2d9eac9a5b"
+        ]
+      ],
+      "b_minus_a": [],
+      "intersection": 13,
+      "a_minus_b_count": 2,
+      "b_minus_a_count": 0,
+      "recall_gate_pass": false,
+      "raw_json_only_in_a": 2,
+      "miss_classifications": [
+        {
+          "case_id": 900001,
+          "erk": "erk:v2:5da7138b3d4f5f0e2145b7504e953d8f1bcec7a0da9642c45f167d2b68cb5443",
+          "ioc_uuid": "32d1d2a0-2dee-5ed4-05cf-86a933ca3fc8",
+          "ioc_type": "File Path",
+          "ioc_value": "C:\\Windows\\Temp\\payload.exe",
+          "artifact_type": "evtx",
+          "hit_search_blob": true,
+          "hit_raw_json": true,
+          "hit_structured": true,
+          "hit_username": false,
+          "hit_extra_fields": false,
+          "classification": "OTHER",
+          "legacy_false_positive_evidence": null
+        },
+        {
+          "case_id": 900001,
+          "erk": "erk:v2:e4f88923b71397c6bd0b1a5c1fdd2b2618ba3f80082a6c77940ade65853cdf85",
+          "ioc_uuid": "b395003c-4ef9-ec1e-0c19-fc2d9eac9a5b",
+          "ioc_type": "Domain",
+          "ioc_value": "MixedCase.Example",
+          "artifact_type": "evtx",
+          "hit_search_blob": true,
+          "hit_raw_json": true,
+          "hit_structured": false,
+          "hit_username": false,
+          "hit_extra_fields": false,
+          "classification": "OTHER",
+          "legacy_false_positive_evidence": null
+        }
+      ],
+      "miss_classification_counts": {
+        "OTHER": 2
+      },
+      "ioc_verdict": "IOC_FAIL",
+      "b_stats": {
+        "path": "no_lower_sensitive",
+        "wall_ms": 68.521,
+        "match_count": 13,
+        "ioc_count": 13
+      }
+    },
+    "ilike": {
+      "candidate_path": "ilike",
+      "specs": 13,
+      "a_count": 15,
+      "b_count": 15,
+      "a_minus_b": [],
+      "b_minus_a": [],
+      "intersection": 15,
+      "a_minus_b_count": 0,
+      "b_minus_a_count": 0,
+      "recall_gate_pass": true,
+      "raw_json_only_in_a": 2,
+      "miss_classifications": [],
+      "miss_classification_counts": {},
+      "ioc_verdict": "IOC_PASS",
+      "b_stats": {
+        "path": "ilike",
+        "wall_ms": 66.797,
+        "match_count": 15,
+        "ioc_count": 13
+      }
+    },
+    "no_raw_json": {
+      "candidate_path": "no_raw_json",
+      "specs": 13,
+      "a_count": 15,
+      "b_count": 13,
+      "a_minus_b": [
+        [
+          900001,
+          "erk:v2:9cd3c4528e61258d3b89f64edc5d484f59b019de92e725d0f343ba1f879d4670",
+          "93d45431-2b08-f124-f1cb-831aaca01a83"
+        ],
+        [
+          900001,
+          "erk:v2:effc211267c9d84824c12041fd780cd2bb521adff25a4032a88b8f3a007ab0c9",
+          "2c0f3bec-d191-e715-6918-e48705955a0e"
+        ]
+      ],
+      "b_minus_a": [],
+      "intersection": 13,
+      "a_minus_b_count": 2,
+      "b_minus_a_count": 0,
+      "recall_gate_pass": false,
+      "raw_json_only_in_a": 2,
+      "miss_classifications": [
+        {
+          "case_id": 900001,
+          "erk": "erk:v2:9cd3c4528e61258d3b89f64edc5d484f59b019de92e725d0f343ba1f879d4670",
+          "ioc_uuid": "93d45431-2b08-f124-f1cb-831aaca01a83",
+          "ioc_type": "Domain",
+          "ioc_value": "nested-json.example",
+          "artifact_type": "evtx",
+          "hit_search_blob": false,
+          "hit_raw_json": true,
+          "hit_structured": false,
+          "hit_username": false,
+          "hit_extra_fields": false,
+          "classification": "RAW_JSON_ONLY_TRUE_MATCH",
+          "legacy_false_positive_evidence": null
+        },
+        {
+          "case_id": 900001,
+          "erk": "erk:v2:effc211267c9d84824c12041fd780cd2bb521adff25a4032a88b8f3a007ab0c9",
+          "ioc_uuid": "2c0f3bec-d191-e715-6918-e48705955a0e",
+          "ioc_type": "Domain",
+          "ioc_value": "rawjson-only.example",
+          "artifact_type": "evtx",
+          "hit_search_blob": false,
+          "hit_raw_json": true,
+          "hit_structured": false,
+          "hit_username": false,
+          "hit_extra_fields": false,
+          "classification": "RAW_JSON_ONLY_TRUE_MATCH",
+          "legacy_false_positive_evidence": null
+        }
+      ],
+      "miss_classification_counts": {
+        "RAW_JSON_ONLY_TRUE_MATCH": 2
+      },
+      "ioc_verdict": "IOC_FAIL",
+      "b_stats": {
+        "path": "no_raw_json",
+        "wall_ms": 62.984,
+        "match_count": 13,
+        "ioc_count": 13
+      }
+    },
+    "structured_plus_search_blob": {
+      "candidate_path": "structured_plus_search_blob",
+      "specs": 13,
+      "a_count": 15,
+      "b_count": 13,
+      "a_minus_b": [
+        [
+          900001,
+          "erk:v2:9cd3c4528e61258d3b89f64edc5d484f59b019de92e725d0f343ba1f879d4670",
+          "93d45431-2b08-f124-f1cb-831aaca01a83"
+        ],
+        [
+          900001,
+          "erk:v2:effc211267c9d84824c12041fd780cd2bb521adff25a4032a88b8f3a007ab0c9",
+          "2c0f3bec-d191-e715-6918-e48705955a0e"
+        ]
+      ],
+      "b_minus_a": [],
+      "intersection": 13,
+      "a_minus_b_count": 2,
+      "b_minus_a_count": 0,
+      "recall_gate_pass": false,
+      "raw_json_only_in_a": 2,
+      "miss_classifications": [
+        {
+          "case_id": 900001,
+          "erk": "erk:v2:9cd3c4528e61258d3b89f64edc5d484f59b019de92e725d0f343ba1f879d4670",
+          "ioc_uuid": "93d45431-2b08-f124-f1cb-831aaca01a83",
+          "ioc_type": "Domain",
+          "ioc_value": "nested-json.example",
+          "artifact_type": "evtx",
+          "hit_search_blob": false,
+          "hit_raw_json": true,
+          "hit_structured": false,
+          "hit_username": false,
+          "hit_extra_fields": false,
+          "classification": "RAW_JSON_ONLY_TRUE_MATCH",
+          "legacy_false_positive_evidence": null
+        },
+        {
+          "case_id": 900001,
+          "erk": "erk:v2:effc211267c9d84824c12041fd780cd2bb521adff25a4032a88b8f3a007ab0c9",
+          "ioc_uuid": "2c0f3bec-d191-e715-6918-e48705955a0e",
+          "ioc_type": "Domain",
+          "ioc_value": "rawjson-only.example",
+          "artifact_type": "evtx",
+          "hit_search_blob": false,
+          "hit_raw_json": true,
+          "hit_structured": false,
+          "hit_username": false,
+          "hit_extra_fields": false,
+          "classification": "RAW_JSON_ONLY_TRUE_MATCH",
+          "legacy_false_positive_evidence": null
+        }
+      ],
+      "miss_classification_counts": {
+        "RAW_JSON_ONLY_TRUE_MATCH": 2
+      },
+      "ioc_verdict": "IOC_FAIL",
+      "b_stats": {
+        "path": "structured_plus_search_blob",
+        "wall_ms": 73.414,
+        "match_count": 13,
+        "ioc_count": 13
+      }
+    }
+  },
+  "explain": {
+    "legacy_lower": {
+      "parts": 1,
+      "granules": null,
+      "index_lines": [
+        "\u2502  Skip merging: 0"
+      ],
+      "search_index_mentioned": false,
+      "raw": "Output: count()\n\nAggregating\n\u2502  Keys:\n\u2502  Aggregates: count()\n\u2502  Skip merging: 0\n\u2514\u2500\u2500ReadFromMergeTree (phase1_step3_ioc_20260814210809.events)\n      Read type: Default\n      Parts: 1 | Granules: 1\n      Output: Empty\n      Prewhere filter\n      Prewhere filter column:  case_id = 900001 AND (lower(raw_json) LIKE '%mixedcase.example%' OR lower(search_blob) LIKE '%mixedcase.example%')\n      Indexes:\n        Min-Max\n          Keys:\n            case_id\n          Condition: (case_id in [900001, 900001])\n          Parts: 1/1\n          Granules: 1/1\n        Partition\n          Keys:\n            case_id\n          Condition: (case_id in [900001, 900001])\n          Parts: 1/1\n          Granules: 1/1\n        PrimaryKey\n          Keys:\n            case_id\n          Condition: (case_id in [900001, 900001])\n          Parts: 1/1\n          Granules: 1/1\n          Search Algorithm: generic exclusion search\n        Ranges: 1",
+      "explain_wall_ms": 5.23
+    },
+    "sensitive": {
+      "parts": 1,
+      "granules": null,
+      "index_lines": [
+        "\u2502  Skip merging: 0",
+        "Skip",
+        "Name: idx_search_ngram",
+        "Skip",
+        "Name: idx_search_token",
+        "Skip",
+        "Name: <Combined skip indexes>"
+      ],
+      "search_index_mentioned": true,
+      "raw": "Output: count()\n\nAggregating\n\u2502  Keys:\n\u2502  Aggregates: count()\n\u2502  Skip merging: 0\n\u2514\u2500\u2500ReadFromMergeTree (phase1_step3_ioc_20260814210809.events)\n      Read type: Default\n      Parts: 1 | Granules: 1\n      Output: Empty\n      Prewhere filter\n      Prewhere filter column:  case_id = 900001 AND (raw_json LIKE '%mixedcase.example%' OR search_blob LIKE '%mixedcase.example%')\n      Indexes:\n        Min-Max\n          Keys:\n            case_id\n          Condition: (case_id in [900001, 900001])\n          Parts: 1/1\n          Granules: 1/1\n        Partition\n          Keys:\n            case_id\n          Condition: (case_id in [900001, 900001])\n          Parts: 1/1\n          Granules: 1/1\n        PrimaryKey\n          Keys:\n            case_id\n          Condition: (case_id in [900001, 900001])\n          Parts: 1/1\n          Granules: 1/1\n          Search Algorithm: generic exclusion search\n        Skip\n          Name: idx_search_ngram\n          Description: ngrambf_v1 GRANULARITY 4\n          Parts: 1/1\n          Granules: 1/1\n        Skip\n          Name: idx_search_token\n          Description: tokenbf_v1 GRANULARITY 4\n          Parts: 1/1\n          Granules: 1/1\n        Skip\n          Name: <Combined skip indexes>\n          Description: Final set of granules after AND/OR processing\n          Parts: 1/1\n          Granules: 1/1\n        Ranges: 1",
+      "explain_wall_ms": 5.296
+    },
+    "ilike": {
+      "parts": 1,
+      "granules": null,
+      "index_lines": [
+        "\u2502  Skip merging: 0"
+      ],
+      "search_index_mentioned": false,
+      "raw": "Output: count()\n\nAggregating\n\u2502  Keys:\n\u2502  Aggregates: count()\n\u2502  Skip merging: 0\n\u2514\u2500\u2500ReadFromMergeTree (phase1_step3_ioc_20260814210809.events)\n      Read type: Default\n      Parts: 1 | Granules: 1\n      Output: Empty\n      Prewhere filter\n      Prewhere filter column:  case_id = 900001 AND (raw_json ILIKE '%mixedcase.example%' OR search_blob ILIKE '%mixedcase.example%')\n      Indexes:\n        Min-Max\n          Keys:\n            case_id\n          Condition: (case_id in [900001, 900001])\n          Parts: 1/1\n          Granules: 1/1\n        Partition\n          Keys:\n            case_id\n          Condition: (case_id in [900001, 900001])\n          Parts: 1/1\n          Granules: 1/1\n        PrimaryKey\n          Keys:\n            case_id\n          Condition: (case_id in [900001, 900001])\n          Parts: 1/1\n          Granules: 1/1\n          Search Algorithm: generic exclusion search\n        Ranges: 1",
+      "explain_wall_ms": 4.602
+    },
+    "no_raw_json": {
+      "parts": 1,
+      "granules": null,
+      "index_lines": [
+        "\u2502  Skip merging: 0"
+      ],
+      "search_index_mentioned": false,
+      "raw": "Output: count()\n\nAggregating\n\u2502  Keys:\n\u2502  Aggregates: count()\n\u2502  Skip merging: 0\n\u2514\u2500\u2500ReadFromMergeTree (phase1_step3_ioc_20260814210809.events)\n      Read type: Default\n      Parts: 1 | Granules: 1\n      Output: Empty\n      Prewhere filter\n      Prewhere filter column:  case_id = 900001 AND lower(search_blob) LIKE '%mixedcase.example%'\n      Indexes:\n        Min-Max\n          Keys:\n            case_id\n          Condition: (case_id in [900001, 900001])\n          Parts: 1/1\n          Granules: 1/1\n        Partition\n          Keys:\n            case_id\n          Condition: (case_id in [900001, 900001])\n          Parts: 1/1\n          Granules: 1/1\n        PrimaryKey\n          Keys:\n            case_id\n          Condition: (case_id in [900001, 900001])\n          Parts: 1/1\n          Granules: 1/1\n          Search Algorithm: binary search\n        Ranges: 1",
+      "explain_wall_ms": 4.654
+    },
+    "token_hasTokenCaseInsensitive": {
+      "parts": 1,
+      "granules": null,
+      "index_lines": [
+        "\u2502  Skip merging: 0"
+      ],
+      "search_index_mentioned": false,
+      "raw": "Output: count()\n\nAggregating\n\u2502  Keys:\n\u2502  Aggregates: count()\n\u2502  Skip merging: 0\n\u2514\u2500\u2500ReadFromMergeTree (phase1_step3_ioc_20260814210809.events)\n      Read type: Default\n      Parts: 1 | Granules: 1\n      Output: Empty\n      Prewhere filter\n      Prewhere filter column:  case_id = 900001 AND (hasTokenCaseInsensitive(raw_json, 'ltsvc') OR hasTokenCaseInsensitive(search_blob, 'ltsvc'))\n      Indexes:\n        Min-Max\n          Keys:\n            case_id\n          Condition: (case_id in [900001, 900001])\n          Parts: 1/1\n          Granules: 1/1\n        Partition\n          Keys:\n            case_id\n          Condition: (case_id in [900001, 900001])\n          Parts: 1/1\n          Granules: 1/1\n        PrimaryKey\n          Keys:\n            case_id\n          Condition: (case_id in [900001, 900001])\n          Parts: 1/1\n          Granules: 1/1\n          Search Algorithm: generic exclusion search\n        Ranges: 1",
+      "explain_wall_ms": 4.77
+    }
+  },
+  "clickhouse_statements": 70,
+  "clickhouse_query_wall_ms": 379.262,
+  "peak_rss_mb": 90.4,
+  "no_raw_json_verdict": "IOC_FAIL",
+  "no_lower_verdict": "IOC_FAIL",
+  "ilike_verdict": "IOC_PASS",
+  "structured_blob_verdict": "IOC_FAIL"
+}

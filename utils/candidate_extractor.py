@@ -30,6 +30,12 @@ from utils.event_noise_state import build_effective_not_noise_clause, ensure_eve
 logger = logging.getLogger(__name__)
 
 
+KEY_LENGTH_LEGACY_SQL = "JSONExtractString(raw_json, 'EventData', 'KeyLength')"
+KEY_LENGTH_SELECT_SQL = (
+    f"if(key_length IS NULL, {KEY_LENGTH_LEGACY_SQL}, toString(key_length))"
+)
+
+
 class CandidateExtractionError(RuntimeError):
     """Raised when candidate extraction cannot reliably read source events."""
 
@@ -360,7 +366,7 @@ class CandidateExtractor:
                 JSONExtractString(raw_json, 'EventData', 'IpAddress') as src_ip,
                 JSONExtractString(raw_json, 'EventData', 'TargetServerName') as target_host,
                 JSONExtractString(raw_json, 'EventData', 'WorkstationName') as workstation,
-                JSONExtractString(raw_json, 'EventData', 'KeyLength') as key_length,
+                {KEY_LENGTH_SELECT_SQL} as key_length,
                 JSONExtractString(raw_json, 'EventData', 'LogonProcessName') as logon_process,
                 JSONExtractString(raw_json, 'EventData', 'AuthenticationPackageName') as auth_package,
                 JSONExtractString(raw_json, 'EventData', 'SubjectUserName') as subject_user,
@@ -485,7 +491,7 @@ class CandidateExtractor:
                 JSONExtractString(raw_json, 'EventData', 'IpAddress') as src_ip,
                 JSONExtractString(raw_json, 'EventData', 'TargetServerName') as target_host,
                 JSONExtractString(raw_json, 'EventData', 'WorkstationName') as workstation,
-                JSONExtractString(raw_json, 'EventData', 'KeyLength') as key_length,
+                {KEY_LENGTH_SELECT_SQL} as key_length,
                 JSONExtractString(raw_json, 'EventData', 'LogonProcessName') as logon_process,
                 JSONExtractString(raw_json, 'EventData', 'AuthenticationPackageName') as auth_package,
                 JSONExtractString(raw_json, 'EventData', 'SubjectUserName') as subject_user,
@@ -694,9 +700,20 @@ class CandidateExtractor:
                         event_conds.append(f"logon_type = {alloc_param('logon_type', int(values), 'Int32')}")
                         
                 elif field == 'key_length':
-                    event_conds.append(
-                        f"JSONExtractString(raw_json, 'EventData', 'KeyLength') = {alloc_param('key_length', str(values))}"
-                    )
+                    legacy_param = alloc_param('key_length_legacy', str(values))
+                    try:
+                        numeric_value = int(str(values).strip(), 10)
+                    except (TypeError, ValueError):
+                        numeric_value = None
+                    if numeric_value is not None and 0 <= numeric_value <= 65535:
+                        typed_param = alloc_param('key_length_typed', numeric_value, 'UInt16')
+                        event_conds.append(
+                            f"if(key_length IS NULL, {KEY_LENGTH_LEGACY_SQL} = {legacy_param}, key_length = {typed_param})"
+                        )
+                    else:
+                        event_conds.append(
+                            f"(key_length IS NULL AND {KEY_LENGTH_LEGACY_SQL} = {legacy_param})"
+                        )
                     
                 elif field == 'auth_package':
                     if isinstance(values, list):

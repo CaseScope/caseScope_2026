@@ -1,0 +1,425 @@
+{
+  "captured_at": "2026-08-15T15:28:17.113174+00:00",
+  "hayabusa_bin": "/opt/casescope/bin/hayabusa",
+  "evtxecmd_bin": "/opt/casescope/bin/evtxecmd",
+  "work_dir": "/opt/casescope/docs/database_flow_phase1/phase1_step4_probe_60qb1ab9",
+  "hayabusa": {
+    "help_head": "Hayabusa v3.7.0 - CODE BLUE Release\nYamato Security (https://github.com/Yamato-Security/hayabusa - @SecurityYamato)\n\nUsage:\n  hayabusa.exe <COMMAND> [OPTIONS]\n  hayabusa.exe help <COMMAND> or hayabusa.exe <COMMAND> -h\n\nCommands:\n  computer-metrics         Output the total number of events according to computer names\n  config-critical-systems  Find critical systems like domain controllers and file servers\n  csv-timeline             Create a DFIR timeline and save it in CSV format\n  eid-metrics   ",
+    "json_timeline_has_directory": true,
+    "json_timeline_help": "Hayabusa v3.7.0 - CODE BLUE Release\nYamato Security (https://github.com/Yamato-Security/hayabusa - @SecurityYamato)\n\nUsage:\n  hayabusa.exe json-timeline <INPUT> [OPTIONS]\n\nInput:\n  -d, --directory <DIR>  Directory of multiple .evtx files\n  -f, --file <FILE>      File path to one .evtx file\n  -l, --live-analysis    Analyze the local C:\\Windows\\System32\\winevt\\Logs folder\n\nGeneral Options:\n  -C, --clobber                        Overwrite files when saving\n  -h, --help                           Show the help menu\n  -J, --JSON-input                     Scan JSON formatted logs instead of .evtx (.json or .jsonl)\n  -w, --no-wizard                      Do not ask questions. Scan for all events and alerts\n  -Q, --quiet-errors                   Quiet errors mode: do not save error logs\n  -x, --recover-records                Carve evtx records from slack space (default: disabled)\n  -r, --rules <DIR/FILE>               Specify a custom rule directory or file (default: ./rules)\n  -c, --rules-config <DIR>             Specify custom rule config directory (default: ./rules/config)\n  -s, --sort                           Sort results before saving the file (warning: this uses much more memory!)\n  -t, --threads <NUMBER>               Number of threads (default: optimal number for performance)\n      --target-file-ext <FILE-EXT...>  Specify additional evtx file extensions (ex: evtx_data)\n  -V, --validate-checksums             Enable checksum validation\n\nFiltering:\n  -E, --EID-filter                      Scan only common EIDs for faster speed (./rules/config/target_event_IDs.txt)\n  -A, --enable-all-rules                Enable all rules regardless of loaded evtx files (disable channel filter for rules)\n  -D, --enable-deprecated-rules         Enable rules with a status of deprecated\n  -n, --enable-noisy-rules              Enable rules set to noisy (./rules/config/noisy_rules.txt)\n  -u, --enable-unsupported-rules        Enable rules with a status of unsupported\n  -e, --exact-level <LEVEL>             Only load rules with a specific level (informational, low, medium, high, critical)\n      --exclude-category <CATEGORY...>  Do not load rules with specified logsource categories (ex: process_creation,pipe_created)\n      --exclude-computer <COMPUTER...>  Do not scan specified computer names (ex: ComputerA) (ex: ComputerA,ComputerB)\n      --exclude-eid <EID...>            Do not scan specific EIDs for faster speed (ex: 1) (ex: 1,4688)\n      --exclude-status <STATUS...>      Do not load rules according to status (ex: experimental) (ex: stable,test)\n      --exclude-tag <TAG...>            Do not load rules with specific tags (ex: sysmon)\n      --include-category <CATEGORY...>  Only load rules with specified logsource categories (ex: process_creation,pipe_created)\n      --include-computer <COMPUTER...>  Scan only specified computer names (ex: ComputerA) (ex: ComputerA,ComputerB)\n      --include-eid <EID...>            Scan only specified EIDs for faster speed (ex: 1) (ex: 1,4688)\n      --include-status <STATUS...>      Only load rules with specific status (ex: experimental) (ex: stable,test)\n      --include-tag <TAG...>            Only load rules with specific tags (ex: attack.execution,attack.discovery)\n  -m, --min-level <LEVEL>               Minimum level for rules to load (default: informational)\n  -P, --proven-rules                    Scan with only proven rules for faster speed (./rules/config/proven_rules.txt)\n  -a, --scan-all-evtx-files             Scan all evtx files regardless of loaded rules (disable channel filter for evtx files)\n      --time-offset <OFFSET>            Scan recent events based on an offset (ex: 1y, 3M, 30d, 24h, 30m)\n      --timeline-end <DATE>             End time of the event logs to load (ex: \"2022-02-22 23:59:59 +09:00\")\n      --timeline-start <DATE>           Start time of the event logs to load (ex: \"2020-02-22 00:00:00 +09:00\")\n\nOutput:\n  -b, --disable-abbreviations        Disable abbreviations\n  -G, --GeoIP <MAXMIND-DB-DIR>       Add GeoIP (ASN, city, country) info to IP addresses\n  -H, --HTML-report <FILE>           Save Results Summary details to an HTML report (ex: results.html)\n  -L, --JSONL-output                 Save the timeline in JSONL format (ex: -L -o results.jsonl)\n  -F, --no-field-data-mapping        Disable field data mapping\n      --no-pwsh-field-extraction     Disable field extraction of PowerShell classic logs\n  -o, --output <FILE>                Save the timeline in JSON format (ex: results.json)\n  -p, --profile <PROFILE>            Specify output profile\n  -R, --remove-duplicate-data        Duplicate field data will be replaced with \"DUP\"\n  -X, --remove-duplicate-detections  Remove duplicate detections (default: disabled)\n\nDisplay Settings:\n  -K, --no-color            Disable color output\n  -N, --no-summary          Do not display Results Summary for faster speed\n  -q, --quiet               Quiet mode: do not display the launch banner\n  -v, --verbose             Output verbose information\n  -T, --visualize-timeline  Output event frequency timeline (terminal needs to support unicode)\n\nTime Format:\n      --European-time     Output timestamp in European time format (ex: 22-02-2022 22:00:00.123 +02:00)\n  -O, --ISO-8601          Output timestamp in original ISO-8601 format (ex: 2022-02-22T10:10:10.1234567Z) (Always UTC)\n      --RFC-2822          Output timestamp in RFC 2822 format (ex: Fri, 22 Feb 2022 22:00:00 -0600)\n      --RFC-3339          Output timestamp in RFC 3339 format (ex: 2022-02-22 22:00:00.123456-06:00)\n      --US-military-time  Output timestamp in US military time format (ex: 02-22-2022 22:00:00.123 -06:00)\n      --US-time           Output timestamp in US time format (ex: 02-22-2022 10:00:00.123 PM -06:00)\n  -U, --UTC               Output time in UTC format (default: local time)\n"
+  },
+  "evtxecmd": {
+    "version": "2026.5.0+bfc7f47ccbf65ffc9a3777cde5498db2fdd94664",
+    "help": "Description:\n  EvtxECmd version 2026.5.0\n  \n  Author: Eric Zimmerman (saericzimmerman@gmail.com)\n  https://github.com/EricZimmerman/evtx\n  \n  Examples: EvtxECmd.exe -f \"C:\\Temp\\Application.evtx\" --csv \"c:\\temp\\out\" --csvf MyOutputFile.csv\n  \t    EvtxECmd.exe -f \"C:\\Temp\\Application.evtx\" --csv \"c:\\temp\\out\"\n  \t    EvtxECmd.exe -f \"C:\\Temp\\Application.evtx\" --json \"c:\\temp\\jsonout\"\n  \t \n  \t    Short options (single letter) are prefixed with a single dash. Long commands are prefixed with two dashes\n\nUsage:\n  EvtxECmd [options]\n\nOptions:\n  -f <f>           File to process. Either this or -d is required\n  -d <d>           Directory to recursively process. Either this or -f is required\n  --csv <csv>      Directory to save CSV formatted results to. Be sure to include the full path in double quotes\n  --csvf <csvf>    File name to save CSV formatted results to. When present, overrides default name\n  --json <json>    Directory to save JSON formatted results to. Be sure to include the full path in double quotes\n  --jsonf <jsonf>  File name to save JSON formatted results to. When present, overrides default name\n  --xml <xml>      Directory to save XML formatted results to\n  --xmlf <xmlf>    File name to save XML formatted results to. When present, overrides default name\n  --dt <dt>        The custom date/time format to use when displaying time stamps. See https://goo.gl/CNVq0k for options [default: yyyy-MM-dd HH:mm:ss.fffffff]\n  --inc <inc>      List of Event IDs to process. All others are ignored. Overrides --exc Format is 4624,4625,5410,5500-5600\n  --exc <exc>      List of Event IDs to IGNORE. All others are included. Format is 4624,4625,5410,5500-5600\n  --sd <sd>        Start date for including events (UTC). Anything OLDER than this is dropped. Format should match --dt\n  --ed <ed>        End date for including events (UTC). Anything NEWER than this is dropped. Format should match --dt\n  --fj             When true, export all available data when using --json\n  --tdt <tdt>      The number of seconds to use for time discrepancy detection. Default is 1 [default: 1]\n  --met            When true, show metrics about processed event log. Default is true\n  --maps <maps>    The path where event maps are located. Defaults to 'Maps' folder where program was executed [default: /opt/casescope/bin/EvtxECmd/EvtxeCmd/Maps]\n  --vss            Process all Volume Shadow Copies that exist on drive specified by -f or -d\n  --dedupe         Deduplicate -f or -d & VSCs based on SHA-1. First file found wins\n  --sync           If true, the latest maps from https://github.com/EricZimmerman/evtx/tree/master/evtx/Maps are downloaded and local maps updated\n  --debug          Show debug information during processing\n  --trace          Show trace information during processing\n  -?, -h, --help   Show help and usage information\n  --version        Show version information\n\n",
+    "has_directory": true,
+    "directory_help_line": "-d <d>           Directory to recursively process. Either this or -f is required",
+    "json_flags": [
+      "--json",
+      "--jsonf",
+      "--fj"
+    ],
+    "recursive_documented": true,
+    "dedupe_flag": true
+  },
+  "hayabusa_single_file": {
+    "input": "/opt/casescope-benchmark/phase0a_evtx/Microsoft-Windows-TerminalServices-LocalSessionManager.evtx",
+    "run": {
+      "returncode": 0,
+      "stdout_tail": "uters with most unique detections:\n\u001b[0memergency: n/a\n\u001b[0mcritical: n/a\n\u001b[0mhigh: n/a\n\u001b[0mmedium: n/a\n\u001b[0mlow: n/a\n\u001b[0minformational: 2025-HOST01 (4), WIN-910HQ20L0I8 (2)\n\n\u256d\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u256e\n\u2502 Top emergency alerts:   Top critical alerts:      \u2502\n\u251c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u2524\n\u2502 n/a                     n/a                       \u2502\n\u2502 n/a                     n/a                       \u2502\n\u2502 n/a                     n/a                       \u2502\n\u2502 n/a                     n/a                       \u2502\n\u2502 n/a                     n/a                       \u2502\n\u251c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u2524\n\u2502 Top high alerts:        Top medium alerts:        \u2502\n\u251c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u2524\n\u2502 n/a                     n/a                       \u2502\n\u2502 n/a                     n/a                       \u2502\n\u2502 n/a                     n/a                       \u2502\n\u2502 n/a                     n/a                       \u2502\n\u2502 n/a                     n/a                       \u2502\n\u251c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u2524\n\u2502 Top low alerts:         Top informational alerts: \u2502\n\u251c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u2524\n\u2502 n/a                     RDP Disconnect (36)       \u2502\n\u2502 n/a                     RDP Reconnect (32)        \u2502\n\u2502 n/a                     RDP Logon (6)             \u2502\n\u2502 n/a                     RDP Logoff (5)            \u2502\n\u2502 n/a                     n/a                       \u2502\n\u2570\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u254c\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u256f\n\n\u001b[0mSaved file:\u001b[0m /opt/casescope/docs/database_flow_phase1/phase1_step4_probe_60qb1ab9/hayabusa_single.jsonl (41.1 KiB)\n\n\u001b[0mElapsed time: \u001b[0m00:00:06.829\n\n\u001b[0mPlease report any issues with Hayabusa rules to: \u001b[0mhttps://github.com/Yamato-Security/hayabusa-rules/issues\n\u001b[0mPlease report any false positives with Sigma rules to: \u001b[0mhttps://github.com/SigmaHQ/sigma/issues\n\u001b[0mPlease submit new Sigma rules with pull requests to: \u001b[0mhttps://github.com/SigmaHQ/sigma/pulls\n\n",
+      "stderr_tail": "",
+      "wall_seconds": 6.891,
+      "timeout": false
+    },
+    "cmd": [
+      "/opt/casescope/bin/hayabusa",
+      "json-timeline",
+      "-f",
+      "/opt/casescope-benchmark/phase0a_evtx/Microsoft-Windows-TerminalServices-LocalSessionManager.evtx",
+      "-o",
+      "/opt/casescope/docs/database_flow_phase1/phase1_step4_probe_60qb1ab9/hayabusa_single.jsonl",
+      "-L",
+      "-w",
+      "-q",
+      "-C",
+      "--no-color",
+      "-p",
+      "all-field-info-verbose",
+      "--min-level",
+      "informational",
+      "-U",
+      "-r",
+      "/opt/casescope/rules/hayabusa-rules"
+    ],
+    "output_bytes": 42078,
+    "row_count": 79,
+    "inventory": {
+      "row_count": 50,
+      "keys": {
+        "Timestamp": 50,
+        "RuleTitle": 50,
+        "Level": 50,
+        "Computer": 50,
+        "Channel": 50,
+        "EventID": 50,
+        "MitreTactics": 50,
+        "OtherTags": 50,
+        "RecordID": 50,
+        "AllFieldInfo": 50,
+        "RuleFile": 50,
+        "RuleID": 50,
+        "EvtxFile": 50
+      },
+      "nonempty_keys": {
+        "Timestamp": 50,
+        "RuleTitle": 50,
+        "Level": 50,
+        "Computer": 50,
+        "Channel": 50,
+        "EventID": 50,
+        "MitreTactics": 50,
+        "OtherTags": 50,
+        "RecordID": 50,
+        "AllFieldInfo": 50,
+        "RuleFile": 50,
+        "RuleID": 50,
+        "EvtxFile": 50
+      },
+      "sample_values": {
+        "AllFieldInfo": {
+          "Address": "LOCAL",
+          "SessionID": 1,
+          "User": "WIN-910HQ20L0I8\\Administrator"
+        },
+        "Channel": "RDS-LSM",
+        "Computer": "WIN-910HQ20L0I8",
+        "EventID": 21,
+        "EvtxFile": "/opt/casescope-benchmark/phase0a_evtx/Microsoft-Windows-TerminalServices-LocalSessionManager.evtx",
+        "Level": "info",
+        "MitreTactics": [
+          "LatMov"
+        ],
+        "OtherTags": [
+          "RDP"
+        ],
+        "RecordID": 38,
+        "RuleFile": "LocalSessManager_21_Info_RDP-Logon.yml",
+        "RuleID": "b107551c-409d-44b8-bb0d-3b007c269881",
+        "RuleTitle": "RDP Logon",
+        "Timestamp": "2026-05-16 15:58:36.702 +00:00"
+      }
+    },
+    "evtxfile_values": [
+      "/opt/casescope-benchmark/phase0a_evtx/Microsoft-Windows-TerminalServices-LocalSessionManager.evtx"
+    ],
+    "channel_values": [
+      "RDS-LSM"
+    ],
+    "record_id_sample": [
+      38,
+      50,
+      63,
+      72,
+      81,
+      220,
+      55,
+      86,
+      90,
+      94
+    ],
+    "has_evtxfile": true,
+    "has_channel": true,
+    "has_rule_id": true,
+    "has_all_field_info": true
+  },
+  "hayabusa_directory_unique": {
+    "input_dir": "/opt/casescope/docs/database_flow_phase1/phase1_step4_probe_60qb1ab9/dir_unique",
+    "run": {
+      "returncode": 0,
+      "stdout_tail": "\u2500\u2500\u2500\u256e\n\u2502 Top emergency alerts:   Top critical alerts:               \u2502\n\u251c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u2524\n\u2502 n/a                     n/a                                \u2502\n\u2502 n/a                     n/a                                \u2502\n\u2502 n/a                     n/a                                \u2502\n\u2502 n/a                     n/a                                \u2502\n\u2502 n/a                     n/a                                \u2502\n\u251c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u2524\n\u2502 Top high alerts:        Top medium alerts:                 \u2502\n\u251c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u2524\n\u2502 n/a                     n/a                                \u2502\n\u2502 n/a                     n/a                                \u2502\n\u2502 n/a                     n/a                                \u2502\n\u2502 n/a                     n/a                                \u2502\n\u2502 n/a                     n/a                                \u2502\n\u251c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u2524\n\u2502 Top low alerts:         Top informational alerts:          \u2502\n\u251c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u2524\n\u2502 n/a                     Temporary WMI Event Consumer (248) \u2502\n\u2502 n/a                     WMI Provider Started (75)          \u2502\n\u2502 n/a                     RDP Disconnect (36)                \u2502\n\u2502 n/a                     RDP Reconnect (32)                 \u2502\n\u2502 n/a                     RDP Logon (6)                      \u2502\n\u2570\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u254c\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u256f\n\n\u001b[0mSaved file:\u001b[0m /opt/casescope/docs/database_flow_phase1/phase1_step4_probe_60qb1ab9/hayabusa_dir_unique.jsonl (269.8 KiB)\n\n\u001b[0mElapsed time: \u001b[0m00:00:06.306\n\n\u001b[0mPlease report any issues with Hayabusa rules to: \u001b[0mhttps://github.com/Yamato-Security/hayabusa-rules/issues\n\u001b[0mPlease report any false positives with Sigma rules to: \u001b[0mhttps://github.com/SigmaHQ/sigma/issues\n\u001b[0mPlease submit new Sigma rules with pull requests to: \u001b[0mhttps://github.com/SigmaHQ/sigma/pulls\n\n",
+      "stderr_tail": "",
+      "wall_seconds": 6.348,
+      "timeout": false
+    },
+    "row_count": 402,
+    "evtxfile_values": [
+      "/opt/casescope/docs/database_flow_phase1/phase1_step4_probe_60qb1ab9/dir_unique/Microsoft-Windows-TerminalServices-LocalSessionManager.evtx",
+      "/opt/casescope/docs/database_flow_phase1/phase1_step4_probe_60qb1ab9/dir_unique/Microsoft-Windows-WMI-Activity-Operational.evtx"
+    ],
+    "evtxfile_is_basename": false,
+    "evtxfile_is_abspath": true,
+    "sample_row_keys": [
+      "AllFieldInfo",
+      "Channel",
+      "Computer",
+      "EventID",
+      "EvtxFile",
+      "Level",
+      "MitreTactics",
+      "OtherTags",
+      "RecordID",
+      "RuleFile",
+      "RuleID",
+      "RuleTitle",
+      "Timestamp"
+    ],
+    "sample_evtxfile": "/opt/casescope/docs/database_flow_phase1/phase1_step4_probe_60qb1ab9/dir_unique/Microsoft-Windows-TerminalServices-LocalSessionManager.evtx"
+  },
+  "hayabusa_recursive": {
+    "input_dir": "/opt/casescope/docs/database_flow_phase1/phase1_step4_probe_60qb1ab9/dir_nested",
+    "run": {
+      "returncode": 0,
+      "stdout_tail": "uters with most unique detections:\n\u001b[0memergency: n/a\n\u001b[0mcritical: n/a\n\u001b[0mhigh: n/a\n\u001b[0mmedium: n/a\n\u001b[0mlow: n/a\n\u001b[0minformational: 2025-HOST01 (4), WIN-910HQ20L0I8 (2)\n\n\u256d\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u256e\n\u2502 Top emergency alerts:   Top critical alerts:      \u2502\n\u251c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u2524\n\u2502 n/a                     n/a                       \u2502\n\u2502 n/a                     n/a                       \u2502\n\u2502 n/a                     n/a                       \u2502\n\u2502 n/a                     n/a                       \u2502\n\u2502 n/a                     n/a                       \u2502\n\u251c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u2524\n\u2502 Top high alerts:        Top medium alerts:        \u2502\n\u251c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u2524\n\u2502 n/a                     n/a                       \u2502\n\u2502 n/a                     n/a                       \u2502\n\u2502 n/a                     n/a                       \u2502\n\u2502 n/a                     n/a                       \u2502\n\u2502 n/a                     n/a                       \u2502\n\u251c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u2524\n\u2502 Top low alerts:         Top informational alerts: \u2502\n\u251c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u2524\n\u2502 n/a                     RDP Disconnect (36)       \u2502\n\u2502 n/a                     RDP Reconnect (32)        \u2502\n\u2502 n/a                     RDP Logon (6)             \u2502\n\u2502 n/a                     RDP Logoff (5)            \u2502\n\u2502 n/a                     n/a                       \u2502\n\u2570\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u254c\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u256f\n\n\u001b[0mSaved file:\u001b[0m /opt/casescope/docs/database_flow_phase1/phase1_step4_probe_60qb1ab9/hayabusa_nested.jsonl (44.6 KiB)\n\n\u001b[0mElapsed time: \u001b[0m00:00:05.952\n\n\u001b[0mPlease report any issues with Hayabusa rules to: \u001b[0mhttps://github.com/Yamato-Security/hayabusa-rules/issues\n\u001b[0mPlease report any false positives with Sigma rules to: \u001b[0mhttps://github.com/SigmaHQ/sigma/issues\n\u001b[0mPlease submit new Sigma rules with pull requests to: \u001b[0mhttps://github.com/SigmaHQ/sigma/pulls\n\n",
+      "stderr_tail": "",
+      "wall_seconds": 5.998,
+      "timeout": false
+    },
+    "row_count": 79,
+    "evtxfile_values": [
+      "/opt/casescope/docs/database_flow_phase1/phase1_step4_probe_60qb1ab9/dir_nested/sub/Microsoft-Windows-TerminalServices-LocalSessionManager.evtx"
+    ],
+    "saw_nested_file": true,
+    "saw_top_level_file": false
+  },
+  "hayabusa_duplicate_basename": {
+    "input_dir": "/opt/casescope/docs/database_flow_phase1/phase1_step4_probe_60qb1ab9/dir_dup",
+    "run": {
+      "returncode": 0,
+      "stdout_tail": "cy alerts:         Top critical alerts:          \u2502\n\u251c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u2524\n\u2502 n/a                           n/a                           \u2502\n\u2502 n/a                           n/a                           \u2502\n\u2502 n/a                           n/a                           \u2502\n\u2502 n/a                           n/a                           \u2502\n\u2502 n/a                           n/a                           \u2502\n\u251c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u2524\n\u2502 Top high alerts:              Top medium alerts:            \u2502\n\u251c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u2524\n\u2502 Suspicious Service Path (4)   n/a                           \u2502\n\u2502 PSExec Lateral Movement (4)   n/a                           \u2502\n\u2502 n/a                           n/a                           \u2502\n\u2502 n/a                           n/a                           \u2502\n\u2502 n/a                           n/a                           \u2502\n\u251c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u2524\n\u2502 Top low alerts:               Top informational alerts:     \u2502\n\u251c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u2524\n\u2502 Service Crashed (12)          Computer Uptime/Timezone (59) \u2502\n\u2502 n/a                           Windows Update Error (35)     \u2502\n\u2502 n/a                           Svc Installed (14)            \u2502\n\u2502 n/a                           Computer Startup (2)          \u2502\n\u2502 n/a                           Event Log Svc Stopped (1)     \u2502\n\u2570\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u254c\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u256f\n\n\u001b[0mSaved file:\u001b[0m /opt/casescope/docs/database_flow_phase1/phase1_step4_probe_60qb1ab9/hayabusa_dup.jsonl (118.0 KiB)\n\n\u001b[0mElapsed time: \u001b[0m00:00:06.1220\n\n\u001b[0mPlease report any issues with Hayabusa rules to: \u001b[0mhttps://github.com/Yamato-Security/hayabusa-rules/issues\n\u001b[0mPlease report any false positives with Sigma rules to: \u001b[0mhttps://github.com/SigmaHQ/sigma/issues\n\u001b[0mPlease submit new Sigma rules with pull requests to: \u001b[0mhttps://github.com/SigmaHQ/sigma/pulls\n\n",
+      "stderr_tail": "",
+      "wall_seconds": 7.256,
+      "timeout": false
+    },
+    "row_count": 132,
+    "evtxfile_values": [
+      "/opt/casescope/docs/database_flow_phase1/phase1_step4_probe_60qb1ab9/dir_dup/hostB/Security.evtx"
+    ],
+    "unique_evtxfile_count": 1,
+    "basename_only": false,
+    "collision_unsafe_if_basename_only": true,
+    "sample_paths": [
+      "/opt/casescope/docs/database_flow_phase1/phase1_step4_probe_60qb1ab9/dir_dup/hostB/Security.evtx",
+      "/opt/casescope/docs/database_flow_phase1/phase1_step4_probe_60qb1ab9/dir_dup/hostB/Security.evtx",
+      "/opt/casescope/docs/database_flow_phase1/phase1_step4_probe_60qb1ab9/dir_dup/hostB/Security.evtx",
+      "/opt/casescope/docs/database_flow_phase1/phase1_step4_probe_60qb1ab9/dir_dup/hostB/Security.evtx",
+      "/opt/casescope/docs/database_flow_phase1/phase1_step4_probe_60qb1ab9/dir_dup/hostB/Security.evtx"
+    ]
+  },
+  "hayabusa_malformed_member": {
+    "input_dir": "/opt/casescope/docs/database_flow_phase1/phase1_step4_probe_60qb1ab9/dir_bad",
+    "run": {
+      "returncode": 0,
+      "stdout_tail": "\n\u001b[0mcritical: n/a\n\u001b[0mhigh: n/a\n\u001b[0mmedium: n/a\n\u001b[0mlow: n/a\n\u001b[0minformational: n/a\n\n\u256d\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u256e\n\u2502 Top emergency alerts:   Top critical alerts:      \u2502\n\u251c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u2524\n\u2502 n/a                     n/a                       \u2502\n\u2502 n/a                     n/a                       \u2502\n\u2502 n/a                     n/a                       \u2502\n\u2502 n/a                     n/a                       \u2502\n\u2502 n/a                     n/a                       \u2502\n\u251c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u2524\n\u2502 Top high alerts:        Top medium alerts:        \u2502\n\u251c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u2524\n\u2502 n/a                     n/a                       \u2502\n\u2502 n/a                     n/a                       \u2502\n\u2502 n/a                     n/a                       \u2502\n\u2502 n/a                     n/a                       \u2502\n\u2502 n/a                     n/a                       \u2502\n\u251c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u2524\n\u2502 Top low alerts:         Top informational alerts: \u2502\n\u251c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u2524\n\u2502 n/a                     n/a                       \u2502\n\u2502 n/a                     n/a                       \u2502\n\u2502 n/a                     n/a                       \u2502\n\u2502 n/a                     n/a                       \u2502\n\u2502 n/a                     n/a                       \u2502\n\u2570\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u254c\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u256f\n\n\u001b[0mSaved file:\u001b[0m /opt/casescope/docs/database_flow_phase1/phase1_step4_probe_60qb1ab9/hayabusa_bad.jsonl (1 B)\n\n\u001b[0mElapsed time: \u001b[0m00:00:05.632\n\n\u001b[0mPlease report any issues with Hayabusa rules to: \u001b[0mhttps://github.com/Yamato-Security/hayabusa-rules/issues\n\u001b[0mPlease report any false positives with Sigma rules to: \u001b[0mhttps://github.com/SigmaHQ/sigma/issues\n\u001b[0mPlease submit new Sigma rules with pull requests to: \u001b[0mhttps://github.com/SigmaHQ/sigma/pulls\n\n\u001b[0mErrors were generated. Please check ./logs/errorlog-20260815_152849.log for details.\n\u001b[0m\n",
+      "stderr_tail": "",
+      "wall_seconds": 5.66,
+      "timeout": false
+    },
+    "row_count": 0,
+    "evtxfile_values": [],
+    "aborted_entire_run": false,
+    "produced_output_for_valid_file": false
+  },
+  "evtxecmd_single_file": {
+    "input": "/opt/casescope-benchmark/phase0a_evtx/Microsoft-Windows-TerminalServices-LocalSessionManager.evtx",
+    "run": {
+      "returncode": 0,
+      "stdout_tail": "EvtxECmd version 2026.5.0\n\nAuthor: Eric Zimmerman (saericzimmerman@gmail.com)\nhttps://github.com/EricZimmerman/evtx\n\nCommand line: -f /opt/casescope-benchmark/phase0a_evtx/Microsoft-Windows-TerminalServices-LocalSessionManager.evtx --json /opt/casescope/docs/database_flow_phase1/phase1_step4_probe_60qb1ab9/evtx_single --jsonf single.json --maps /opt/casescope/bin/EvtxECmd/EvtxeCmd/Maps\n\njson output will be saved to /opt/casescope/docs/database_flow_phase1/phase1_step4_probe_60qb1ab9/evtx_single/single.json\n\nMaps loaded: 383\n\nProcessing /opt/casescope-benchmark/phase0a_evtx/Microsoft-Windows-TerminalServices-LocalSessionManager.evtx...\nChunk count: 2, Iterating records...\nRecord #: 33 (timestamp: 2026-05-16 15:57:54.5864862): Warning! Time just went backwards! Last seen time before change: 2026-05-16 18:57:17.4614970\n\nEvent log details\nFlags: None\nChunk count: 2\nStored/Calculated CRC: DC032D4A/DC032D4A\nEarliest timestamp: 2026-05-16 15:57:54.5864862\nLatest timestamp:   2026-08-11 20:19:15.9555536\nTotal event log records found: 221\n\nRecords included: 221 Errors: 0 Events dropped: 0\n\nMetrics (including dropped events)\nEvent ID\tCount\n21\t\t6\n22\t\t6\n23\t\t5\n24\t\t36\n25\t\t32\n32\t\t7\n34\t\t32\n40\t\t67\n41\t\t7\n42\t\t7\n54\t\t6\n59\t\t10\n\nProcessed 1 file in 0.8788 seconds\n\n",
+      "stderr_tail": "",
+      "wall_seconds": 1.081,
+      "timeout": false
+    },
+    "row_count": 221,
+    "inventory": {
+      "row_count": 5,
+      "keys": {
+        "ChunkNumber": 5,
+        "Computer": 5,
+        "Payload": 5,
+        "UserId": 5,
+        "Channel": 5,
+        "Provider": 5,
+        "EventId": 5,
+        "EventRecordId": 5,
+        "ProcessId": 5,
+        "ThreadId": 5,
+        "Level": 5,
+        "Keywords": 5,
+        "SourceFile": 5,
+        "ExtraDataOffset": 5,
+        "HiddenRecord": 5,
+        "TimeCreated": 5,
+        "RecordNumber": 5
+      },
+      "nonempty_keys": {
+        "ChunkNumber": 5,
+        "Computer": 5,
+        "Payload": 5,
+        "UserId": 5,
+        "Channel": 5,
+        "Provider": 5,
+        "EventId": 5,
+        "EventRecordId": 5,
+        "ProcessId": 5,
+        "ThreadId": 5,
+        "Level": 5,
+        "Keywords": 5,
+        "SourceFile": 5,
+        "ExtraDataOffset": 5,
+        "HiddenRecord": 5,
+        "TimeCreated": 5,
+        "RecordNumber": 5
+      },
+      "sample_values": {
+        "Channel": "Microsoft-Windows-TerminalServices-LocalSessionManager/Operational",
+        "ChunkNumber": 0,
+        "Computer": "WIN-910HQ20L0I8",
+        "EventId": 32,
+        "EventRecordId": "1",
+        "ExtraDataOffset": 0,
+        "HiddenRecord": false,
+        "Keywords": "0x1000000000000000",
+        "Level": "Info",
+        "Payload": "{\"UserData\":{\"EventXML\":{\"messageName\":\"RDSAppXPlugin\"}}}",
+        "ProcessId": 2852,
+        "Provider": "Microsoft-Windows-TerminalServices-LocalSessionManager",
+        "RecordNumber": 1,
+        "SourceFile": "/opt/casescope-benchmark/phase0a_evtx/Microsoft-Windows-TerminalServices-LocalSessionManager.evtx",
+        "ThreadId": 2868,
+        "TimeCreated": "2026-05-16T18:54:52.4924863+00:00",
+        "UserId": "S-1-5-18"
+      }
+    },
+    "sample_keys": [
+      "Channel",
+      "ChunkNumber",
+      "Computer",
+      "EventId",
+      "EventRecordId",
+      "ExtraDataOffset",
+      "HiddenRecord",
+      "Keywords",
+      "Level",
+      "Payload",
+      "ProcessId",
+      "Provider",
+      "RecordNumber",
+      "SourceFile",
+      "ThreadId",
+      "TimeCreated",
+      "UserId"
+    ],
+    "source_like_fields": {
+      "Channel": "Microsoft-Windows-TerminalServices-LocalSessionManager/Operational",
+      "SourceFile": "/opt/casescope-benchmark/phase0a_evtx/Microsoft-Windows-TerminalServices-LocalSessionManager.evtx"
+    }
+  },
+  "evtxecmd_directory_unique": {
+    "input_dir": "/opt/casescope/docs/database_flow_phase1/phase1_step4_probe_60qb1ab9/dir_unique",
+    "run": {
+      "returncode": 0,
+      "stdout_tail": "EvtxECmd version 2026.5.0\n\nAuthor: Eric Zimmerman (saericzimmerman@gmail.com)\nhttps://github.com/EricZimmerman/evtx\n\nCommand line: -d /opt/casescope/docs/database_flow_phase1/phase1_step4_probe_60qb1ab9/dir_unique --json /opt/casescope/docs/database_flow_phase1/phase1_step4_probe_60qb1ab9/evtx_dir --jsonf dir.json --maps /opt/casescope/bin/EvtxECmd/EvtxeCmd/Maps\n\njson output will be saved to /opt/casescope/docs/database_flow_phase1/phase1_step4_probe_60qb1ab9/evtx_dir/dir.json\n\nMaps loaded: 383\nLooking for event log files in /opt/casescope/docs/database_flow_phase1/phase1_step4_probe_60qb1ab9/dir_unique\n\n\nProcessing /opt/casescope/docs/database_flow_phase1/phase1_step4_probe_60qb1ab9/dir_unique/Microsoft-Windows-TerminalServices-LocalSessionManager.evtx...\nChunk count: 2, Iterating records...\nRecord #: 33 (timestamp: 2026-05-16 15:57:54.5864862): Warning! Time just went backwards! Last seen time before change: 2026-05-16 18:57:17.4614970\n\nEvent log details\nFlags: None\nChunk count: 2\nStored/Calculated CRC: DC032D4A/DC032D4A\nEarliest timestamp: 2026-05-16 15:57:54.5864862\nLatest timestamp:   2026-08-11 20:19:15.9555536\nTotal event log records found: 221\n\nRecords included: 221 Errors: 0 Events dropped: 0\n\nMetrics (including dropped events)\nEvent ID\tCount\n21\t\t6\n22\t\t6\n23\t\t5\n24\t\t36\n25\t\t32\n32\t\t7\n34\t\t32\n40\t\t67\n41\t\t7\n42\t\t7\n54\t\t6\n59\t\t10\n\nProcessing /opt/casescope/docs/database_flow_phase1/phase1_step4_probe_60qb1ab9/dir_unique/Microsoft-Windows-WMI-Activity-Operational.evtx...\nChunk count: 16, Iterating records...\n\nEvent log details\nFlags: None\nChunk count: 16\nStored/Calculated CRC: 3F684AF9/3F684AF9\nEarliest timestamp: 2026-08-14 09:07:11.3144217\nLatest timestamp:   2026-08-14 10:44:25.8530508\nTotal event log records found: 1,158\n\nRecords included: 1,158 Errors: 0 Events dropped: 0\n\nMetrics (including dropped events)\nEvent ID\tCount\n5857\t\t75\n5858\t\t835\n5860\t\t248\n\nProcessed 2 files in 1.3855 seconds\n\n",
+      "stderr_tail": "",
+      "wall_seconds": 1.598,
+      "timeout": false
+    },
+    "row_count": 1379,
+    "sample_keys": [
+      "Channel",
+      "ChunkNumber",
+      "Computer",
+      "EventId",
+      "EventRecordId",
+      "ExtraDataOffset",
+      "HiddenRecord",
+      "Keywords",
+      "Level",
+      "Payload",
+      "ProcessId",
+      "Provider",
+      "RecordNumber",
+      "SourceFile",
+      "ThreadId",
+      "TimeCreated",
+      "UserId"
+    ],
+    "source_like_keys_in_sample": [
+      "Payload",
+      "SourceFile"
+    ],
+    "source_attribution_hits_in_first_30": [
+      "SourceFile contains Microsoft-Windows-TerminalServices-LocalSessionManager.evtx",
+      "SourceFile=/opt/casescope/docs/database_flow_phase1/phase1_step4_probe_60qb1ab9/dir_unique/Microsoft-Windows-TerminalServices-LocalSessionManager.evtx"
+    ],
+    "channel_values_sample": [
+      "Microsoft-Windows-TerminalServices-LocalSessionManager/Operational"
+    ],
+    "record_fields": {
+      "EventRecordId": "1",
+      "RecordNumber": 1,
+      "Channel": "Microsoft-Windows-TerminalServices-LocalSessionManager/Operational",
+      "Computer": "WIN-910HQ20L0I8"
+    },
+    "filename_hits_first_200_rows": {
+      "SourceFile": 200
+    }
+  },
+  "evtxecmd_duplicate_basename": {
+    "run": {
+      "returncode": 0,
+      "stdout_tail": "2279\t\t1\n2334\t\t74\n2335\t\t12\n2358\t\t3\n2359\t\t11\n2415\t\t1\n5000\t\t1\n5001\t\t1\n5008\t\t1\n5009\t\t1\n5012\t\t1\n5052\t\t2\n5053\t\t2\n5151\t\t3\n5152\t\t3\n5352\t\t3\n5354\t\t3\n6005\t\t1\n6006\t\t1\n6009\t\t1\n6013\t\t59\n6156\t\t1\n7000\t\t1\n7001\t\t1\n7002\t\t1\n7024\t\t11\n7026\t\t1\n7031\t\t12\n7036\t\t56,893\n7039\t\t6\n7040\t\t15\n7045\t\t14\n10005\t\t8\n10016\t\t1\n10148\t\t1\n10149\t\t1\n15007\t\t2\n15008\t\t2\n16962\t\t1\n16977\t\t1\n16983\t\t1\n50036\t\t2\n50037\t\t1\n50103\t\t1\n50104\t\t1\n50105\t\t1\n50106\t\t1\n51046\t\t1\n51047\t\t1\n51057\t\t2\n\nProcessing /opt/casescope/docs/database_flow_phase1/phase1_step4_probe_60qb1ab9/dir_dup/hostA/Security.evtx...\nChunk count: 173, Iterating records...\nRecord #: 12 (timestamp: 2026-05-16 15:55:26.3162964): Warning! Time just went backwards! Last seen time before change: 2026-05-16 18:57:18.5193423\nRecord #: 206 (timestamp: 2026-05-16 17:30:13.1425379): Warning! Time just went backwards! Last seen time before change: 2026-05-16 17:30:14.2787559\nRecord #: 11519 (timestamp: 2026-08-09 21:40:29.9069759): Warning! Time just went backwards! Last seen time before change: 2026-08-09 21:40:30.9542302\n\nEvent log details\nFlags: None\nChunk count: 173\nStored/Calculated CRC: A3B54AFA/A3B54AFA\nEarliest timestamp: 2026-05-16 15:55:26.3162964\nLatest timestamp:   2026-08-14 10:37:40.8310452\nTotal event log records found: 12,137\n\nRecords included: 12,137 Errors: 0 Events dropped: 0\n\nMetrics (including dropped events)\nEvent ID\tCount\n0\t\t263\n1\t\t6\n2\t\t2\n4\t\t1\n5\t\t10\n13\t\t2\n16\t\t740\n23\t\t6\n24\t\t6\n63\t\t3\n102\t\t2\n105\t\t2\n256\t\t14\n258\t\t5\n300\t\t1\n301\t\t2\n302\t\t1\n325\t\t1\n326\t\t1\n508\t\t2\n533\t\t1\n900\t\t8\n902\t\t5\n903\t\t6\n1000\t\t24\n1001\t\t217\n1003\t\t22\n1004\t\t191\n1013\t\t2\n1016\t\t2\n1033\t\t4\n1034\t\t12\n1036\t\t1\n1037\t\t4\n1040\t\t2\n1061\t\t1\n1066\t\t5\n1067\t\t2\n1531\t\t7\n1532\t\t6\n4097\t\t19\n4108\t\t1\n4109\t\t1\n4111\t\t7\n4112\t\t1\n4113\t\t1\n4202\t\t6\n5499\t\t1\n5500\t\t11\n5501\t\t1\n5502\t\t10\n5615\t\t7\n5617\t\t7\n6000\t\t6\n6003\t\t2\n8193\t\t2\n8194\t\t2\n8197\t\t4\n8198\t\t3\n8208\t\t1\n8224\t\t158\n8230\t\t6\n10000\t\t41\n10001\t\t41\n10005\t\t12\n12304\t\t2\n12305\t\t2\n12311\t\t2\n16384\t\t5,087\n16388\t\t6\n16394\t\t5,086\n20481\t\t2\n20482\t\t2\n20488\t\t3\n20489\t\t2\n\nProcessed 2 files in 16.5230 seconds\n\n",
+      "stderr_tail": "",
+      "wall_seconds": 16.732,
+      "timeout": false
+    },
+    "row_count": 73764,
+    "sample_keys": [
+      "Channel",
+      "ChunkNumber",
+      "Computer",
+      "EventId",
+      "EventRecordId",
+      "ExtraDataOffset",
+      "HiddenRecord",
+      "Keywords",
+      "Level",
+      "MapDescription",
+      "Payload",
+      "PayloadData1",
+      "PayloadData2",
+      "ProcessId",
+      "Provider",
+      "RecordNumber",
+      "SourceFile",
+      "ThreadId",
+      "TimeCreated"
+    ],
+    "filename_in_first_20": true
+  },
+  "evtxecmd_malformed_member": {
+    "run": {
+      "returncode": 0,
+      "stdout_tail": "EvtxECmd version 2026.5.0\n\nAuthor: Eric Zimmerman (saericzimmerman@gmail.com)\nhttps://github.com/EricZimmerman/evtx\n\nCommand line: -d /opt/casescope/docs/database_flow_phase1/phase1_step4_probe_60qb1ab9/dir_bad --json /opt/casescope/docs/database_flow_phase1/phase1_step4_probe_60qb1ab9/evtx_bad --jsonf bad.json --maps /opt/casescope/bin/EvtxECmd/EvtxeCmd/Maps\n\njson output will be saved to /opt/casescope/docs/database_flow_phase1/phase1_step4_probe_60qb1ab9/evtx_bad/bad.json\n\nMaps loaded: 383\nLooking for event log files in /opt/casescope/docs/database_flow_phase1/phase1_step4_probe_60qb1ab9/dir_bad\n\n\nProcessing /opt/casescope/docs/database_flow_phase1/phase1_step4_probe_60qb1ab9/dir_bad/Microsoft-Windows-TaskScheduler-Operational.evtx...\nChunk count: 1, Iterating records...\n\nEvent log details\nFlags: None\nChunk count: 1\nStored/Calculated CRC: 84816946/84816946\nEarliest timestamp: \nLatest timestamp:   \nTotal event log records found: 0\n\nRecords included: 0 Errors: 0 Events dropped: 0\n\nProcessing /opt/casescope/docs/database_flow_phase1/phase1_step4_probe_60qb1ab9/dir_bad/corrupt.evtx...\n/opt/casescope/docs/database_flow_phase1/phase1_step4_probe_60qb1ab9/dir_bad/corrupt.evtx is not an evtx file! Message: Invalid signature! Expected 'ElfFile' Skipping...\n\nProcessed 1 file in 0.6472 seconds\n\n",
+      "stderr_tail": "",
+      "wall_seconds": 0.859,
+      "timeout": false
+    },
+    "row_count": 0,
+    "output_exists": true,
+    "aborted_entire_run": false
+  },
+  "evtxecmd_full_json_fj": {
+    "run": {
+      "returncode": 0,
+      "stdout_tail": "EvtxECmd version 2026.5.0\n\nAuthor: Eric Zimmerman (saericzimmerman@gmail.com)\nhttps://github.com/EricZimmerman/evtx\n\nCommand line: -d /opt/casescope/docs/database_flow_phase1/phase1_step4_probe_60qb1ab9/dir_unique --json /opt/casescope/docs/database_flow_phase1/phase1_step4_probe_60qb1ab9/evtx_fj --jsonf fj.json --fj --maps /opt/casescope/bin/EvtxECmd/EvtxeCmd/Maps\n\njson output will be saved to /opt/casescope/docs/database_flow_phase1/phase1_step4_probe_60qb1ab9/evtx_fj/fj.json\n\nMaps loaded: 383\nLooking for event log files in /opt/casescope/docs/database_flow_phase1/phase1_step4_probe_60qb1ab9/dir_unique\n\n\nProcessing /opt/casescope/docs/database_flow_phase1/phase1_step4_probe_60qb1ab9/dir_unique/Microsoft-Windows-TerminalServices-LocalSessionManager.evtx...\nChunk count: 2, Iterating records...\nRecord #: 33 (timestamp: 2026-05-16 15:57:54.5864862): Warning! Time just went backwards! Last seen time before change: 2026-05-16 18:57:17.4614970\n\nEvent log details\nFlags: None\nChunk count: 2\nStored/Calculated CRC: DC032D4A/DC032D4A\nEarliest timestamp: 2026-05-16 15:57:54.5864862\nLatest timestamp:   2026-08-11 20:19:15.9555536\nTotal event log records found: 221\n\nRecords included: 221 Errors: 0 Events dropped: 0\n\nMetrics (including dropped events)\nEvent ID\tCount\n21\t\t6\n22\t\t6\n23\t\t5\n24\t\t36\n25\t\t32\n32\t\t7\n34\t\t32\n40\t\t67\n41\t\t7\n42\t\t7\n54\t\t6\n59\t\t10\n\nProcessing /opt/casescope/docs/database_flow_phase1/phase1_step4_probe_60qb1ab9/dir_unique/Microsoft-Windows-WMI-Activity-Operational.evtx...\nChunk count: 16, Iterating records...\n\nEvent log details\nFlags: None\nChunk count: 16\nStored/Calculated CRC: 3F684AF9/3F684AF9\nEarliest timestamp: 2026-08-14 09:07:11.3144217\nLatest timestamp:   2026-08-14 10:44:25.8530508\nTotal event log records found: 1,158\n\nRecords included: 1,158 Errors: 0 Events dropped: 0\n\nMetrics (including dropped events)\nEvent ID\tCount\n5857\t\t75\n5858\t\t835\n5860\t\t248\n\nProcessed 2 files in 2.2271 seconds\n\n",
+      "stderr_tail": "",
+      "wall_seconds": 2.444,
+      "timeout": false
+    },
+    "sample_keys": [
+      "Event"
+    ],
+    "filename_hits": [],
+    "extra_keys_vs_default": [
+      "Event"
+    ]
+  }
+}
