@@ -769,6 +769,39 @@ def _graph_events_query(case_file_ids: Optional[tuple[int, ...]] = None) -> tupl
     return sql, parameters
 
 
+def _aggregate_bulk_batch_timings(batch_timings: list[Dict[str, Any]]) -> Dict[str, Any]:
+    aggregate: Dict[str, Any] = {
+        'events_read': 0,
+        'candidate_relationships': 0,
+        'unique_entities_staged': 0,
+        'observations_staged': 0,
+        'unique_relationships_staged': 0,
+        'support_rows_staged': 0,
+        'extraction_seconds': 0.0,
+        'canonicalization_seconds': 0.0,
+        'copy_entities_seconds': 0.0,
+        'copy_observations_seconds': 0.0,
+        'copy_relationships_seconds': 0.0,
+        'copy_support_seconds': 0.0,
+        'merge_entities_seconds': 0.0,
+        'merge_observations_seconds': 0.0,
+        'merge_relationships_seconds': 0.0,
+        'merge_support_seconds': 0.0,
+        'commit_seconds': 0.0,
+        'total_batch_seconds': 0.0,
+    }
+    for timing in batch_timings:
+        for key in aggregate:
+            aggregate[key] += timing.get(key, 0) or 0
+    total_seconds = aggregate['total_batch_seconds']
+    aggregate['events_per_second'] = aggregate['events_read'] / total_seconds if total_seconds else 0.0
+    aggregate['supports_per_second'] = aggregate['support_rows_staged'] / total_seconds if total_seconds else 0.0
+    for key, value in list(aggregate.items()):
+        if isinstance(value, float):
+            aggregate[key] = round(value, 6)
+    return aggregate
+
+
 def materialize_events_for_case(
     case_id: int,
     *,
@@ -1073,6 +1106,7 @@ def _materialize_events_for_case_impl(
         'window_seconds': effective_window_seconds,
         'bulk_events': effective_bulk_events,
         'bulk_batches': len(batch_timings),
+        'bulk_stats_aggregate': _aggregate_bulk_batch_timings(batch_timings),
         'bulk_batch_timings': batch_timings[-20:],
     }
     if normalized_case_file_ids is not None:
