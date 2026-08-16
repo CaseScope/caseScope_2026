@@ -1,0 +1,2218 @@
+[
+  {
+    "artifact_type": "activities_cache",
+    "certification_document": "docs/database_flow_phase1b/phase1b_tranche_c3d1_sqlite_certification.md",
+    "certification_tranche": "C3D1",
+    "class": "ActivitiesCacheParser",
+    "classification": "CERTIFIED_MANAGED",
+    "deferred_reason": null,
+    "manifest_ordering_contract": "activities-cache:activity-id-then-operation-order:v1",
+    "minimum_future_evidence": null,
+    "module": "parsers.windows_parsers",
+    "parser_version": "ActivitiesCacheParser-1.2.0",
+    "registration_name": "activities_cache",
+    "selection": {
+      "extensions": [],
+      "filename_patterns": [
+        "activitiescache.db"
+      ],
+      "magic_bytes_hex": [],
+      "priority": 10
+    },
+    "supports_manifest_protocol": true
+  },
+  {
+    "artifact_type": "bits_queue",
+    "certification_document": null,
+    "certification_tranche": null,
+    "class": "BitsParser",
+    "classification": "DEFERRED_LEGACY_ONLY",
+    "deferred_reason": "No accepted C1-C3D2B certification covers this Windows artifact parser; safe corpus, deterministic ordering, authoritative locator, retry/recovery, and real PG/CH proof remain unproven.",
+    "manifest_ordering_contract": null,
+    "minimum_future_evidence": "Approved safe representative corpus; versioned deterministic ordering contract; authoritative locator or accepted ordinal fallback; producer identity where applicable; independent determinism, retry, partial-failure, and real disposable PG/CH proof.",
+    "module": "parsers.windows_artifact_parsers",
+    "parser_version": "BitsParser-1.1.0",
+    "registration_name": "bits_queue",
+    "selection": {
+      "extensions": [
+        ".db",
+        ".dat"
+      ],
+      "filename_patterns": [
+        "qmgr.db",
+        "qmgr0.dat",
+        "qmgr1.dat"
+      ],
+      "magic_bytes_hex": [],
+      "priority": 10
+    },
+    "supports_manifest_protocol": false
+  },
+  {
+    "artifact_type": "browser",
+    "certification_document": null,
+    "certification_tranche": null,
+    "class": "BrowserSQLiteParser",
+    "classification": "DEFERRED_LEGACY_ONLY",
+    "deferred_reason": "BrowserSQLite is heterogeneous and source-bundle dependent; no mode-aware managed contract for history/cookies/logins/generic SQLite modes.",
+    "manifest_ordering_contract": null,
+    "minimum_future_evidence": "Approved safe parser-backed corpus; versioned source ordering contract; authoritative locator; producer/source-bundle policy; independent determinism, retry, partial-failure, and real disposable PG/CH proof.",
+    "module": "parsers.browser_parsers",
+    "parser_version": "BrowserSQLiteParser-1.2.0",
+    "registration_name": "browser",
+    "selection": {
+      "extensions": [
+        ".sqlite",
+        ".sqlite3",
+        ".db"
+      ],
+      "filename_patterns": [
+        "places.sqlite",
+        "cookies.sqlite",
+        "formhistory.sqlite",
+        "permissions.sqlite",
+        "downloads.sqlite",
+        "favicons.sqlite",
+        "history",
+        "cookies",
+        "login data",
+        "web data",
+        "top sites"
+      ],
+      "magic_bytes_hex": [],
+      "priority": 15
+    },
+    "supports_manifest_protocol": false
+  },
+  {
+    "artifact_type": "browser_state",
+    "certification_document": null,
+    "certification_tranche": null,
+    "class": "BrowserStateParser",
+    "classification": "DEFERRED_LEGACY_ONLY",
+    "deferred_reason": "No accepted C1-C3D2B certification covers this KAPE gap parser; safe corpus, deterministic ordering, authoritative locator, retry/recovery, and real PG/CH proof remain unproven.",
+    "manifest_ordering_contract": null,
+    "minimum_future_evidence": "Approved safe representative corpus; versioned deterministic ordering contract; authoritative locator or accepted ordinal fallback; producer identity where applicable; independent determinism, retry, partial-failure, and real disposable PG/CH proof.",
+    "module": "parsers.kape_gap_parsers",
+    "parser_version": "BrowserStateParser-1.0.0",
+    "registration_name": "browser_state",
+    "selection": {
+      "extensions": [],
+      "filename_patterns": [
+        "/chrome/user data/",
+        "\\chrome\\user data\\",
+        "/edge/user data/",
+        "\\edge\\user data\\",
+        "preferences",
+        "bookmarks",
+        "downloadmetadata",
+        "network persistent state",
+        "session_",
+        "tabs_"
+      ],
+      "magic_bytes_hex": [],
+      "priority": 28
+    },
+    "supports_manifest_protocol": false
+  },
+  {
+    "artifact_type": "cisco_asa",
+    "certification_document": null,
+    "certification_tranche": null,
+    "class": "CiscoAsaParser",
+    "classification": "DEFERRED_LEGACY_ONLY",
+    "deferred_reason": "No accepted C1-C3D2B certification covers this vendor parser; source ordering, native locator, fixture corpus, retry/recovery, and real PG/CH proof remain unproven.",
+    "manifest_ordering_contract": null,
+    "minimum_future_evidence": "Approved safe representative corpus; versioned deterministic ordering contract; authoritative locator or accepted ordinal fallback; producer identity where applicable; independent determinism, retry, partial-failure, and real disposable PG/CH proof.",
+    "module": "parsers.vendor_parsers",
+    "parser_version": "CiscoAsaParser-1.1.0",
+    "registration_name": "cisco_asa",
+    "selection": {
+      "extensions": [
+        ".log",
+        ".txt"
+      ],
+      "filename_patterns": [
+        "cisco",
+        "ftd"
+      ],
+      "magic_bytes_hex": [],
+      "priority": 18
+    },
+    "supports_manifest_protocol": false
+  },
+  {
+    "artifact_type": "cloud_metadata",
+    "certification_document": null,
+    "certification_tranche": null,
+    "class": "CloudMetadataParser",
+    "classification": "DEFERRED_LEGACY_ONLY",
+    "deferred_reason": "No accepted C1-C3D2B certification covers this KAPE gap parser; safe corpus, deterministic ordering, authoritative locator, retry/recovery, and real PG/CH proof remain unproven.",
+    "manifest_ordering_contract": null,
+    "minimum_future_evidence": "Approved safe representative corpus; versioned deterministic ordering contract; authoritative locator or accepted ordinal fallback; producer identity where applicable; independent determinism, retry, partial-failure, and real disposable PG/CH proof.",
+    "module": "parsers.kape_gap_parsers",
+    "parser_version": "CloudMetadataParser-1.1.0",
+    "registration_name": "cloud_metadata",
+    "selection": {
+      "extensions": [
+        ".ini",
+        ".txt",
+        ".keystore",
+        ".otc",
+        ".cookie"
+      ],
+      "filename_patterns": [
+        "/microsoft/onedrive/",
+        "\\microsoft\\onedrive\\"
+      ],
+      "magic_bytes_hex": [],
+      "priority": 28
+    },
+    "supports_manifest_protocol": false
+  },
+  {
+    "artifact_type": "copilot_recall",
+    "certification_document": null,
+    "certification_tranche": null,
+    "class": "CopilotRecallParser",
+    "classification": "DEFERRED_LEGACY_ONLY",
+    "deferred_reason": "No accepted C1-C3D2B certification covers this Windows artifact parser; safe corpus, deterministic ordering, authoritative locator, retry/recovery, and real PG/CH proof remain unproven.",
+    "manifest_ordering_contract": null,
+    "minimum_future_evidence": "Approved safe representative corpus; versioned deterministic ordering contract; authoritative locator or accepted ordinal fallback; producer identity where applicable; independent determinism, retry, partial-failure, and real disposable PG/CH proof.",
+    "module": "parsers.windows_artifact_parsers",
+    "parser_version": "CopilotRecallParser-1.0.0",
+    "registration_name": "copilot_recall",
+    "selection": {
+      "extensions": [
+        ".db",
+        ".sqlite"
+      ],
+      "filename_patterns": [
+        "recall",
+        "/coreai/",
+        "\\coreai\\"
+      ],
+      "magic_bytes_hex": [],
+      "priority": 12
+    },
+    "supports_manifest_protocol": false
+  },
+  {
+    "artifact_type": "crash_dump_triage",
+    "certification_document": null,
+    "certification_tranche": null,
+    "class": "CrashDumpTriageParser",
+    "classification": "DEFERRED_LEGACY_ONLY",
+    "deferred_reason": "No accepted C1-C3D2B certification covers this KAPE gap parser; safe corpus, deterministic ordering, authoritative locator, retry/recovery, and real PG/CH proof remain unproven.",
+    "manifest_ordering_contract": null,
+    "minimum_future_evidence": "Approved safe representative corpus; versioned deterministic ordering contract; authoritative locator or accepted ordinal fallback; producer identity where applicable; independent determinism, retry, partial-failure, and real disposable PG/CH proof.",
+    "module": "parsers.kape_gap_parsers",
+    "parser_version": "CrashDumpTriageParser-1.0.0",
+    "registration_name": "crash_dump_triage",
+    "selection": {
+      "extensions": [
+        ".dmp"
+      ],
+      "filename_patterns": [
+        "/crashdumps/",
+        "\\crashdumps\\",
+        "/wer/",
+        "\\wer\\"
+      ],
+      "magic_bytes_hex": [
+        "4d444d50",
+        "50414745"
+      ],
+      "priority": 30
+    },
+    "supports_manifest_protocol": false
+  },
+  {
+    "artifact_type": "crowdstrike",
+    "certification_document": null,
+    "certification_tranche": null,
+    "class": "CrowdStrikeParser",
+    "classification": "DEFERRED_LEGACY_ONLY",
+    "deferred_reason": "No accepted C1-C3D2B certification covers this vendor parser; source ordering, native locator, fixture corpus, retry/recovery, and real PG/CH proof remain unproven.",
+    "manifest_ordering_contract": null,
+    "minimum_future_evidence": "Approved safe representative corpus; versioned deterministic ordering contract; authoritative locator or accepted ordinal fallback; producer identity where applicable; independent determinism, retry, partial-failure, and real disposable PG/CH proof.",
+    "module": "parsers.vendor_parsers",
+    "parser_version": "CrowdStrikeParser-1.1.0",
+    "registration_name": "crowdstrike",
+    "selection": {
+      "extensions": [
+        ".csv",
+        ".json",
+        ".jsonl",
+        ".ndjson"
+      ],
+      "filename_patterns": [
+        "crowdstrike",
+        "falcon"
+      ],
+      "magic_bytes_hex": [],
+      "priority": 18
+    },
+    "supports_manifest_protocol": false
+  },
+  {
+    "artifact_type": "csv_log",
+    "certification_document": "docs/database_flow_phase1b/phase1b_tranche_c1_parser_determinism_certification.md",
+    "certification_tranche": "C1",
+    "class": "CSVLogParser",
+    "classification": "CERTIFIED_MANAGED",
+    "deferred_reason": null,
+    "manifest_ordering_contract": "csv-log:csv-row-order:v1",
+    "minimum_future_evidence": null,
+    "module": "parsers.log_parsers",
+    "parser_version": "CSVLogParser-1.0.0",
+    "registration_name": "csv_log",
+    "selection": {
+      "extensions": [
+        ".csv"
+      ],
+      "filename_patterns": [],
+      "magic_bytes_hex": [],
+      "priority": 90
+    },
+    "supports_manifest_protocol": true
+  },
+  {
+    "artifact_type": "defender_av",
+    "certification_document": null,
+    "certification_tranche": null,
+    "class": "DefenderAvParser",
+    "classification": "DEFERRED_LEGACY_ONLY",
+    "deferred_reason": "No accepted C1-C3D2B certification covers this vendor parser; source ordering, native locator, fixture corpus, retry/recovery, and real PG/CH proof remain unproven.",
+    "manifest_ordering_contract": null,
+    "minimum_future_evidence": "Approved safe representative corpus; versioned deterministic ordering contract; authoritative locator or accepted ordinal fallback; producer identity where applicable; independent determinism, retry, partial-failure, and real disposable PG/CH proof.",
+    "module": "parsers.vendor_parsers",
+    "parser_version": "DefenderAvParser-1.1.0",
+    "registration_name": "defender_av",
+    "selection": {
+      "extensions": [
+        ".csv",
+        ".json",
+        ".jsonl",
+        ".ndjson"
+      ],
+      "filename_patterns": [
+        "defender",
+        "threat"
+      ],
+      "magic_bytes_hex": [],
+      "priority": 18
+    },
+    "supports_manifest_protocol": false
+  },
+  {
+    "artifact_type": "defender_detectionhistory",
+    "certification_document": null,
+    "certification_tranche": null,
+    "class": "DefenderDetectionHistoryParser",
+    "classification": "DEFERRED_LEGACY_ONLY",
+    "deferred_reason": "No accepted C1-C3D2B certification covers this parser or mode; source ordering, locator, fixture corpus, and retry/recovery proof remain unproven.",
+    "manifest_ordering_contract": null,
+    "minimum_future_evidence": "Approved safe representative corpus; versioned deterministic ordering contract; authoritative locator or accepted ordinal fallback; producer identity where applicable; independent determinism, retry, partial-failure, and real disposable PG/CH proof.",
+    "module": "parsers.av_artifact_parsers",
+    "parser_version": "DefenderDetectionHistoryParser-1.0.0",
+    "registration_name": "defender_detectionhistory",
+    "selection": {
+      "extensions": [],
+      "filename_patterns": [
+        "/detectionhistory/",
+        "\\detectionhistory\\"
+      ],
+      "magic_bytes_hex": [],
+      "priority": 12
+    },
+    "supports_manifest_protocol": false
+  },
+  {
+    "artifact_type": "defender_mplog",
+    "certification_document": null,
+    "certification_tranche": null,
+    "class": "MpLogParser",
+    "classification": "DEFERRED_LEGACY_ONLY",
+    "deferred_reason": "No accepted C1-C3D2B certification covers this parser or mode; source ordering, locator, fixture corpus, and retry/recovery proof remain unproven.",
+    "manifest_ordering_contract": null,
+    "minimum_future_evidence": "Approved safe representative corpus; versioned deterministic ordering contract; authoritative locator or accepted ordinal fallback; producer identity where applicable; independent determinism, retry, partial-failure, and real disposable PG/CH proof.",
+    "module": "parsers.av_artifact_parsers",
+    "parser_version": "MpLogParser-1.0.1",
+    "registration_name": "defender_mplog",
+    "selection": {
+      "extensions": [
+        ".log",
+        ".txt"
+      ],
+      "filename_patterns": [
+        "mplog"
+      ],
+      "magic_bytes_hex": [],
+      "priority": 12
+    },
+    "supports_manifest_protocol": false
+  },
+  {
+    "artifact_type": "diagnostic_log",
+    "certification_document": null,
+    "certification_tranche": null,
+    "class": "DiagnosticLogParser",
+    "classification": "DEFERRED_LEGACY_ONLY",
+    "deferred_reason": "No accepted C1-C3D2B certification covers this KAPE gap parser; safe corpus, deterministic ordering, authoritative locator, retry/recovery, and real PG/CH proof remain unproven.",
+    "manifest_ordering_contract": null,
+    "minimum_future_evidence": "Approved safe representative corpus; versioned deterministic ordering contract; authoritative locator or accepted ordinal fallback; producer identity where applicable; independent determinism, retry, partial-failure, and real disposable PG/CH proof.",
+    "module": "parsers.kape_gap_parsers",
+    "parser_version": "DiagnosticLogParser-1.2.1",
+    "registration_name": "diagnostic_log",
+    "selection": {
+      "extensions": [
+        ".etl",
+        ".etlgz",
+        ".odl",
+        ".odlgz",
+        ".loggz",
+        ".aodl",
+        ".odlsent"
+      ],
+      "filename_patterns": [],
+      "magic_bytes_hex": [],
+      "priority": 35
+    },
+    "supports_manifest_protocol": false
+  },
+  {
+    "artifact_type": "eventtranscript",
+    "certification_document": "docs/database_flow_phase1b/phase1b_tranche_c3d2b_search_eventtranscript_certification.md",
+    "certification_tranche": "C3D2B",
+    "class": "EventTranscriptDbParser",
+    "classification": "CERTIFIED_MANAGED",
+    "deferred_reason": null,
+    "manifest_ordering_contract": "eventtranscript:sqlite-rootpage-rowid-order:v1",
+    "minimum_future_evidence": null,
+    "module": "parsers.windows_artifact_parsers",
+    "parser_version": "EventTranscriptDbParser-1.1.0",
+    "registration_name": "eventtranscript",
+    "selection": {
+      "extensions": [
+        ".db"
+      ],
+      "filename_patterns": [
+        "eventtranscript.db"
+      ],
+      "magic_bytes_hex": [],
+      "priority": 10
+    },
+    "supports_manifest_protocol": true
+  },
+  {
+    "artifact_type": "evtx",
+    "certification_document": "docs/database_flow_phase1b/phase1b_tranche_c2_evtx_certification.md",
+    "certification_tranche": "C2",
+    "class": "EvtxECmdParser",
+    "classification": "CERTIFIED_MANAGED",
+    "deferred_reason": null,
+    "manifest_ordering_contract": "evtx:evtxecmd-source-file-json-order:v1",
+    "minimum_future_evidence": null,
+    "module": "parsers.evtx_parser",
+    "parser_version": "EvtxECmdParser-2.2.3",
+    "registration_name": "evtx",
+    "selection": {
+      "extensions": [
+        ".evtx"
+      ],
+      "filename_patterns": [],
+      "magic_bytes_hex": [
+        "456c6646696c6500"
+      ],
+      "priority": 10
+    },
+    "supports_manifest_protocol": true
+  },
+  {
+    "artifact_type": "file_triage",
+    "certification_document": null,
+    "certification_tranche": null,
+    "class": "PayloadTriageParser",
+    "classification": "DEFERRED_LEGACY_ONLY",
+    "deferred_reason": "No accepted C1-C3D2B certification covers this KAPE gap parser; safe corpus, deterministic ordering, authoritative locator, retry/recovery, and real PG/CH proof remain unproven.",
+    "manifest_ordering_contract": null,
+    "minimum_future_evidence": "Approved safe representative corpus; versioned deterministic ordering contract; authoritative locator or accepted ordinal fallback; producer identity where applicable; independent determinism, retry, partial-failure, and real disposable PG/CH proof.",
+    "module": "parsers.kape_gap_parsers",
+    "parser_version": "PayloadTriageParser-1.0.0",
+    "registration_name": "file_triage",
+    "selection": {
+      "extensions": [
+        ".exe",
+        ".dll",
+        ".sys",
+        ".com",
+        ".scr",
+        ".cpl",
+        ".ocx",
+        ".msi",
+        ".ps1",
+        ".psm1",
+        ".bat",
+        ".cmd",
+        ".vbs",
+        ".vbe",
+        ".js",
+        ".jse",
+        ".wsf",
+        ".hta",
+        ".jar",
+        ".zip",
+        ".7z",
+        ".rar",
+        ".raw",
+        ".bin"
+      ],
+      "filename_patterns": [],
+      "magic_bytes_hex": [
+        "4d5a",
+        "504b0304",
+        "377abcaf"
+      ],
+      "priority": 80
+    },
+    "supports_manifest_protocol": false
+  },
+  {
+    "artifact_type": "firefox_json",
+    "certification_document": null,
+    "certification_tranche": null,
+    "class": "FirefoxJSONParser",
+    "classification": "DEFERRED_LEGACY_ONLY",
+    "deferred_reason": "No accepted C1-C3D2B certification covers this parser or mode; source ordering, locator, fixture corpus, and retry/recovery proof remain unproven.",
+    "manifest_ordering_contract": null,
+    "minimum_future_evidence": "Approved safe representative corpus; versioned deterministic ordering contract; authoritative locator or accepted ordinal fallback; producer identity where applicable; independent determinism, retry, partial-failure, and real disposable PG/CH proof.",
+    "module": "parsers.browser_parsers",
+    "parser_version": "FirefoxJSONParser-1.0.2",
+    "registration_name": "firefox_json",
+    "selection": {
+      "extensions": [],
+      "filename_patterns": [
+        "handlers.json",
+        "extensions.json",
+        "logins.json",
+        "containers.json",
+        "permissions.json",
+        "addons.json",
+        "times.json",
+        "xulstore.json",
+        "search.json",
+        "signedinuser.json",
+        "protections.json",
+        "state.json",
+        "sessioncheckpoints.json",
+        "extension-preferences.json",
+        "extension-store.json"
+      ],
+      "magic_bytes_hex": [],
+      "priority": 12
+    },
+    "supports_manifest_protocol": false
+  },
+  {
+    "artifact_type": "firefox_session",
+    "certification_document": null,
+    "certification_tranche": null,
+    "class": "FirefoxJSONLZ4Parser",
+    "classification": "DEFERRED_LEGACY_ONLY",
+    "deferred_reason": "No approved JSONLZ4 corpus and unresolved mode-aware ordering for session, handler, addon, and generic JSON modes.",
+    "manifest_ordering_contract": null,
+    "minimum_future_evidence": "Approved safe parser-backed corpus; versioned source ordering contract; authoritative locator; producer/source-bundle policy; independent determinism, retry, partial-failure, and real disposable PG/CH proof.",
+    "module": "parsers.browser_parsers",
+    "parser_version": "FirefoxJSONLZ4Parser-1.0.0",
+    "registration_name": "firefox_session",
+    "selection": {
+      "extensions": [
+        ".jsonlz4",
+        ".mozlz4",
+        ".baklz4"
+      ],
+      "filename_patterns": [],
+      "magic_bytes_hex": [
+        "6d6f7a4c7a343000"
+      ],
+      "priority": 10
+    },
+    "supports_manifest_protocol": false
+  },
+  {
+    "artifact_type": "firewall",
+    "certification_document": "docs/database_flow_phase1b/phase1b_tranche_c1_parser_determinism_certification.md",
+    "certification_tranche": "C1",
+    "class": "FirewallLogParser",
+    "classification": "CERTIFIED_MANAGED",
+    "deferred_reason": null,
+    "manifest_ordering_contract": "firewall:physical-log-line-order:v1",
+    "minimum_future_evidence": null,
+    "module": "parsers.log_parsers",
+    "parser_version": "FirewallLogParser-1.0.0",
+    "registration_name": "firewall",
+    "selection": {
+      "extensions": [],
+      "filename_patterns": [
+        "firewall",
+        "sonicwall",
+        "pfsense",
+        "fw_"
+      ],
+      "magic_bytes_hex": [],
+      "priority": 30
+    },
+    "supports_manifest_protocol": true
+  },
+  {
+    "artifact_type": "fortigate",
+    "certification_document": null,
+    "certification_tranche": null,
+    "class": "FortiGateParser",
+    "classification": "DEFERRED_LEGACY_ONLY",
+    "deferred_reason": "No accepted C1-C3D2B certification covers this vendor parser; source ordering, native locator, fixture corpus, retry/recovery, and real PG/CH proof remain unproven.",
+    "manifest_ordering_contract": null,
+    "minimum_future_evidence": "Approved safe representative corpus; versioned deterministic ordering contract; authoritative locator or accepted ordinal fallback; producer identity where applicable; independent determinism, retry, partial-failure, and real disposable PG/CH proof.",
+    "module": "parsers.vendor_parsers",
+    "parser_version": "FortiGateParser-1.1.0",
+    "registration_name": "fortigate",
+    "selection": {
+      "extensions": [
+        ".log",
+        ".txt"
+      ],
+      "filename_patterns": [
+        "fortigate",
+        "fortinet"
+      ],
+      "magic_bytes_hex": [],
+      "priority": 18
+    },
+    "supports_manifest_protocol": false
+  },
+  {
+    "artifact_type": "generic_weblog",
+    "certification_document": null,
+    "certification_tranche": null,
+    "class": "GenericWeblogParser",
+    "classification": "DEFERRED_LEGACY_ONLY",
+    "deferred_reason": "No accepted C1-C3D2B certification covers this parser or mode; source ordering, locator, fixture corpus, and retry/recovery proof remain unproven.",
+    "manifest_ordering_contract": null,
+    "minimum_future_evidence": "Approved safe representative corpus; versioned deterministic ordering contract; authoritative locator or accepted ordinal fallback; producer identity where applicable; independent determinism, retry, partial-failure, and real disposable PG/CH proof.",
+    "module": "parsers.log_parsers",
+    "parser_version": "GenericWeblogParser-1.0.0",
+    "registration_name": "generic_weblog",
+    "selection": {
+      "extensions": [
+        ".log"
+      ],
+      "filename_patterns": [
+        "access_log",
+        "access.log",
+        "access-log"
+      ],
+      "magic_bytes_hex": [],
+      "priority": 40
+    },
+    "supports_manifest_protocol": false
+  },
+  {
+    "artifact_type": "hosts",
+    "certification_document": null,
+    "certification_tranche": null,
+    "class": "HostsFileParser",
+    "classification": "DEFERRED_LEGACY_ONLY",
+    "deferred_reason": "No accepted C1-C3D2B certification covers this parser or mode; source ordering, locator, fixture corpus, and retry/recovery proof remain unproven.",
+    "manifest_ordering_contract": null,
+    "minimum_future_evidence": "Approved safe representative corpus; versioned deterministic ordering contract; authoritative locator or accepted ordinal fallback; producer identity where applicable; independent determinism, retry, partial-failure, and real disposable PG/CH proof.",
+    "module": "parsers.log_parsers",
+    "parser_version": "HostsFileParser-1.0.0",
+    "registration_name": "hosts",
+    "selection": {
+      "extensions": [],
+      "filename_patterns": [
+        "/drivers/etc/hosts",
+        "\\drivers\\etc\\hosts"
+      ],
+      "magic_bytes_hex": [],
+      "priority": 10
+    },
+    "supports_manifest_protocol": false
+  },
+  {
+    "artifact_type": "huntress",
+    "certification_document": "docs/database_flow_phase1b/phase1b_tranche_c1_parser_determinism_certification.md",
+    "certification_tranche": "C1",
+    "class": "HuntressParser",
+    "classification": "CERTIFIED_MANAGED",
+    "deferred_reason": null,
+    "manifest_ordering_contract": "huntress:physical-ndjson-line-order:v1",
+    "minimum_future_evidence": null,
+    "module": "parsers.log_parsers",
+    "parser_version": "HuntressParser-2.2.0",
+    "registration_name": "huntress",
+    "selection": {
+      "extensions": [
+        ".ndjson",
+        ".jsonl"
+      ],
+      "filename_patterns": [
+        "huntress"
+      ],
+      "magic_bytes_hex": [],
+      "priority": 20
+    },
+    "supports_manifest_protocol": true
+  },
+  {
+    "artifact_type": "iis",
+    "certification_document": "docs/database_flow_phase1b/phase1b_tranche_c1_parser_determinism_certification.md",
+    "certification_tranche": "C1",
+    "class": "IISLogParser",
+    "classification": "CERTIFIED_MANAGED",
+    "deferred_reason": null,
+    "manifest_ordering_contract": "iis:w3c-data-line-order:v1",
+    "minimum_future_evidence": null,
+    "module": "parsers.log_parsers",
+    "parser_version": "IISLogParser-1.0.0",
+    "registration_name": "iis",
+    "selection": {
+      "extensions": [],
+      "filename_patterns": [
+        "u_ex",
+        "w3svc"
+      ],
+      "magic_bytes_hex": [],
+      "priority": 20
+    },
+    "supports_manifest_protocol": true
+  },
+  {
+    "artifact_type": "json_log",
+    "certification_document": "docs/database_flow_phase1b/phase1b_tranche_c1_parser_determinism_certification.md",
+    "certification_tranche": "C1",
+    "class": "GenericJSONParser",
+    "classification": "CERTIFIED_MANAGED",
+    "deferred_reason": null,
+    "manifest_ordering_contract": "json-log:document-order:v1",
+    "minimum_future_evidence": null,
+    "module": "parsers.log_parsers",
+    "parser_version": "GenericJSONParser-1.1.0",
+    "registration_name": "json_log",
+    "selection": {
+      "extensions": [
+        ".json",
+        ".ndjson",
+        ".jsonl"
+      ],
+      "filename_patterns": [],
+      "magic_bytes_hex": [],
+      "priority": 90
+    },
+    "supports_manifest_protocol": true
+  },
+  {
+    "artifact_type": "jumplist",
+    "certification_document": null,
+    "certification_tranche": null,
+    "class": "JumpListParser",
+    "classification": "DEFERRED_LEGACY_ONLY",
+    "deferred_reason": "No approved parser-backed JumpList corpus; OLE stream ordering, Automatic/Custom mode contracts, embedded LNK handling, and locator unresolved.",
+    "manifest_ordering_contract": null,
+    "minimum_future_evidence": "Approved safe parser-backed corpus; versioned source ordering contract; authoritative locator; producer/source-bundle policy; independent determinism, retry, partial-failure, and real disposable PG/CH proof.",
+    "module": "parsers.dissect_parsers",
+    "parser_version": "JumpListParser-2.1.0",
+    "registration_name": "jumplist",
+    "selection": {
+      "extensions": [
+        ".automaticdestinations-ms",
+        ".customdestinations-ms"
+      ],
+      "filename_patterns": [
+        "customdestinations-ms",
+        "automaticdestinations-ms"
+      ],
+      "magic_bytes_hex": [],
+      "priority": 10
+    },
+    "supports_manifest_protocol": false
+  },
+  {
+    "artifact_type": "kape_log",
+    "certification_document": null,
+    "certification_tranche": null,
+    "class": "KapeLogParser",
+    "classification": "DEFERRED_LEGACY_ONLY",
+    "deferred_reason": "No accepted C1-C3D2B certification covers this KAPE gap parser; safe corpus, deterministic ordering, authoritative locator, retry/recovery, and real PG/CH proof remain unproven.",
+    "manifest_ordering_contract": null,
+    "minimum_future_evidence": "Approved safe representative corpus; versioned deterministic ordering contract; authoritative locator or accepted ordinal fallback; producer identity where applicable; independent determinism, retry, partial-failure, and real disposable PG/CH proof.",
+    "module": "parsers.kape_gap_parsers",
+    "parser_version": "KapeLogParser-1.1.0",
+    "registration_name": "kape_log",
+    "selection": {
+      "extensions": [
+        ".csv"
+      ],
+      "filename_patterns": [
+        "_copylog",
+        "_skiplog"
+      ],
+      "magic_bytes_hex": [],
+      "priority": 12
+    },
+    "supports_manifest_protocol": false
+  },
+  {
+    "artifact_type": "linux_cron",
+    "certification_document": null,
+    "certification_tranche": null,
+    "class": "LinuxCronParser",
+    "classification": "DEFERRED_LEGACY_ONLY",
+    "deferred_reason": "No accepted C1-C3D2B certification covers this Linux artifact parser; source ordering, locator, fixture corpus, and retry/recovery proof remain unproven.",
+    "manifest_ordering_contract": null,
+    "minimum_future_evidence": "Approved safe representative corpus; versioned deterministic ordering contract; authoritative locator or accepted ordinal fallback; producer identity where applicable; independent determinism, retry, partial-failure, and real disposable PG/CH proof.",
+    "module": "parsers.linux_parsers",
+    "parser_version": "LinuxCronParser-1.0.0",
+    "registration_name": "linux_cron",
+    "selection": {
+      "extensions": [],
+      "filename_patterns": [
+        "/cron.",
+        "/cron/",
+        "/spool/cron/",
+        "crontab"
+      ],
+      "magic_bytes_hex": [],
+      "priority": 10
+    },
+    "supports_manifest_protocol": false
+  },
+  {
+    "artifact_type": "linux_journal",
+    "certification_document": null,
+    "certification_tranche": null,
+    "class": "LinuxJournalParser",
+    "classification": "DEFERRED_LEGACY_ONLY",
+    "deferred_reason": "No accepted C1-C3D2B certification covers this Linux artifact parser; source ordering, locator, fixture corpus, and retry/recovery proof remain unproven.",
+    "manifest_ordering_contract": null,
+    "minimum_future_evidence": "Approved safe representative corpus; versioned deterministic ordering contract; authoritative locator or accepted ordinal fallback; producer identity where applicable; independent determinism, retry, partial-failure, and real disposable PG/CH proof.",
+    "module": "parsers.linux_parsers",
+    "parser_version": "LinuxJournalParser-1.1.0",
+    "registration_name": "linux_journal",
+    "selection": {
+      "extensions": [
+        ".journal"
+      ],
+      "filename_patterns": [
+        ".journal"
+      ],
+      "magic_bytes_hex": [],
+      "priority": 10
+    },
+    "supports_manifest_protocol": false
+  },
+  {
+    "artifact_type": "linux_shell_history",
+    "certification_document": null,
+    "certification_tranche": null,
+    "class": "LinuxShellHistoryParser",
+    "classification": "DEFERRED_LEGACY_ONLY",
+    "deferred_reason": "No accepted C1-C3D2B certification covers this Linux artifact parser; source ordering, locator, fixture corpus, and retry/recovery proof remain unproven.",
+    "manifest_ordering_contract": null,
+    "minimum_future_evidence": "Approved safe representative corpus; versioned deterministic ordering contract; authoritative locator or accepted ordinal fallback; producer identity where applicable; independent determinism, retry, partial-failure, and real disposable PG/CH proof.",
+    "module": "parsers.linux_parsers",
+    "parser_version": "LinuxShellHistoryParser-1.1.0",
+    "registration_name": "linux_shell_history",
+    "selection": {
+      "extensions": [],
+      "filename_patterns": [
+        ".bash_history",
+        ".zsh_history",
+        ".sh_history",
+        "bash_history",
+        "zsh_history"
+      ],
+      "magic_bytes_hex": [],
+      "priority": 10
+    },
+    "supports_manifest_protocol": false
+  },
+  {
+    "artifact_type": "linux_ssh",
+    "certification_document": null,
+    "certification_tranche": null,
+    "class": "LinuxSshArtifactParser",
+    "classification": "DEFERRED_LEGACY_ONLY",
+    "deferred_reason": "No accepted C1-C3D2B certification covers this Linux artifact parser; source ordering, locator, fixture corpus, and retry/recovery proof remain unproven.",
+    "manifest_ordering_contract": null,
+    "minimum_future_evidence": "Approved safe representative corpus; versioned deterministic ordering contract; authoritative locator or accepted ordinal fallback; producer identity where applicable; independent determinism, retry, partial-failure, and real disposable PG/CH proof.",
+    "module": "parsers.linux_parsers",
+    "parser_version": "LinuxSshArtifactParser-1.0.0",
+    "registration_name": "linux_ssh",
+    "selection": {
+      "extensions": [],
+      "filename_patterns": [
+        "/.ssh/",
+        "authorized_keys",
+        "known_hosts",
+        "sshd_config",
+        "ssh_config"
+      ],
+      "magic_bytes_hex": [],
+      "priority": 10
+    },
+    "supports_manifest_protocol": false
+  },
+  {
+    "artifact_type": "linux_syslog",
+    "certification_document": null,
+    "certification_tranche": null,
+    "class": "LinuxSyslogAuthParser",
+    "classification": "DEFERRED_LEGACY_ONLY",
+    "deferred_reason": "No accepted C1-C3D2B certification covers this Linux artifact parser; source ordering, locator, fixture corpus, and retry/recovery proof remain unproven.",
+    "manifest_ordering_contract": null,
+    "minimum_future_evidence": "Approved safe representative corpus; versioned deterministic ordering contract; authoritative locator or accepted ordinal fallback; producer identity where applicable; independent determinism, retry, partial-failure, and real disposable PG/CH proof.",
+    "module": "parsers.linux_parsers",
+    "parser_version": "LinuxSyslogAuthParser-1.1.0",
+    "registration_name": "linux_syslog",
+    "selection": {
+      "extensions": [
+        ".log"
+      ],
+      "filename_patterns": [
+        "auth.log",
+        "/var/log/secure",
+        "/var/log/syslog",
+        "/var/log/messages"
+      ],
+      "magic_bytes_hex": [],
+      "priority": 20
+    },
+    "supports_manifest_protocol": false
+  },
+  {
+    "artifact_type": "linux_utmp",
+    "certification_document": null,
+    "certification_tranche": null,
+    "class": "LinuxUtmpParser",
+    "classification": "DEFERRED_LEGACY_ONLY",
+    "deferred_reason": "No accepted C1-C3D2B certification covers this Linux artifact parser; source ordering, locator, fixture corpus, and retry/recovery proof remain unproven.",
+    "manifest_ordering_contract": null,
+    "minimum_future_evidence": "Approved safe representative corpus; versioned deterministic ordering contract; authoritative locator or accepted ordinal fallback; producer identity where applicable; independent determinism, retry, partial-failure, and real disposable PG/CH proof.",
+    "module": "parsers.linux_parsers",
+    "parser_version": "LinuxUtmpParser-1.1.0",
+    "registration_name": "linux_utmp",
+    "selection": {
+      "extensions": [],
+      "filename_patterns": [
+        "wtmp",
+        "btmp",
+        "utmp",
+        "lastlog"
+      ],
+      "magic_bytes_hex": [],
+      "priority": 10
+    },
+    "supports_manifest_protocol": false
+  },
+  {
+    "artifact_type": "lnk",
+    "certification_document": null,
+    "certification_tranche": null,
+    "class": "LnkParser",
+    "classification": "DEFERRED_LEGACY_ONLY",
+    "deferred_reason": "No approved valid standalone LNK corpus and unresolved tracker/extradata canonicalization and producer identity.",
+    "manifest_ordering_contract": null,
+    "minimum_future_evidence": "Approved safe parser-backed corpus; versioned source ordering contract; authoritative locator; producer/source-bundle policy; independent determinism, retry, partial-failure, and real disposable PG/CH proof.",
+    "module": "parsers.dissect_parsers",
+    "parser_version": "LnkParser-2.1.0",
+    "registration_name": "lnk",
+    "selection": {
+      "extensions": [
+        ".lnk"
+      ],
+      "filename_patterns": [],
+      "magic_bytes_hex": [
+        "4c000000"
+      ],
+      "priority": 10
+    },
+    "supports_manifest_protocol": false
+  },
+  {
+    "artifact_type": "macos_asl",
+    "certification_document": null,
+    "certification_tranche": null,
+    "class": "MacAslParser",
+    "classification": "DEFERRED_LEGACY_ONLY",
+    "deferred_reason": "No accepted C1-C3D2B certification covers this macOS artifact parser; source ordering, locator, fixture corpus, and retry/recovery proof remain unproven.",
+    "manifest_ordering_contract": null,
+    "minimum_future_evidence": "Approved safe representative corpus; versioned deterministic ordering contract; authoritative locator or accepted ordinal fallback; producer identity where applicable; independent determinism, retry, partial-failure, and real disposable PG/CH proof.",
+    "module": "parsers.macos_parsers",
+    "parser_version": "MacAslParser-1.1.0",
+    "registration_name": "macos_asl",
+    "selection": {
+      "extensions": [
+        ".asl",
+        ".tracev3"
+      ],
+      "filename_patterns": [
+        ".asl",
+        ".tracev3"
+      ],
+      "magic_bytes_hex": [],
+      "priority": 10
+    },
+    "supports_manifest_protocol": false
+  },
+  {
+    "artifact_type": "macos_fsevents",
+    "certification_document": null,
+    "certification_tranche": null,
+    "class": "MacFseventsdParser",
+    "classification": "DEFERRED_LEGACY_ONLY",
+    "deferred_reason": "No accepted C1-C3D2B certification covers this macOS artifact parser; source ordering, locator, fixture corpus, and retry/recovery proof remain unproven.",
+    "manifest_ordering_contract": null,
+    "minimum_future_evidence": "Approved safe representative corpus; versioned deterministic ordering contract; authoritative locator or accepted ordinal fallback; producer identity where applicable; independent determinism, retry, partial-failure, and real disposable PG/CH proof.",
+    "module": "parsers.macos_parsers",
+    "parser_version": "MacFseventsdParser-1.1.0",
+    "registration_name": "macos_fsevents",
+    "selection": {
+      "extensions": [],
+      "filename_patterns": [
+        "/.fseventsd/"
+      ],
+      "magic_bytes_hex": [],
+      "priority": 10
+    },
+    "supports_manifest_protocol": false
+  },
+  {
+    "artifact_type": "macos_plist",
+    "certification_document": null,
+    "certification_tranche": null,
+    "class": "MacPlistParser",
+    "classification": "DEFERRED_LEGACY_ONLY",
+    "deferred_reason": "No accepted C1-C3D2B certification covers this macOS artifact parser; source ordering, locator, fixture corpus, and retry/recovery proof remain unproven.",
+    "manifest_ordering_contract": null,
+    "minimum_future_evidence": "Approved safe representative corpus; versioned deterministic ordering contract; authoritative locator or accepted ordinal fallback; producer identity where applicable; independent determinism, retry, partial-failure, and real disposable PG/CH proof.",
+    "module": "parsers.macos_parsers",
+    "parser_version": "MacPlistParser-1.0.0",
+    "registration_name": "macos_plist",
+    "selection": {
+      "extensions": [
+        ".plist"
+      ],
+      "filename_patterns": [
+        ".plist",
+        "/launchagents/",
+        "/launchdaemons/",
+        "/startupitems/"
+      ],
+      "magic_bytes_hex": [],
+      "priority": 10
+    },
+    "supports_manifest_protocol": false
+  },
+  {
+    "artifact_type": "mde_xdr",
+    "certification_document": null,
+    "certification_tranche": null,
+    "class": "MdeXdrParser",
+    "classification": "DEFERRED_LEGACY_ONLY",
+    "deferred_reason": "No accepted C1-C3D2B certification covers this vendor parser; source ordering, native locator, fixture corpus, retry/recovery, and real PG/CH proof remain unproven.",
+    "manifest_ordering_contract": null,
+    "minimum_future_evidence": "Approved safe representative corpus; versioned deterministic ordering contract; authoritative locator or accepted ordinal fallback; producer identity where applicable; independent determinism, retry, partial-failure, and real disposable PG/CH proof.",
+    "module": "parsers.vendor_parsers",
+    "parser_version": "MdeXdrParser-1.1.0",
+    "registration_name": "mde_xdr",
+    "selection": {
+      "extensions": [
+        ".csv",
+        ".json",
+        ".jsonl",
+        ".ndjson"
+      ],
+      "filename_patterns": [
+        "advancedhunting",
+        "mdexdr",
+        "defender_xdr",
+        "microsoft_defender"
+      ],
+      "magic_bytes_hex": [],
+      "priority": 18
+    },
+    "supports_manifest_protocol": false
+  },
+  {
+    "artifact_type": "mft",
+    "certification_document": null,
+    "certification_tranche": null,
+    "class": "MFTParser",
+    "classification": "DEFERRED_LEGACY_ONLY",
+    "deferred_reason": "No approved valid MFT fixture; record number/sequence identity, max_entries semantics, locator, and Dissect producer identity unresolved.",
+    "manifest_ordering_contract": null,
+    "minimum_future_evidence": "Approved safe parser-backed corpus; versioned source ordering contract; authoritative locator; producer/source-bundle policy; independent determinism, retry, partial-failure, and real disposable PG/CH proof.",
+    "module": "parsers.dissect_parsers",
+    "parser_version": "MFTParser-2.0.0",
+    "registration_name": "mft",
+    "selection": {
+      "extensions": [],
+      "filename_patterns": [
+        "$mft",
+        "mft"
+      ],
+      "magic_bytes_hex": [
+        "46494c45"
+      ],
+      "priority": 10
+    },
+    "supports_manifest_protocol": false
+  },
+  {
+    "artifact_type": "mof_file",
+    "certification_document": null,
+    "certification_tranche": null,
+    "class": "MofParser",
+    "classification": "DEFERRED_LEGACY_ONLY",
+    "deferred_reason": "No accepted C1-C3D2B certification covers this Windows artifact parser; safe corpus, deterministic ordering, authoritative locator, retry/recovery, and real PG/CH proof remain unproven.",
+    "manifest_ordering_contract": null,
+    "minimum_future_evidence": "Approved safe representative corpus; versioned deterministic ordering contract; authoritative locator or accepted ordinal fallback; producer identity where applicable; independent determinism, retry, partial-failure, and real disposable PG/CH proof.",
+    "module": "parsers.windows_artifact_parsers",
+    "parser_version": "MofParser-1.0.0",
+    "registration_name": "mof_file",
+    "selection": {
+      "extensions": [
+        ".mof"
+      ],
+      "filename_patterns": [
+        "/wbem/mof",
+        "\\wbem\\mof"
+      ],
+      "magic_bytes_hex": [],
+      "priority": 10
+    },
+    "supports_manifest_protocol": false
+  },
+  {
+    "artifact_type": "netclr_usage",
+    "certification_document": null,
+    "certification_tranche": null,
+    "class": "NetClrUsageLogParser",
+    "classification": "DEFERRED_LEGACY_ONLY",
+    "deferred_reason": "No accepted C1-C3D2B certification covers this Windows artifact parser; safe corpus, deterministic ordering, authoritative locator, retry/recovery, and real PG/CH proof remain unproven.",
+    "manifest_ordering_contract": null,
+    "minimum_future_evidence": "Approved safe representative corpus; versioned deterministic ordering contract; authoritative locator or accepted ordinal fallback; producer identity where applicable; independent determinism, retry, partial-failure, and real disposable PG/CH proof.",
+    "module": "parsers.windows_artifact_parsers",
+    "parser_version": "NetClrUsageLogParser-1.0.0",
+    "registration_name": "netclr_usage",
+    "selection": {
+      "extensions": [
+        ".log"
+      ],
+      "filename_patterns": [
+        "/usage logs/",
+        "\\usage logs\\",
+        "clr_v"
+      ],
+      "magic_bytes_hex": [],
+      "priority": 10
+    },
+    "supports_manifest_protocol": false
+  },
+  {
+    "artifact_type": "notepad_tabstate",
+    "certification_document": null,
+    "certification_tranche": null,
+    "class": "NotepadTabStateParser",
+    "classification": "DEFERRED_LEGACY_ONLY",
+    "deferred_reason": "No accepted C1-C3D2B certification covers this Windows artifact parser; safe corpus, deterministic ordering, authoritative locator, retry/recovery, and real PG/CH proof remain unproven.",
+    "manifest_ordering_contract": null,
+    "minimum_future_evidence": "Approved safe representative corpus; versioned deterministic ordering contract; authoritative locator or accepted ordinal fallback; producer identity where applicable; independent determinism, retry, partial-failure, and real disposable PG/CH proof.",
+    "module": "parsers.windows_artifact_parsers",
+    "parser_version": "NotepadTabStateParser-1.0.0",
+    "registration_name": "notepad_tabstate",
+    "selection": {
+      "extensions": [
+        ".bin"
+      ],
+      "filename_patterns": [
+        "/tabstate/",
+        "\\tabstate\\"
+      ],
+      "magic_bytes_hex": [],
+      "priority": 10
+    },
+    "supports_manifest_protocol": false
+  },
+  {
+    "artifact_type": "ntfs_log_tracker_export",
+    "certification_document": null,
+    "certification_tranche": null,
+    "class": "NtfsLogTrackerExportParser",
+    "classification": "DEFERRED_LEGACY_ONLY",
+    "deferred_reason": "No accepted C1-C3D2B certification covers this KAPE gap parser; safe corpus, deterministic ordering, authoritative locator, retry/recovery, and real PG/CH proof remain unproven.",
+    "manifest_ordering_contract": null,
+    "minimum_future_evidence": "Approved safe representative corpus; versioned deterministic ordering contract; authoritative locator or accepted ordinal fallback; producer identity where applicable; independent determinism, retry, partial-failure, and real disposable PG/CH proof.",
+    "module": "parsers.kape_gap_parsers",
+    "parser_version": "NtfsLogTrackerExportParser-1.0.0",
+    "registration_name": "ntfs_log_tracker_export",
+    "selection": {
+      "extensions": [
+        ".csv",
+        ".db",
+        ".sqlite",
+        ".sqlite3"
+      ],
+      "filename_patterns": [
+        "ntfs_log_tracker",
+        "ntfs-log-tracker",
+        "ntfslogtracker",
+        "ntfs_logfile_events",
+        "logfile"
+      ],
+      "magic_bytes_hex": [],
+      "priority": 14
+    },
+    "supports_manifest_protocol": false
+  },
+  {
+    "artifact_type": "ntfs_metadata",
+    "certification_document": null,
+    "certification_tranche": null,
+    "class": "NtfsMetadataParser",
+    "classification": "DEFERRED_LEGACY_ONLY",
+    "deferred_reason": "No accepted C1-C3D2B certification covers this KAPE gap parser; safe corpus, deterministic ordering, authoritative locator, retry/recovery, and real PG/CH proof remain unproven.",
+    "manifest_ordering_contract": null,
+    "minimum_future_evidence": "Approved safe representative corpus; versioned deterministic ordering contract; authoritative locator or accepted ordinal fallback; producer identity where applicable; independent determinism, retry, partial-failure, and real disposable PG/CH proof.",
+    "module": "parsers.kape_gap_parsers",
+    "parser_version": "NtfsMetadataParser-1.0.0",
+    "registration_name": "ntfs_metadata",
+    "selection": {
+      "extensions": [],
+      "filename_patterns": [
+        "$logfile",
+        "$boot",
+        "$secure_$sds",
+        "$rmmetadata",
+        "$txflog"
+      ],
+      "magic_bytes_hex": [],
+      "priority": 18
+    },
+    "supports_manifest_protocol": false
+  },
+  {
+    "artifact_type": "office_autosave",
+    "certification_document": null,
+    "certification_tranche": null,
+    "class": "OfficeAutosaveParser",
+    "classification": "DEFERRED_LEGACY_ONLY",
+    "deferred_reason": "No accepted C1-C3D2B certification covers this KAPE gap parser; safe corpus, deterministic ordering, authoritative locator, retry/recovery, and real PG/CH proof remain unproven.",
+    "manifest_ordering_contract": null,
+    "minimum_future_evidence": "Approved safe representative corpus; versioned deterministic ordering contract; authoritative locator or accepted ordinal fallback; producer identity where applicable; independent determinism, retry, partial-failure, and real disposable PG/CH proof.",
+    "module": "parsers.kape_gap_parsers",
+    "parser_version": "OfficeAutosaveParser-1.0.0",
+    "registration_name": "office_autosave",
+    "selection": {
+      "extensions": [
+        ".asd",
+        ".wbk"
+      ],
+      "filename_patterns": [
+        "office",
+        "word",
+        "autosave"
+      ],
+      "magic_bytes_hex": [],
+      "priority": 25
+    },
+    "supports_manifest_protocol": false
+  },
+  {
+    "artifact_type": "palo_alto",
+    "certification_document": null,
+    "certification_tranche": null,
+    "class": "PaloAltoParser",
+    "classification": "DEFERRED_LEGACY_ONLY",
+    "deferred_reason": "No accepted C1-C3D2B certification covers this vendor parser; source ordering, native locator, fixture corpus, retry/recovery, and real PG/CH proof remain unproven.",
+    "manifest_ordering_contract": null,
+    "minimum_future_evidence": "Approved safe representative corpus; versioned deterministic ordering contract; authoritative locator or accepted ordinal fallback; producer identity where applicable; independent determinism, retry, partial-failure, and real disposable PG/CH proof.",
+    "module": "parsers.vendor_parsers",
+    "parser_version": "PaloAltoParser-1.0.0",
+    "registration_name": "palo_alto",
+    "selection": {
+      "extensions": [
+        ".csv"
+      ],
+      "filename_patterns": [
+        "palo_alto",
+        "palo-alto",
+        "paloalto",
+        "panos",
+        "pan-os",
+        "pan_",
+        "panw"
+      ],
+      "magic_bytes_hex": [],
+      "priority": 18
+    },
+    "supports_manifest_protocol": false
+  },
+  {
+    "artifact_type": "pca_execution",
+    "certification_document": null,
+    "certification_tranche": null,
+    "class": "PcaParser",
+    "classification": "DEFERRED_LEGACY_ONLY",
+    "deferred_reason": "No accepted C1-C3D2B certification covers this Windows artifact parser; safe corpus, deterministic ordering, authoritative locator, retry/recovery, and real PG/CH proof remain unproven.",
+    "manifest_ordering_contract": null,
+    "minimum_future_evidence": "Approved safe representative corpus; versioned deterministic ordering contract; authoritative locator or accepted ordinal fallback; producer identity where applicable; independent determinism, retry, partial-failure, and real disposable PG/CH proof.",
+    "module": "parsers.windows_artifact_parsers",
+    "parser_version": "PcaParser-1.0.0",
+    "registration_name": "pca_execution",
+    "selection": {
+      "extensions": [
+        ".txt"
+      ],
+      "filename_patterns": [
+        "pcaapplaunchdic.txt",
+        "pcageneraldb",
+        "/appcompat/pca/",
+        "\\appcompat\\pca\\"
+      ],
+      "magic_bytes_hex": [],
+      "priority": 10
+    },
+    "supports_manifest_protocol": false
+  },
+  {
+    "artifact_type": "pfsense",
+    "certification_document": null,
+    "certification_tranche": null,
+    "class": "PfSenseParser",
+    "classification": "DEFERRED_LEGACY_ONLY",
+    "deferred_reason": "No accepted C1-C3D2B certification covers this vendor parser; source ordering, native locator, fixture corpus, retry/recovery, and real PG/CH proof remain unproven.",
+    "manifest_ordering_contract": null,
+    "minimum_future_evidence": "Approved safe representative corpus; versioned deterministic ordering contract; authoritative locator or accepted ordinal fallback; producer identity where applicable; independent determinism, retry, partial-failure, and real disposable PG/CH proof.",
+    "module": "parsers.vendor_parsers",
+    "parser_version": "PfSenseParser-1.1.0",
+    "registration_name": "pfsense",
+    "selection": {
+      "extensions": [
+        ".log",
+        ".txt"
+      ],
+      "filename_patterns": [
+        "pfsense",
+        "opnsense",
+        "filterlog"
+      ],
+      "magic_bytes_hex": [],
+      "priority": 18
+    },
+    "supports_manifest_protocol": false
+  },
+  {
+    "artifact_type": "plaso",
+    "certification_document": null,
+    "certification_tranche": null,
+    "class": "PlasoParser",
+    "classification": "DEFERRED_LEGACY_ONLY",
+    "deferred_reason": "No accepted C1-C3D2B certification covers this vendor parser; source ordering, native locator, fixture corpus, retry/recovery, and real PG/CH proof remain unproven.",
+    "manifest_ordering_contract": null,
+    "minimum_future_evidence": "Approved safe representative corpus; versioned deterministic ordering contract; authoritative locator or accepted ordinal fallback; producer identity where applicable; independent determinism, retry, partial-failure, and real disposable PG/CH proof.",
+    "module": "parsers.vendor_parsers",
+    "parser_version": "PlasoParser-1.1.0",
+    "registration_name": "plaso",
+    "selection": {
+      "extensions": [
+        ".csv",
+        ".json",
+        ".jsonl",
+        ".ndjson"
+      ],
+      "filename_patterns": [
+        "plaso",
+        "log2timeline",
+        "l2t"
+      ],
+      "magic_bytes_hex": [],
+      "priority": 18
+    },
+    "supports_manifest_protocol": false
+  },
+  {
+    "artifact_type": "powershell_history",
+    "certification_document": null,
+    "certification_tranche": null,
+    "class": "PowerShellHistoryParser",
+    "classification": "DEFERRED_LEGACY_ONLY",
+    "deferred_reason": "No accepted C1-C3D2B certification covers this parser or mode; source ordering, locator, fixture corpus, and retry/recovery proof remain unproven.",
+    "manifest_ordering_contract": null,
+    "minimum_future_evidence": "Approved safe representative corpus; versioned deterministic ordering contract; authoritative locator or accepted ordinal fallback; producer identity where applicable; independent determinism, retry, partial-failure, and real disposable PG/CH proof.",
+    "module": "parsers.log_parsers",
+    "parser_version": "PowerShellHistoryParser-1.0.0",
+    "registration_name": "powershell_history",
+    "selection": {
+      "extensions": [],
+      "filename_patterns": [
+        "consolehost_history.txt",
+        "/psreadline/",
+        "\\psreadline\\"
+      ],
+      "magic_bytes_hex": [],
+      "priority": 15
+    },
+    "supports_manifest_protocol": false
+  },
+  {
+    "artifact_type": "powershell_transcript",
+    "certification_document": null,
+    "certification_tranche": null,
+    "class": "PowerShellTranscriptParser",
+    "classification": "DEFERRED_LEGACY_ONLY",
+    "deferred_reason": "No accepted C1-C3D2B certification covers this Windows artifact parser; safe corpus, deterministic ordering, authoritative locator, retry/recovery, and real PG/CH proof remain unproven.",
+    "manifest_ordering_contract": null,
+    "minimum_future_evidence": "Approved safe representative corpus; versioned deterministic ordering contract; authoritative locator or accepted ordinal fallback; producer identity where applicable; independent determinism, retry, partial-failure, and real disposable PG/CH proof.",
+    "module": "parsers.windows_artifact_parsers",
+    "parser_version": "PowerShellTranscriptParser-1.0.0",
+    "registration_name": "powershell_transcript",
+    "selection": {
+      "extensions": [
+        ".txt"
+      ],
+      "filename_patterns": [
+        "powershell_transcript"
+      ],
+      "magic_bytes_hex": [],
+      "priority": 10
+    },
+    "supports_manifest_protocol": false
+  },
+  {
+    "artifact_type": "prefetch",
+    "certification_document": null,
+    "certification_tranche": null,
+    "class": "PrefetchParser",
+    "classification": "DEFERRED_LEGACY_ONLY",
+    "deferred_reason": "No approved valid Prefetch corpus and unresolved Dissect execution slot ordering, locator, and producer identity.",
+    "manifest_ordering_contract": null,
+    "minimum_future_evidence": "Approved safe parser-backed corpus; versioned source ordering contract; authoritative locator; producer/source-bundle policy; independent determinism, retry, partial-failure, and real disposable PG/CH proof.",
+    "module": "parsers.dissect_parsers",
+    "parser_version": "PrefetchParser-2.1.0",
+    "registration_name": "prefetch",
+    "selection": {
+      "extensions": [
+        ".pf"
+      ],
+      "filename_patterns": [],
+      "magic_bytes_hex": [
+        "53434341",
+        "4d414d04"
+      ],
+      "priority": 10
+    },
+    "supports_manifest_protocol": false
+  },
+  {
+    "artifact_type": "rdp_bitmap_cache",
+    "certification_document": null,
+    "certification_tranche": null,
+    "class": "RdpBitmapCacheParser",
+    "classification": "DEFERRED_LEGACY_ONLY",
+    "deferred_reason": "No accepted C1-C3D2B certification covers this Windows artifact parser; safe corpus, deterministic ordering, authoritative locator, retry/recovery, and real PG/CH proof remain unproven.",
+    "manifest_ordering_contract": null,
+    "minimum_future_evidence": "Approved safe representative corpus; versioned deterministic ordering contract; authoritative locator or accepted ordinal fallback; producer identity where applicable; independent determinism, retry, partial-failure, and real disposable PG/CH proof.",
+    "module": "parsers.windows_artifact_parsers",
+    "parser_version": "RdpBitmapCacheParser-1.0.0",
+    "registration_name": "rdp_bitmap_cache",
+    "selection": {
+      "extensions": [
+        ".bin"
+      ],
+      "filename_patterns": [
+        "terminal server client/cache",
+        "terminal server client\\cache"
+      ],
+      "magic_bytes_hex": [],
+      "priority": 10
+    },
+    "supports_manifest_protocol": false
+  },
+  {
+    "artifact_type": "recentfilecache",
+    "certification_document": null,
+    "certification_tranche": null,
+    "class": "RecentFileCacheParser",
+    "classification": "DEFERRED_LEGACY_ONLY",
+    "deferred_reason": "No accepted C1-C3D2B certification covers this Windows artifact parser; safe corpus, deterministic ordering, authoritative locator, retry/recovery, and real PG/CH proof remain unproven.",
+    "manifest_ordering_contract": null,
+    "minimum_future_evidence": "Approved safe representative corpus; versioned deterministic ordering contract; authoritative locator or accepted ordinal fallback; producer identity where applicable; independent determinism, retry, partial-failure, and real disposable PG/CH proof.",
+    "module": "parsers.windows_artifact_parsers",
+    "parser_version": "RecentFileCacheParser-1.0.0",
+    "registration_name": "recentfilecache",
+    "selection": {
+      "extensions": [
+        ".bcf"
+      ],
+      "filename_patterns": [
+        "recentfilecache.bcf"
+      ],
+      "magic_bytes_hex": [],
+      "priority": 10
+    },
+    "supports_manifest_protocol": false
+  },
+  {
+    "artifact_type": "recycle_bin",
+    "certification_document": null,
+    "certification_tranche": null,
+    "class": "RecycleBinParser",
+    "classification": "DEFERRED_LEGACY_ONLY",
+    "deferred_reason": "No accepted C1-C3D2B certification covers this KAPE gap parser; safe corpus, deterministic ordering, authoritative locator, retry/recovery, and real PG/CH proof remain unproven.",
+    "manifest_ordering_contract": null,
+    "minimum_future_evidence": "Approved safe representative corpus; versioned deterministic ordering contract; authoritative locator or accepted ordinal fallback; producer identity where applicable; independent determinism, retry, partial-failure, and real disposable PG/CH proof.",
+    "module": "parsers.kape_gap_parsers",
+    "parser_version": "RecycleBinParser-1.0.0",
+    "registration_name": "recycle_bin",
+    "selection": {
+      "extensions": [],
+      "filename_patterns": [
+        "/$recycle.bin/",
+        "\\$recycle.bin\\",
+        "$i"
+      ],
+      "magic_bytes_hex": [],
+      "priority": 12
+    },
+    "supports_manifest_protocol": false
+  },
+  {
+    "artifact_type": "registry",
+    "certification_document": null,
+    "certification_tranche": null,
+    "class": "RegistryParser",
+    "classification": "DEFERRED_LEGACY_ONLY",
+    "deferred_reason": "No approved registry hive corpus; recursive key/value order, helper-tool modes, locator, and producer identity unresolved.",
+    "manifest_ordering_contract": null,
+    "minimum_future_evidence": "Approved safe parser-backed corpus; versioned source ordering contract; authoritative locator; producer/source-bundle policy; independent determinism, retry, partial-failure, and real disposable PG/CH proof.",
+    "module": "parsers.dissect_parsers",
+    "parser_version": "RegistryParser-2.1.0",
+    "registration_name": "registry",
+    "selection": {
+      "extensions": [
+        ".dat",
+        ".hve",
+        ".hiv"
+      ],
+      "filename_patterns": [],
+      "magic_bytes_hex": [
+        "72656766"
+      ],
+      "priority": 10
+    },
+    "supports_manifest_protocol": false
+  },
+  {
+    "artifact_type": "registry_pol",
+    "certification_document": "docs/database_flow_phase1b/phase1b_tranche_c3c_registry_jumplist_certification.md",
+    "certification_tranche": "C3C",
+    "class": "RegistryPolParser",
+    "classification": "CERTIFIED_MANAGED",
+    "deferred_reason": null,
+    "manifest_ordering_contract": "registry-pol:physical-record-offset-order:v1",
+    "minimum_future_evidence": null,
+    "module": "parsers.windows_artifact_parsers",
+    "parser_version": "RegistryPolParser-1.1.0",
+    "registration_name": "registry_pol",
+    "selection": {
+      "extensions": [
+        ".pol"
+      ],
+      "filename_patterns": [
+        "registry.pol"
+      ],
+      "magic_bytes_hex": [],
+      "priority": 10
+    },
+    "supports_manifest_protocol": true
+  },
+  {
+    "artifact_type": "rmm_anydesk",
+    "certification_document": null,
+    "certification_tranche": null,
+    "class": "AnyDeskTraceParser",
+    "classification": "DEFERRED_LEGACY_ONLY",
+    "deferred_reason": "No accepted C1-C3D2B certification covers this RMM parser; source ordering, locator, fixture corpus, retry/recovery, and producer semantics remain unproven.",
+    "manifest_ordering_contract": null,
+    "minimum_future_evidence": "Approved safe representative corpus; versioned deterministic ordering contract; authoritative locator or accepted ordinal fallback; producer identity where applicable; independent determinism, retry, partial-failure, and real disposable PG/CH proof.",
+    "module": "parsers.rmm_parsers",
+    "parser_version": "AnyDeskTraceParser-1.0.0",
+    "registration_name": "rmm_anydesk",
+    "selection": {
+      "extensions": [
+        ".log",
+        ".txt",
+        ".trace"
+      ],
+      "filename_patterns": [
+        "anydesk",
+        "ad.trace",
+        "ad_svc.trace",
+        "connection_trace.txt"
+      ],
+      "magic_bytes_hex": [],
+      "priority": 12
+    },
+    "supports_manifest_protocol": false
+  },
+  {
+    "artifact_type": "rmm_screenconnect",
+    "certification_document": null,
+    "certification_tranche": null,
+    "class": "ScreenConnectLogParser",
+    "classification": "DEFERRED_LEGACY_ONLY",
+    "deferred_reason": "No accepted C1-C3D2B certification covers this RMM parser; source ordering, locator, fixture corpus, retry/recovery, and producer semantics remain unproven.",
+    "manifest_ordering_contract": null,
+    "minimum_future_evidence": "Approved safe representative corpus; versioned deterministic ordering contract; authoritative locator or accepted ordinal fallback; producer identity where applicable; independent determinism, retry, partial-failure, and real disposable PG/CH proof.",
+    "module": "parsers.rmm_parsers",
+    "parser_version": "ScreenConnectLogParser-1.0.0",
+    "registration_name": "rmm_screenconnect",
+    "selection": {
+      "extensions": [
+        ".log",
+        ".txt",
+        ".trace"
+      ],
+      "filename_patterns": [
+        "screenconnect",
+        "connectwise control",
+        "connectwisecontrol"
+      ],
+      "magic_bytes_hex": [],
+      "priority": 12
+    },
+    "supports_manifest_protocol": false
+  },
+  {
+    "artifact_type": "rmm_teamviewer",
+    "certification_document": null,
+    "certification_tranche": null,
+    "class": "TeamViewerLogParser",
+    "classification": "DEFERRED_LEGACY_ONLY",
+    "deferred_reason": "No accepted C1-C3D2B certification covers this RMM parser; source ordering, locator, fixture corpus, retry/recovery, and producer semantics remain unproven.",
+    "manifest_ordering_contract": null,
+    "minimum_future_evidence": "Approved safe representative corpus; versioned deterministic ordering contract; authoritative locator or accepted ordinal fallback; producer identity where applicable; independent determinism, retry, partial-failure, and real disposable PG/CH proof.",
+    "module": "parsers.rmm_parsers",
+    "parser_version": "TeamViewerLogParser-1.0.0",
+    "registration_name": "rmm_teamviewer",
+    "selection": {
+      "extensions": [
+        ".log",
+        ".txt",
+        ".trace"
+      ],
+      "filename_patterns": [
+        "teamviewer",
+        "connections_incoming.txt",
+        "teamviewer_logfile"
+      ],
+      "magic_bytes_hex": [],
+      "priority": 12
+    },
+    "supports_manifest_protocol": false
+  },
+  {
+    "artifact_type": "schedlgu",
+    "certification_document": null,
+    "certification_tranche": null,
+    "class": "SchedLgUParser",
+    "classification": "DEFERRED_LEGACY_ONLY",
+    "deferred_reason": "No accepted C1-C3D2B certification covers this Windows artifact parser; safe corpus, deterministic ordering, authoritative locator, retry/recovery, and real PG/CH proof remain unproven.",
+    "manifest_ordering_contract": null,
+    "minimum_future_evidence": "Approved safe representative corpus; versioned deterministic ordering contract; authoritative locator or accepted ordinal fallback; producer identity where applicable; independent determinism, retry, partial-failure, and real disposable PG/CH proof.",
+    "module": "parsers.windows_artifact_parsers",
+    "parser_version": "SchedLgUParser-1.0.0",
+    "registration_name": "schedlgu",
+    "selection": {
+      "extensions": [
+        ".txt"
+      ],
+      "filename_patterns": [
+        "schedlgu.txt"
+      ],
+      "magic_bytes_hex": [],
+      "priority": 10
+    },
+    "supports_manifest_protocol": false
+  },
+  {
+    "artifact_type": "scheduled_task",
+    "certification_document": "docs/database_flow_phase1b/phase1b_tranche_c3a_parser_certification.md",
+    "certification_tranche": "C3A",
+    "class": "ScheduledTaskParser",
+    "classification": "CERTIFIED_MANAGED",
+    "deferred_reason": null,
+    "manifest_ordering_contract": "scheduled-task:single-xml-document:v1",
+    "minimum_future_evidence": null,
+    "module": "parsers.windows_parsers",
+    "parser_version": "ScheduledTaskParser-1.0.1",
+    "registration_name": "scheduled_task",
+    "selection": {
+      "extensions": [],
+      "filename_patterns": [
+        "/tasks/",
+        "\\tasks\\"
+      ],
+      "magic_bytes_hex": [],
+      "priority": 5
+    },
+    "supports_manifest_protocol": true
+  },
+  {
+    "artifact_type": "sensitive_windows_file",
+    "certification_document": null,
+    "certification_tranche": null,
+    "class": "SensitiveWindowsFileParser",
+    "classification": "DEFERRED_LEGACY_ONLY",
+    "deferred_reason": "No accepted C1-C3D2B certification covers this Windows artifact parser; safe corpus, deterministic ordering, authoritative locator, retry/recovery, and real PG/CH proof remain unproven.",
+    "manifest_ordering_contract": null,
+    "minimum_future_evidence": "Approved safe representative corpus; versioned deterministic ordering contract; authoritative locator or accepted ordinal fallback; producer identity where applicable; independent determinism, retry, partial-failure, and real disposable PG/CH proof.",
+    "module": "parsers.windows_artifact_parsers",
+    "parser_version": "SensitiveWindowsFileParser-1.1.0",
+    "registration_name": "sensitive_windows_file",
+    "selection": {
+      "extensions": [
+        ".dit",
+        ".sys"
+      ],
+      "filename_patterns": [
+        "ntds.dit",
+        "hiberfil.sys",
+        "pagefile.sys",
+        "swapfile.sys"
+      ],
+      "magic_bytes_hex": [],
+      "priority": 6
+    },
+    "supports_manifest_protocol": false
+  },
+  {
+    "artifact_type": "sentinelone",
+    "certification_document": null,
+    "certification_tranche": null,
+    "class": "SentinelOneParser",
+    "classification": "DEFERRED_LEGACY_ONLY",
+    "deferred_reason": "No accepted C1-C3D2B certification covers this vendor parser; source ordering, native locator, fixture corpus, retry/recovery, and real PG/CH proof remain unproven.",
+    "manifest_ordering_contract": null,
+    "minimum_future_evidence": "Approved safe representative corpus; versioned deterministic ordering contract; authoritative locator or accepted ordinal fallback; producer identity where applicable; independent determinism, retry, partial-failure, and real disposable PG/CH proof.",
+    "module": "parsers.vendor_parsers",
+    "parser_version": "SentinelOneParser-1.1.0",
+    "registration_name": "sentinelone",
+    "selection": {
+      "extensions": [
+        ".csv",
+        ".json",
+        ".jsonl",
+        ".ndjson"
+      ],
+      "filename_patterns": [
+        "sentinelone"
+      ],
+      "magic_bytes_hex": [],
+      "priority": 18
+    },
+    "supports_manifest_protocol": false
+  },
+  {
+    "artifact_type": "setupapi",
+    "certification_document": null,
+    "certification_tranche": null,
+    "class": "SetupApiLogParser",
+    "classification": "DEFERRED_LEGACY_ONLY",
+    "deferred_reason": "No accepted C1-C3D2B certification covers this parser or mode; source ordering, locator, fixture corpus, and retry/recovery proof remain unproven.",
+    "manifest_ordering_contract": null,
+    "minimum_future_evidence": "Approved safe representative corpus; versioned deterministic ordering contract; authoritative locator or accepted ordinal fallback; producer identity where applicable; independent determinism, retry, partial-failure, and real disposable PG/CH proof.",
+    "module": "parsers.log_parsers",
+    "parser_version": "SetupApiLogParser-1.0.0",
+    "registration_name": "setupapi",
+    "selection": {
+      "extensions": [],
+      "filename_patterns": [
+        "setupapi.dev.log"
+      ],
+      "magic_bytes_hex": [],
+      "priority": 15
+    },
+    "supports_manifest_protocol": false
+  },
+  {
+    "artifact_type": "shim_database",
+    "certification_document": null,
+    "certification_tranche": null,
+    "class": "SdbParser",
+    "classification": "DEFERRED_LEGACY_ONLY",
+    "deferred_reason": "No accepted C1-C3D2B certification covers this Windows artifact parser; safe corpus, deterministic ordering, authoritative locator, retry/recovery, and real PG/CH proof remain unproven.",
+    "manifest_ordering_contract": null,
+    "minimum_future_evidence": "Approved safe representative corpus; versioned deterministic ordering contract; authoritative locator or accepted ordinal fallback; producer identity where applicable; independent determinism, retry, partial-failure, and real disposable PG/CH proof.",
+    "module": "parsers.windows_artifact_parsers",
+    "parser_version": "SdbParser-1.0.0",
+    "registration_name": "shim_database",
+    "selection": {
+      "extensions": [
+        ".sdb"
+      ],
+      "filename_patterns": [
+        ".sdb"
+      ],
+      "magic_bytes_hex": [],
+      "priority": 10
+    },
+    "supports_manifest_protocol": false
+  },
+  {
+    "artifact_type": "sonicwall",
+    "certification_document": "docs/database_flow_phase1b/phase1b_tranche_c1_parser_determinism_certification.md",
+    "certification_tranche": "C1",
+    "class": "SonicWallCSVParser",
+    "classification": "CERTIFIED_MANAGED",
+    "deferred_reason": null,
+    "manifest_ordering_contract": "sonicwall:csv-row-order:v1",
+    "minimum_future_evidence": null,
+    "module": "parsers.log_parsers",
+    "parser_version": "SonicWallCSVParser-1.1.0",
+    "registration_name": "sonicwall",
+    "selection": {
+      "extensions": [
+        ".csv"
+      ],
+      "filename_patterns": [
+        "sonicwall",
+        "_log_"
+      ],
+      "magic_bytes_hex": [],
+      "priority": 15
+    },
+    "supports_manifest_protocol": true
+  },
+  {
+    "artifact_type": "sonicwall_syslog",
+    "certification_document": null,
+    "certification_tranche": null,
+    "class": "SonicWallSyslogParser",
+    "classification": "DEFERRED_LEGACY_ONLY",
+    "deferred_reason": "No accepted C1-C3D2B certification covers this vendor parser; source ordering, native locator, fixture corpus, retry/recovery, and real PG/CH proof remain unproven.",
+    "manifest_ordering_contract": null,
+    "minimum_future_evidence": "Approved safe representative corpus; versioned deterministic ordering contract; authoritative locator or accepted ordinal fallback; producer identity where applicable; independent determinism, retry, partial-failure, and real disposable PG/CH proof.",
+    "module": "parsers.vendor_parsers",
+    "parser_version": "SonicWallSyslogParser-1.1.0",
+    "registration_name": "sonicwall_syslog",
+    "selection": {
+      "extensions": [
+        ".log",
+        ".txt"
+      ],
+      "filename_patterns": [
+        "sonicwall"
+      ],
+      "magic_bytes_hex": [],
+      "priority": 18
+    },
+    "supports_manifest_protocol": false
+  },
+  {
+    "artifact_type": "sophos",
+    "certification_document": null,
+    "certification_tranche": null,
+    "class": "SophosParser",
+    "classification": "DEFERRED_LEGACY_ONLY",
+    "deferred_reason": "No accepted C1-C3D2B certification covers this vendor parser; source ordering, native locator, fixture corpus, retry/recovery, and real PG/CH proof remain unproven.",
+    "manifest_ordering_contract": null,
+    "minimum_future_evidence": "Approved safe representative corpus; versioned deterministic ordering contract; authoritative locator or accepted ordinal fallback; producer identity where applicable; independent determinism, retry, partial-failure, and real disposable PG/CH proof.",
+    "module": "parsers.vendor_parsers",
+    "parser_version": "SophosParser-1.1.0",
+    "registration_name": "sophos",
+    "selection": {
+      "extensions": [
+        ".csv",
+        ".json",
+        ".jsonl",
+        ".ndjson"
+      ],
+      "filename_patterns": [
+        "sophos",
+        "interceptx"
+      ],
+      "magic_bytes_hex": [],
+      "priority": 18
+    },
+    "supports_manifest_protocol": false
+  },
+  {
+    "artifact_type": "srum",
+    "certification_document": null,
+    "certification_tranche": null,
+    "class": "SRUMParser",
+    "classification": "DEFERRED_LEGACY_ONLY",
+    "deferred_reason": "No approved valid SRUM ESE corpus; dynamic table ordering, ID map conflicts, timestamp fallback, locator, recovery state, and producer identity unresolved.",
+    "manifest_ordering_contract": null,
+    "minimum_future_evidence": "Approved safe parser-backed corpus; versioned source ordering contract; authoritative locator; producer/source-bundle policy; independent determinism, retry, partial-failure, and real disposable PG/CH proof.",
+    "module": "parsers.dissect_parsers",
+    "parser_version": "SRUMParser-1.1.0",
+    "registration_name": "srum",
+    "selection": {
+      "extensions": [],
+      "filename_patterns": [
+        "srudb.dat",
+        "sru.dat"
+      ],
+      "magic_bytes_hex": [],
+      "priority": 10
+    },
+    "supports_manifest_protocol": false
+  },
+  {
+    "artifact_type": "startupinfo",
+    "certification_document": null,
+    "certification_tranche": null,
+    "class": "StartupInfoParser",
+    "classification": "DEFERRED_LEGACY_ONLY",
+    "deferred_reason": "No accepted C1-C3D2B certification covers this Windows artifact parser; safe corpus, deterministic ordering, authoritative locator, retry/recovery, and real PG/CH proof remain unproven.",
+    "manifest_ordering_contract": null,
+    "minimum_future_evidence": "Approved safe representative corpus; versioned deterministic ordering contract; authoritative locator or accepted ordinal fallback; producer identity where applicable; independent determinism, retry, partial-failure, and real disposable PG/CH proof.",
+    "module": "parsers.windows_artifact_parsers",
+    "parser_version": "StartupInfoParser-1.0.0",
+    "registration_name": "startupinfo",
+    "selection": {
+      "extensions": [
+        ".xml"
+      ],
+      "filename_patterns": [
+        "/startupinfo/",
+        "\\startupinfo\\"
+      ],
+      "magic_bytes_hex": [],
+      "priority": 10
+    },
+    "supports_manifest_protocol": false
+  },
+  {
+    "artifact_type": "sum",
+    "certification_document": null,
+    "certification_tranche": null,
+    "class": "SumParser",
+    "classification": "DEFERRED_LEGACY_ONLY",
+    "deferred_reason": "No accepted C1-C3D2B certification covers this parser or mode; source ordering, locator, fixture corpus, and retry/recovery proof remain unproven.",
+    "manifest_ordering_contract": null,
+    "minimum_future_evidence": "Approved safe representative corpus; versioned deterministic ordering contract; authoritative locator or accepted ordinal fallback; producer identity where applicable; independent determinism, retry, partial-failure, and real disposable PG/CH proof.",
+    "module": "parsers.sum_parser",
+    "parser_version": "SumParser-1.0.0",
+    "registration_name": "sum",
+    "selection": {
+      "extensions": [
+        ".mdb"
+      ],
+      "filename_patterns": [
+        "systemidentity.mdb",
+        "current.mdb",
+        "/logfiles/sum/",
+        "\\logfiles\\sum\\"
+      ],
+      "magic_bytes_hex": [],
+      "priority": 9
+    },
+    "supports_manifest_protocol": false
+  },
+  {
+    "artifact_type": "suricata",
+    "certification_document": null,
+    "certification_tranche": null,
+    "class": "SuricataEveParser",
+    "classification": "DEFERRED_LEGACY_ONLY",
+    "deferred_reason": "No accepted C1-C3D2B certification covers this vendor parser; source ordering, native locator, fixture corpus, retry/recovery, and real PG/CH proof remain unproven.",
+    "manifest_ordering_contract": null,
+    "minimum_future_evidence": "Approved safe representative corpus; versioned deterministic ordering contract; authoritative locator or accepted ordinal fallback; producer identity where applicable; independent determinism, retry, partial-failure, and real disposable PG/CH proof.",
+    "module": "parsers.vendor_parsers",
+    "parser_version": "SuricataEveParser-1.1.0",
+    "registration_name": "suricata",
+    "selection": {
+      "extensions": [
+        ".json",
+        ".jsonl",
+        ".ndjson"
+      ],
+      "filename_patterns": [
+        "eve",
+        "suricata"
+      ],
+      "magic_bytes_hex": [],
+      "priority": 18
+    },
+    "supports_manifest_protocol": false
+  },
+  {
+    "artifact_type": "thumb_icon_cache",
+    "certification_document": null,
+    "certification_tranche": null,
+    "class": "ThumbcacheIconcacheParser",
+    "classification": "DEFERRED_LEGACY_ONLY",
+    "deferred_reason": "No accepted C1-C3D2B certification covers this Windows artifact parser; safe corpus, deterministic ordering, authoritative locator, retry/recovery, and real PG/CH proof remain unproven.",
+    "manifest_ordering_contract": null,
+    "minimum_future_evidence": "Approved safe representative corpus; versioned deterministic ordering contract; authoritative locator or accepted ordinal fallback; producer identity where applicable; independent determinism, retry, partial-failure, and real disposable PG/CH proof.",
+    "module": "parsers.windows_artifact_parsers",
+    "parser_version": "ThumbcacheIconcacheParser-1.0.0",
+    "registration_name": "thumb_icon_cache",
+    "selection": {
+      "extensions": [
+        ".db"
+      ],
+      "filename_patterns": [
+        "thumbcache_",
+        "iconcache_"
+      ],
+      "magic_bytes_hex": [],
+      "priority": 10
+    },
+    "supports_manifest_protocol": false
+  },
+  {
+    "artifact_type": "transaction_sidecar",
+    "certification_document": null,
+    "certification_tranche": null,
+    "class": "TransactionSidecarParser",
+    "classification": "DEFERRED_LEGACY_ONLY",
+    "deferred_reason": "No accepted C1-C3D2B certification covers this KAPE gap parser; safe corpus, deterministic ordering, authoritative locator, retry/recovery, and real PG/CH proof remain unproven.",
+    "manifest_ordering_contract": null,
+    "minimum_future_evidence": "Approved safe representative corpus; versioned deterministic ordering contract; authoritative locator or accepted ordinal fallback; producer identity where applicable; independent determinism, retry, partial-failure, and real disposable PG/CH proof.",
+    "module": "parsers.kape_gap_parsers",
+    "parser_version": "TransactionSidecarParser-1.0.0",
+    "registration_name": "transaction_sidecar",
+    "selection": {
+      "extensions": [
+        ".log1",
+        ".log2",
+        ".db-wal",
+        ".db-shm",
+        ".db-journal",
+        ".otc-wal",
+        ".otc-shm",
+        ".jfm",
+        ".chk"
+      ],
+      "filename_patterns": [],
+      "magic_bytes_hex": [],
+      "priority": 60
+    },
+    "supports_manifest_protocol": false
+  },
+  {
+    "artifact_type": "usn",
+    "certification_document": "docs/database_flow_phase1b/phase1b_tranche_c3b_mft_usn_certification.md",
+    "certification_tranche": "C3B",
+    "class": "USNParser",
+    "classification": "CERTIFIED_MANAGED",
+    "deferred_reason": null,
+    "manifest_ordering_contract": "usn:physical-record-offset-order:v1",
+    "minimum_future_evidence": null,
+    "module": "parsers.dissect_parsers",
+    "parser_version": "USNParser-1.2.0",
+    "registration_name": "usn",
+    "selection": {
+      "extensions": [],
+      "filename_patterns": [
+        "$usnjrnl:$j",
+        "$extend/$usnjrnl",
+        "$extend\\$usnjrnl",
+        "$j",
+        "usnjrnl"
+      ],
+      "magic_bytes_hex": [],
+      "priority": 10
+    },
+    "supports_manifest_protocol": true
+  },
+  {
+    "artifact_type": "velociraptor",
+    "certification_document": null,
+    "certification_tranche": null,
+    "class": "VelociraptorParser",
+    "classification": "DEFERRED_LEGACY_ONLY",
+    "deferred_reason": "No accepted C1-C3D2B certification covers this vendor parser; source ordering, native locator, fixture corpus, retry/recovery, and real PG/CH proof remain unproven.",
+    "manifest_ordering_contract": null,
+    "minimum_future_evidence": "Approved safe representative corpus; versioned deterministic ordering contract; authoritative locator or accepted ordinal fallback; producer identity where applicable; independent determinism, retry, partial-failure, and real disposable PG/CH proof.",
+    "module": "parsers.vendor_parsers",
+    "parser_version": "VelociraptorParser-1.1.0",
+    "registration_name": "velociraptor",
+    "selection": {
+      "extensions": [
+        ".csv",
+        ".json",
+        ".jsonl",
+        ".ndjson"
+      ],
+      "filename_patterns": [
+        "velociraptor"
+      ],
+      "magic_bytes_hex": [],
+      "priority": 18
+    },
+    "supports_manifest_protocol": false
+  },
+  {
+    "artifact_type": "wbem_repository",
+    "certification_document": null,
+    "certification_tranche": null,
+    "class": "WbemRepositoryParser",
+    "classification": "DEFERRED_LEGACY_ONLY",
+    "deferred_reason": "No accepted C1-C3D2B certification covers this KAPE gap parser; safe corpus, deterministic ordering, authoritative locator, retry/recovery, and real PG/CH proof remain unproven.",
+    "manifest_ordering_contract": null,
+    "minimum_future_evidence": "Approved safe representative corpus; versioned deterministic ordering contract; authoritative locator or accepted ordinal fallback; producer identity where applicable; independent determinism, retry, partial-failure, and real disposable PG/CH proof.",
+    "module": "parsers.kape_gap_parsers",
+    "parser_version": "WbemRepositoryParser-1.0.0",
+    "registration_name": "wbem_repository",
+    "selection": {
+      "extensions": [
+        ".data",
+        ".btr",
+        ".map"
+      ],
+      "filename_patterns": [
+        "/wbem/repository/",
+        "\\wbem\\repository\\",
+        "objects.data",
+        "index.btr",
+        "mapping1.map"
+      ],
+      "magic_bytes_hex": [],
+      "priority": 18
+    },
+    "supports_manifest_protocol": false
+  },
+  {
+    "artifact_type": "webcache",
+    "certification_document": null,
+    "certification_tranche": null,
+    "class": "WebCacheParser",
+    "classification": "DEFERRED_LEGACY_ONLY",
+    "deferred_reason": "No approved valid WebCache ESE corpus; container ordering, duplicate mappings, timestamp fallback, locator, recovery state, and producer identity unresolved.",
+    "manifest_ordering_contract": null,
+    "minimum_future_evidence": "Approved safe parser-backed corpus; versioned source ordering contract; authoritative locator; producer/source-bundle policy; independent determinism, retry, partial-failure, and real disposable PG/CH proof.",
+    "module": "parsers.windows_parsers",
+    "parser_version": "WebCacheParser-1.1.0",
+    "registration_name": "webcache",
+    "selection": {
+      "extensions": [],
+      "filename_patterns": [
+        "webcachev01.dat",
+        "webcachev24.dat"
+      ],
+      "magic_bytes_hex": [],
+      "priority": 10
+    },
+    "supports_manifest_protocol": false
+  },
+  {
+    "artifact_type": "windows_error_report",
+    "certification_document": null,
+    "certification_tranche": null,
+    "class": "WerReportParser",
+    "classification": "DEFERRED_LEGACY_ONLY",
+    "deferred_reason": "No accepted C1-C3D2B certification covers this KAPE gap parser; safe corpus, deterministic ordering, authoritative locator, retry/recovery, and real PG/CH proof remain unproven.",
+    "manifest_ordering_contract": null,
+    "minimum_future_evidence": "Approved safe representative corpus; versioned deterministic ordering contract; authoritative locator or accepted ordinal fallback; producer identity where applicable; independent determinism, retry, partial-failure, and real disposable PG/CH proof.",
+    "module": "parsers.kape_gap_parsers",
+    "parser_version": "WerReportParser-1.0.0",
+    "registration_name": "windows_error_report",
+    "selection": {
+      "extensions": [
+        ".wer"
+      ],
+      "filename_patterns": [
+        "/wer/reportarchive/",
+        "/wer/reportqueue/",
+        "\\wer\\reportarchive\\",
+        "\\wer\\reportqueue\\"
+      ],
+      "magic_bytes_hex": [],
+      "priority": 16
+    },
+    "supports_manifest_protocol": false
+  },
+  {
+    "artifact_type": "windows_notifications",
+    "certification_document": null,
+    "certification_tranche": null,
+    "class": "WindowsNotificationsParser",
+    "classification": "DEFERRED_LEGACY_ONLY",
+    "deferred_reason": "No accepted C1-C3D2B certification covers this Windows artifact parser; safe corpus, deterministic ordering, authoritative locator, retry/recovery, and real PG/CH proof remain unproven.",
+    "manifest_ordering_contract": null,
+    "minimum_future_evidence": "Approved safe representative corpus; versioned deterministic ordering contract; authoritative locator or accepted ordinal fallback; producer identity where applicable; independent determinism, retry, partial-failure, and real disposable PG/CH proof.",
+    "module": "parsers.windows_artifact_parsers",
+    "parser_version": "WindowsNotificationsParser-1.0.0",
+    "registration_name": "windows_notifications",
+    "selection": {
+      "extensions": [
+        ".db"
+      ],
+      "filename_patterns": [
+        "wpndatabase.db"
+      ],
+      "magic_bytes_hex": [],
+      "priority": 10
+    },
+    "supports_manifest_protocol": false
+  },
+  {
+    "artifact_type": "windows_search_db",
+    "certification_document": null,
+    "certification_tranche": null,
+    "class": "WindowsSearchDbParser",
+    "classification": "DEFERRED_LEGACY_ONLY",
+    "deferred_reason": "No approved Windows Search corpus; current parser emits one summary event with implicit SQLite table order and no item locator.",
+    "manifest_ordering_contract": null,
+    "minimum_future_evidence": "Approved safe parser-backed corpus; versioned source ordering contract; authoritative locator; producer/source-bundle policy; independent determinism, retry, partial-failure, and real disposable PG/CH proof.",
+    "module": "parsers.kape_gap_parsers",
+    "parser_version": "WindowsSearchDbParser-1.0.0",
+    "registration_name": "windows_search_db",
+    "selection": {
+      "extensions": [
+        ".db"
+      ],
+      "filename_patterns": [
+        "/microsoft/search/data/applications/windows/",
+        "\\microsoft\\search\\data\\applications\\windows\\"
+      ],
+      "magic_bytes_hex": [],
+      "priority": 20
+    },
+    "supports_manifest_protocol": false
+  },
+  {
+    "artifact_type": "windows_server_log",
+    "certification_document": null,
+    "certification_tranche": null,
+    "class": "WindowsServerLogParser",
+    "classification": "DEFERRED_LEGACY_ONLY",
+    "deferred_reason": "No accepted C1-C3D2B certification covers this Windows artifact parser; safe corpus, deterministic ordering, authoritative locator, retry/recovery, and real PG/CH proof remain unproven.",
+    "manifest_ordering_contract": null,
+    "minimum_future_evidence": "Approved safe representative corpus; versioned deterministic ordering contract; authoritative locator or accepted ordinal fallback; producer identity where applicable; independent determinism, retry, partial-failure, and real disposable PG/CH proof.",
+    "module": "parsers.windows_artifact_parsers",
+    "parser_version": "WindowsServerLogParser-1.0.0",
+    "registration_name": "windows_server_log",
+    "selection": {
+      "extensions": [
+        ".log"
+      ],
+      "filename_patterns": [
+        "exchange",
+        "dns.log",
+        "dhcp"
+      ],
+      "magic_bytes_hex": [],
+      "priority": 22
+    },
+    "supports_manifest_protocol": false
+  }
+]
