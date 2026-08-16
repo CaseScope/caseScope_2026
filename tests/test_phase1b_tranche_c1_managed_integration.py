@@ -20,6 +20,7 @@ from models.client import Client
 from models.database import db
 from models.database_flow import (
     CaseCapabilitySourceState,
+    EvidenceGenerationAudit,
     EvidenceGenerationState,
     EvidenceSourceGeneration,
     IngestAttempt,
@@ -64,6 +65,7 @@ class Phase1BTrancheC1ManagedIntegrationTestCase(unittest.TestCase):
             Case.__table__,
             CaseFile.__table__,
             EvidenceSourceGeneration.__table__,
+            EvidenceGenerationAudit.__table__,
             IngestAttempt.__table__,
             IngestBatch.__table__,
             CaseCapabilitySourceState.__table__,
@@ -187,15 +189,12 @@ class Phase1BTrancheC1ManagedIntegrationTestCase(unittest.TestCase):
                 self.assertTrue(first.success)
                 self.assertEqual(first.events_count, 11)
                 generation = db.session.query(EvidenceSourceGeneration).one()
-                self.assertEqual(generation.visibility_state, EvidenceGenerationState.BUILDING_INITIAL)
+                self.assertEqual(generation.visibility_state, EvidenceGenerationState.ACTIVE)
                 self.assertEqual(generation.ordering_contract, candidate["contract"])
                 batches = db.session.query(IngestBatch).order_by(IngestBatch.batch_ordinal).all()
                 self.assertEqual(len(batches), 4)
                 self.assertTrue(all(batch.state == IngestBatchState.DURABLE for batch in batches))
-                first_attempts = [attempt.ingest_attempt_id for attempt in db.session.query(IngestAttempt).all()]
                 first_batch_ids = [batch.ingest_batch_id for batch in batches]
-                first_row_hashes = [list(batch.expected_ingest_row_hashes) for batch in batches]
-                first_batch_hashes = [batch.batch_content_hash for batch in batches]
 
                 retry_parser = candidate["class"](
                     case_id=self.case.id,
@@ -215,17 +214,21 @@ class Phase1BTrancheC1ManagedIntegrationTestCase(unittest.TestCase):
                 attempts = [attempt.ingest_attempt_id for attempt in db.session.query(IngestAttempt).order_by(IngestAttempt.id).all()]
                 self.assertEqual(len(attempts), 2)
                 self.assertNotEqual(attempts[0], attempts[1])
-                retry_batches = db.session.query(IngestBatch).order_by(IngestBatch.batch_ordinal).all()
-                self.assertEqual([batch.ingest_batch_id for batch in retry_batches], first_batch_ids)
-                self.assertEqual([list(batch.expected_ingest_row_hashes) for batch in retry_batches], first_row_hashes)
-                self.assertEqual([batch.batch_content_hash for batch in retry_batches], first_batch_hashes)
+                retry_batches = db.session.query(IngestBatch).order_by(IngestBatch.generation_id, IngestBatch.batch_ordinal).all()
+                self.assertEqual(len(retry_batches), 8)
+                second_batch_ids = [batch.ingest_batch_id for batch in retry_batches[4:]]
+                self.assertNotEqual(second_batch_ids, first_batch_ids)
                 db.session.expire_all()
                 self.assertEqual(db.session.get(CaseFile, case_file.id).ingest_protocol_origin, IngestProtocolOrigin.MANIFEST_INITIAL)
-                self.assertEqual(db.session.get(EvidenceSourceGeneration, generation.id).visibility_state, EvidenceGenerationState.BUILDING_INITIAL)
+                generations = db.session.query(EvidenceSourceGeneration).order_by(EvidenceSourceGeneration.source_generation).all()
+                self.assertEqual([row.visibility_state for row in generations], [
+                    EvidenceGenerationState.SUPERSEDED,
+                    EvidenceGenerationState.ACTIVE,
+                ])
                 physical_rows = self.client.query("SELECT count() FROM events").result_rows[0][0]
                 self.assertEqual(physical_rows, 22)
                 projected = self.client.query("SELECT count() FROM durable_ingest_batches").result_rows[0][0]
-                self.assertGreaterEqual(projected, 4)
+                self.assertGreaterEqual(projected, 8)
 
 
 if __name__ == "__main__":

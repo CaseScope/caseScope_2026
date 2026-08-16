@@ -9,6 +9,7 @@ from app import create_app
 from models.database import db
 from models.database_flow import (
     CaseCapabilitySourceState,
+    EvidenceGenerationAudit,
     EvidenceSourceGeneration,
     IngestAttempt,
     IngestBatch,
@@ -21,6 +22,7 @@ def migrate():
     with app.app_context():
         tables = [
             EvidenceSourceGeneration.__table__,
+            EvidenceGenerationAudit.__table__,
             IngestAttempt.__table__,
             IngestBatch.__table__,
             CaseCapabilitySourceState.__table__,

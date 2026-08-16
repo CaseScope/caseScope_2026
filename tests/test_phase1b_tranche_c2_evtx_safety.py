@@ -16,6 +16,7 @@ from models.case_file import CaseFile, IngestProtocolOrigin
 from models.client import Client
 from models.database import db
 from models.database_flow import (
+    EvidenceGenerationAudit,
     EvidenceGenerationState,
     EvidenceSourceGeneration,
     IngestAttempt,
@@ -313,6 +314,7 @@ class Phase1BTrancheC2ManagedDirectoryTestCase(unittest.TestCase):
             Case.__table__,
             CaseFile.__table__,
             EvidenceSourceGeneration.__table__,
+            EvidenceGenerationAudit.__table__,
             IngestAttempt.__table__,
             IngestBatch.__table__,
         ):
@@ -384,7 +386,7 @@ class Phase1BTrancheC2ManagedDirectoryTestCase(unittest.TestCase):
         self.assertEqual([result.events_count for result in results], [3, 2])
         generations = db.session.query(EvidenceSourceGeneration).order_by(EvidenceSourceGeneration.source_ref_id).all()
         self.assertEqual(len(generations), 2)
-        self.assertTrue(all(g.visibility_state == EvidenceGenerationState.BUILDING_INITIAL for g in generations))
+        self.assertTrue(all(g.visibility_state == EvidenceGenerationState.ACTIVE for g in generations))
         batches = db.session.query(IngestBatch).order_by(IngestBatch.ingest_batch_id).all()
         self.assertEqual(len(batches), 3)
         self.assertTrue(all(batch.state == IngestBatchState.DURABLE for batch in batches))
@@ -417,7 +419,7 @@ class Phase1BTrancheC2ManagedDirectoryTestCase(unittest.TestCase):
         self.assertEqual([attempt.status for attempt in attempts].count('SUCCEEDED'), 2)
         generations = db.session.query(EvidenceSourceGeneration).all()
         self.assertEqual(len(generations), 2)
-        self.assertTrue(all(g.visibility_state == EvidenceGenerationState.BUILDING_INITIAL for g in generations))
+        self.assertTrue(all(g.visibility_state == EvidenceGenerationState.ACTIVE for g in generations))
         batches = db.session.query(IngestBatch).all()
         self.assertEqual(len(batches), 3)
         self.assertTrue(all(batch.state == IngestBatchState.DURABLE for batch in batches))

@@ -373,6 +373,33 @@ def _delete_standard_case_file_scope(
     lifecycle = GraphSupportLifecycleService()
     revalidation = str(lifecycle_mode or 'removal').lower() == 'revalidation'
 
+    if revalidation:
+        from models.database_flow import EvidenceGenerationState, EvidenceSourceGeneration, SourceRefType
+
+        for record in records:
+            if not record or getattr(record, 'ingest_protocol_origin', None) != 'manifest_initial':
+                continue
+            managed_open_generation = (
+                db.session.query(EvidenceSourceGeneration)
+                .filter(
+                    EvidenceSourceGeneration.case_id == case_id,
+                    EvidenceSourceGeneration.source_ref_type == SourceRefType.CASE_FILE,
+                    EvidenceSourceGeneration.source_ref_id == str(record.id),
+                    EvidenceSourceGeneration.visibility_state.in_(
+                        (
+                            EvidenceGenerationState.BUILDING_INITIAL,
+                            EvidenceGenerationState.ACTIVE,
+                            EvidenceGenerationState.BUILDING_REPLACEMENT,
+                        )
+                    ),
+                )
+                .first()
+            )
+            if managed_open_generation is not None:
+                raise RuntimeError(
+                    "Managed CaseFile revalidation must use replacement generation lifecycle, not broad cleanup"
+                )
+
     deleted_ids = set()
     events_deleted = 0
 
@@ -1025,6 +1052,10 @@ def _ingestion_status_for_result(result) -> str:
     return 'full'
 
 
+def _is_managed_ingest_mode(ingest_mode: str) -> bool:
+    return ingest_mode in {'MANAGED_INITIAL', 'MANAGED_REPLACEMENT'}
+
+
 def _process_managed_initial_case_file(
     *,
     parser,
@@ -1037,19 +1068,27 @@ def _process_managed_initial_case_file(
     """Run the inactive Phase 1B managed CASE_FILE BUILDING_INITIAL path."""
     from models.case_file import CaseFile
     from models.database import db
-    from models.database_flow import IngestBatch
+    from models.database_flow import EvidenceGenerationState, EvidenceSourceGeneration, IngestBatch
     from parsers.base import ParseResult
     from utils.manifest_protocol import (
+        INGEST_MODE_MANAGED_INITIAL,
+        INGEST_MODE_MANAGED_REPLACEMENT,
+        activate_initial_generation,
+        activate_replacement_generation,
         allocate_case_file_initial_generation,
+        allocate_case_file_replacement_generation,
         construct_managed_batch,
         contract_from_parser,
         create_ingest_attempt,
+        declare_generation_ingest_complete,
         finish_ingest_attempt,
         handle_failed_verification,
         insert_managed_batch,
         mark_batch_durable,
+        project_generation_authority_swap,
         project_generation_control_state,
         reserve_staged_batch,
+        select_case_file_ingest_mode,
         update_generation_ingest_accounting,
         verify_ingest_batch,
     )
@@ -1066,19 +1105,34 @@ def _process_managed_initial_case_file(
         if case_file is None:
             raise RuntimeError(f"CaseFile {case_file_id} not found for managed ingest")
         producer_version = _producer_version_for_managed_parser()
+        ingest_mode = select_case_file_ingest_mode(
+            parser=parser,
+            case_file=case_file,
+            config=Config,
+            session=db.session,
+        )
         contract = contract_from_parser(
             parser,
             configured_batch_size=getattr(Config, 'PHASE1B_MANIFEST_BATCH_SIZE', 10000),
             normalization_version=getattr(Config, 'PHASE1B_NORMALIZATION_VERSION', 'normalization:v1'),
             producer_version=producer_version,
             config=Config,
+            require_global_flag=(ingest_mode == INGEST_MODE_MANAGED_INITIAL),
         )
-        generation = allocate_case_file_initial_generation(
-            session=db.session,
-            case_id=case_id,
-            case_file_id=case_file_id,
-            contract=contract,
-        )
+        if ingest_mode == INGEST_MODE_MANAGED_REPLACEMENT:
+            generation = allocate_case_file_replacement_generation(
+                session=db.session,
+                case_id=case_id,
+                case_file_id=case_file_id,
+                contract=contract,
+            )
+        else:
+            generation = allocate_case_file_initial_generation(
+                session=db.session,
+                case_id=case_id,
+                case_file_id=case_file_id,
+                contract=contract,
+            )
         attempt = create_ingest_attempt(
             session=db.session,
             generation=generation,
@@ -1185,13 +1239,49 @@ def _process_managed_initial_case_file(
             db.session.commit()
             raise RuntimeError("Managed producer signature changed during parse")
 
-        finish_ingest_attempt(db.session, attempt, status='SUCCEEDED')
-        update_generation_ingest_accounting(
+        final_batch_ordinal = None if events_count == 0 else next_batch_ordinal - 1
+        declare_generation_ingest_complete(
             session=db.session,
             generation=generation,
             expected_rows=events_count,
+            final_batch_ordinal=final_batch_ordinal,
         )
-        db.session.commit()
+        finish_ingest_attempt(db.session, attempt, status='SUCCEEDED')
+        if generation.visibility_state == EvidenceGenerationState.BUILDING_INITIAL:
+            activate_initial_generation(
+                session=db.session,
+                generation=generation,
+                actor='system',
+                reason='managed_initial_ingest_complete',
+            )
+            db.session.commit()
+            project_generation_control_state(clickhouse_client, db.session, generation)
+        elif generation.visibility_state == EvidenceGenerationState.BUILDING_REPLACEMENT:
+            source_rows = (
+                db.session.query(EvidenceSourceGeneration)
+                .filter_by(
+                    case_id=case_id,
+                    source_ref_type=generation.source_ref_type,
+                    source_ref_id=generation.source_ref_id,
+                )
+                .all()
+            )
+            prior = next(row for row in source_rows if row.visibility_state == EvidenceGenerationState.ACTIVE)
+            activate_replacement_generation(
+                session=db.session,
+                replacement=generation,
+                actor='system',
+                reason='managed_replacement_ingest_complete',
+            )
+            db.session.commit()
+            project_generation_authority_swap(
+                clickhouse_client,
+                db.session,
+                prior_generation=prior,
+                new_generation=generation,
+            )
+        else:
+            db.session.commit()
 
         return ParseResult(
             success=not bool(parser.errors),
@@ -1243,10 +1333,12 @@ def _process_managed_evtx_directory_group(
     from parsers.base import ParseResult
     from utils.evtx_directory_mode import DirectoryModeError, EvtxGroupMember
     from utils.manifest_protocol import (
+        activate_initial_generation,
         allocate_case_file_initial_generation,
         construct_managed_batch,
         contract_from_parser,
         create_ingest_attempt,
+        declare_generation_ingest_complete,
         finish_ingest_attempt,
         handle_failed_verification,
         insert_managed_batch,
@@ -1358,7 +1450,6 @@ def _process_managed_evtx_directory_group(
             update_generation_ingest_accounting(
                 session=db.session,
                 generation=state['generation'],
-                expected_rows=state['events_count'],
             )
             db.session.commit()
             project_generation_control_state(clickhouse_client, db.session, state['generation'])
@@ -1445,11 +1536,19 @@ def _process_managed_evtx_directory_group(
 
         results = []
         for state in states.values():
-            finish_ingest_attempt(db.session, state['attempt'], status='SUCCEEDED')
-            update_generation_ingest_accounting(
+            final_batch_ordinal = None if state['events_count'] == 0 else state['next_batch_ordinal'] - 1
+            declare_generation_ingest_complete(
                 session=db.session,
                 generation=state['generation'],
                 expected_rows=state['events_count'],
+                final_batch_ordinal=final_batch_ordinal,
+            )
+            finish_ingest_attempt(db.session, state['attempt'], status='SUCCEEDED')
+            activate_initial_generation(
+                session=db.session,
+                generation=state['generation'],
+                actor='system',
+                reason='managed_evtx_directory_initial_complete',
             )
             results.append(ParseResult(
                 success=not bool(parser.errors),
@@ -1461,6 +1560,8 @@ def _process_managed_evtx_directory_group(
                 duration_seconds=0.0,
             ))
         db.session.commit()
+        for state in states.values():
+            project_generation_control_state(clickhouse_client, db.session, state['generation'])
         return results
 
 
@@ -1722,7 +1823,7 @@ def parse_file_task(self, file_path: str, case_id: int, source_host: str = '',
         
     except SoftTimeLimitExceeded:
         logger.warning(f"Task soft time limit exceeded for {file_path}")
-        if ingest_mode != INGEST_MODE_MANAGED_INITIAL:
+        if not _is_managed_ingest_mode(ingest_mode):
             _cleanup_case_file_events(case_file_id)
         if case_file_id:
             _update_case_file_status(
@@ -1765,7 +1866,7 @@ def parse_file_task(self, file_path: str, case_id: int, source_host: str = '',
         
     except Exception as e:
         logger.exception(f"Error processing file {file_path}")
-        if ingest_mode != INGEST_MODE_MANAGED_INITIAL:
+        if not _is_managed_ingest_mode(ingest_mode):
             _cleanup_case_file_events(case_file_id)
         if case_file_id:
             _update_case_file_status(
@@ -1832,6 +1933,7 @@ def parse_evtx_group_task(self, case_id: int, members: List[Dict[str, Any]]) -> 
 
     managed_group_mode = False
     managed_group_parser = None
+    managed_replacement_group_mode = False
     try:
         app = get_flask_app()
         with app.app_context():
@@ -1842,6 +1944,7 @@ def parse_evtx_group_task(self, case_id: int, members: List[Dict[str, Any]]) -> 
             from utils.manifest_protocol import (
                 INGEST_MODE_LEGACY,
                 INGEST_MODE_MANAGED_INITIAL,
+                INGEST_MODE_MANAGED_REPLACEMENT,
                 ManifestRoutingError,
                 select_case_file_ingest_mode,
             )
@@ -1909,6 +2012,13 @@ def parse_evtx_group_task(self, case_id: int, members: List[Dict[str, Any]]) -> 
                     case_file_id=None,
                     case_tz=case_tz,
                 )
+            elif any(mode == INGEST_MODE_MANAGED_REPLACEMENT for mode in member_modes.values()):
+                if any(mode != INGEST_MODE_MANAGED_REPLACEMENT for mode in member_modes.values()):
+                    raise DirectoryModeError(
+                        'managed_mixed_replacement_directory_not_enabled',
+                        'EVTX managed replacement ingest cannot share a group with legacy members',
+                    )
+                managed_replacement_group_mode = True
             for case_file_id, mode in member_modes.items():
                 if case_file_id and mode == INGEST_MODE_LEGACY:
                     _mark_case_file_legacy_origin_if_unset(int(case_file_id))
@@ -1924,6 +2034,75 @@ def parse_evtx_group_task(self, case_id: int, members: List[Dict[str, Any]]) -> 
                 status='ingesting',
                 ingestion_status='not_done',
             )
+
+    if managed_replacement_group_mode:
+        try:
+            from parsers import get_registry
+
+            client = get_fresh_client()
+            registry = get_registry()
+            result_dicts = []
+            for item in members:
+                case_file_id = int(item['case_file_id'])
+                parser = registry.get_parser(
+                    'evtx',
+                    case_id=case_id,
+                    source_host=item.get('source_host') or '',
+                    case_file_id=case_file_id,
+                    case_tz=case_tz,
+                )
+                result = _process_managed_initial_case_file(
+                    parser=parser,
+                    file_path=item['file_path'],
+                    case_id=case_id,
+                    case_file_id=case_file_id,
+                    clickhouse_client=client,
+                    task_id=getattr(self.request, 'id', None),
+                )
+                payload = result.to_dict()
+                result_dicts.append(payload)
+                if result.success:
+                    _update_case_file_status(
+                        case_file_id=case_file_id,
+                        status='done',
+                        ingestion_status=_ingestion_status_for_result(result),
+                        events_count=result.events_count,
+                        parser_type=result.artifact_type,
+                        error_message=_join_warning_messages(result.warnings) if result.warnings else '',
+                    )
+                else:
+                    _update_case_file_status(
+                        case_file_id=case_file_id,
+                        status='error',
+                        ingestion_status='parse_error',
+                        events_count=result.events_count,
+                        parser_type=result.artifact_type,
+                        error_message=_join_error_messages(result.errors),
+                    )
+            emit_metric(
+                "parse_evtx_group_task_total",
+                case_id=case_id,
+                group_size=len(members),
+                events_inserted=sum(item.get('events_count') or 0 for item in result_dicts),
+                duration_ms=(time.perf_counter() - task_started) * 1000.0,
+                success=all(item.get('success') for item in result_dicts),
+                managed_manifest=True,
+                replacement_generation=True,
+            )
+            return {'success': all(item.get('success') for item in result_dicts), 'files': result_dicts}
+        except Exception as e:
+            logger.exception("Managed EVTX replacement group failed")
+            emit_metric(
+                "parse_evtx_group_task_total",
+                case_id=case_id,
+                group_size=len(members),
+                duration_ms=(time.perf_counter() - task_started) * 1000.0,
+                success=False,
+                error_type=e.__class__.__name__,
+                managed_manifest=True,
+                replacement_generation=True,
+            )
+            raise
 
     if managed_group_mode:
         try:
@@ -3486,6 +3665,7 @@ def rebuild_single_case_file_task(
 ) -> Dict[str, Any]:
     """Rebuild a single standard file from retained originals."""
     from models.case_file import CaseFile
+    from models.database import db
     from utils.rebuilds import (
         STANDARD_REBUILD_MODE_SINGLE_MEMBER,
         build_rebuild_audit_details,
@@ -3510,6 +3690,91 @@ def rebuild_single_case_file_task(
         if not retained_original_path or not os.path.exists(retained_original_path):
             remove_path_if_exists(workspace_root)
             raise RuntimeError('Retained original not found on disk')
+
+        managed_generation = None
+        managed_rebuild_mode = None
+        if getattr(case_file, 'ingest_protocol_origin', None) == 'manifest_initial':
+            from models.database_flow import EvidenceGenerationState, EvidenceSourceGeneration, SourceRefType
+
+            managed_generations = (
+                db.session.query(EvidenceSourceGeneration)
+                .filter(
+                    EvidenceSourceGeneration.case_id == case_id,
+                    EvidenceSourceGeneration.source_ref_type == SourceRefType.CASE_FILE,
+                    EvidenceSourceGeneration.source_ref_id == str(case_file.id),
+                    EvidenceSourceGeneration.visibility_state.in_(
+                        (
+                            EvidenceGenerationState.BUILDING_INITIAL,
+                            EvidenceGenerationState.ACTIVE,
+                        )
+                    ),
+                )
+                .order_by(EvidenceSourceGeneration.source_generation.desc())
+                .all()
+            )
+            active_generation = next(
+                (
+                    generation
+                    for generation in managed_generations
+                    if generation.visibility_state == EvidenceGenerationState.ACTIVE
+                ),
+                None,
+            )
+            building_initial = next(
+                (
+                    generation
+                    for generation in managed_generations
+                    if generation.visibility_state == EvidenceGenerationState.BUILDING_INITIAL
+                ),
+                None,
+            )
+            if active_generation is not None:
+                managed_generation = active_generation
+                managed_rebuild_mode = 'managed_replacement'
+            elif building_initial is not None:
+                managed_generation = building_initial
+                managed_rebuild_mode = 'managed_initial_retry'
+        if managed_generation is not None:
+            task = parse_file_task.delay(
+                file_path=case_file.file_path,
+                case_id=case_id,
+                source_host=case_file.hostname or '',
+                case_file_id=case_file.id,
+                parser_hints=_get_parser_hints_for_upload_type(case_file.file_type),
+                force_parser=_should_force_parser_for_upload_type(case_file.file_type),
+            )
+            remove_path_if_exists(workspace_root)
+            _log_case_file_rebuild(
+                case_uuid=case_uuid,
+                entity_name='Managed case file rebuild',
+                details={
+                    **build_rebuild_audit_details(
+                        run_id=run_id,
+                        scope='single_file',
+                        mode=managed_rebuild_mode,
+                        source_paths=[retained_original_path],
+                    ),
+                    'requested_case_file_id': case_file_id,
+                    'managed_source_generation': managed_generation.source_generation,
+                    'managed_visibility_state': managed_generation.visibility_state,
+                    'records_deleted': 0,
+                    'events_deleted': 0,
+                    'queued_count': 1,
+                    'task_id': task.id,
+                },
+            )
+            return {
+                'success': True,
+                'case_uuid': case_uuid,
+                'case_file_id': case_file_id,
+                'run_id': run_id,
+                'mode': managed_rebuild_mode,
+                'records_deleted': 0,
+                'events_deleted': 0,
+                'queued_count': 1,
+                'task_id': task.id,
+                'errors': [],
+            }
 
         if target.get('delete_parent_family') and target.get('parent_record'):
             parent_record = target['parent_record']

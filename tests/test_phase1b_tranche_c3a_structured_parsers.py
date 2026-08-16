@@ -250,7 +250,7 @@ class Phase1BTrancheC3AManagedIntegrationTestCase(unittest.TestCase):
         from models.case_file import CaseFile
         from models.client import Client
         from models.database import db
-        from models.database_flow import CaseCapabilitySourceState, EvidenceSourceGeneration, IngestAttempt, IngestBatch
+        from models.database_flow import CaseCapabilitySourceState, EvidenceGenerationAudit, EvidenceSourceGeneration, IngestAttempt, IngestBatch
         from utils.ingest_fence import install_memory_backend
 
         cls.Config = Config
@@ -283,6 +283,7 @@ class Phase1BTrancheC3AManagedIntegrationTestCase(unittest.TestCase):
             Case.__table__,
             CaseFile.__table__,
             EvidenceSourceGeneration.__table__,
+            EvidenceGenerationAudit.__table__,
             IngestAttempt.__table__,
             IngestBatch.__table__,
             CaseCapabilitySourceState.__table__,
@@ -400,14 +401,12 @@ class Phase1BTrancheC3AManagedIntegrationTestCase(unittest.TestCase):
         self.assertTrue(first.success)
         self.assertEqual(first.events_count, 1)
         generation = self.db.session.query(self.EvidenceSourceGeneration).one()
-        self.assertEqual(generation.visibility_state, EvidenceGenerationState.BUILDING_INITIAL)
+        self.assertEqual(generation.visibility_state, EvidenceGenerationState.ACTIVE)
         self.assertEqual(generation.ordering_contract, "scheduled-task:single-xml-document:v1")
         batches = self.db.session.query(self.IngestBatch).order_by(self.IngestBatch.batch_ordinal).all()
         self.assertEqual(len(batches), 1)
         self.assertTrue(all(batch.state == IngestBatchState.DURABLE for batch in batches))
         first_batch_ids = [batch.ingest_batch_id for batch in batches]
-        first_row_hashes = [list(batch.expected_ingest_row_hashes) for batch in batches]
-        first_batch_hashes = [batch.batch_content_hash for batch in batches]
 
         retry_parser = ScheduledTaskParser(
             case_id=self.case.id,
@@ -427,19 +426,20 @@ class Phase1BTrancheC3AManagedIntegrationTestCase(unittest.TestCase):
         attempts = self.db.session.query(self.IngestAttempt).order_by(self.IngestAttempt.id).all()
         self.assertEqual(len(attempts), 2)
         self.assertNotEqual(attempts[0].ingest_attempt_id, attempts[1].ingest_attempt_id)
-        retry_batches = self.db.session.query(self.IngestBatch).order_by(self.IngestBatch.batch_ordinal).all()
-        self.assertEqual([batch.ingest_batch_id for batch in retry_batches], first_batch_ids)
-        self.assertEqual([list(batch.expected_ingest_row_hashes) for batch in retry_batches], first_row_hashes)
-        self.assertEqual([batch.batch_content_hash for batch in retry_batches], first_batch_hashes)
+        retry_batches = self.db.session.query(self.IngestBatch).order_by(self.IngestBatch.generation_id, self.IngestBatch.batch_ordinal).all()
+        self.assertEqual(len(retry_batches), 2)
+        second_batch_ids = [batch.ingest_batch_id for batch in retry_batches[1:]]
+        self.assertNotEqual(second_batch_ids, first_batch_ids)
         self.db.session.expire_all()
         self.assertEqual(
             self.db.session.get(self.CaseFile, self.case_file.id).ingest_protocol_origin,
             IngestProtocolOrigin.MANIFEST_INITIAL,
         )
-        self.assertEqual(
-            self.db.session.get(self.EvidenceSourceGeneration, generation.id).visibility_state,
-            EvidenceGenerationState.BUILDING_INITIAL,
-        )
+        generations = self.db.session.query(self.EvidenceSourceGeneration).order_by(self.EvidenceSourceGeneration.source_generation).all()
+        self.assertEqual([row.visibility_state for row in generations], [
+            EvidenceGenerationState.SUPERSEDED,
+            EvidenceGenerationState.ACTIVE,
+        ])
         physical_rows = self.client.query("SELECT count() FROM events").result_rows[0][0]
         self.assertEqual(physical_rows, 2)
 

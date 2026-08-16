@@ -15,6 +15,7 @@ from sqlalchemy import func
 
 from models.case_file import CaseFile, IngestProtocolOrigin
 from models.database_flow import (
+    EvidenceGenerationAudit,
     EvidenceGenerationState,
     EvidenceSourceGeneration,
     IngestAttempt,
@@ -48,6 +49,7 @@ MANIFEST_PROTOCOL_COLUMNS = (
 
 INGEST_MODE_LEGACY = "LEGACY"
 INGEST_MODE_MANAGED_INITIAL = "MANAGED_INITIAL"
+INGEST_MODE_MANAGED_REPLACEMENT = "MANAGED_REPLACEMENT"
 
 PROTOCOL_CLICKHOUSE_COLUMNS = tuple(ParsedEvent.clickhouse_columns()) + MANIFEST_PROTOCOL_COLUMNS
 
@@ -106,6 +108,14 @@ class ManifestRoutingError(ManifestProtocolError):
     """Raised when an existing managed source cannot safely route."""
 
 
+class ActivationCompletenessError(ManifestProtocolError):
+    """Raised when a generation does not satisfy activation gates."""
+
+
+class ReplacementInProgressError(ManifestProtocolError):
+    """Raised when an explicit reprocess already has an open replacement."""
+
+
 @dataclass(frozen=True)
 class ManifestParserContract:
     parser_version: str
@@ -155,6 +165,17 @@ class BatchVerificationResult:
     physical_rows: int = 0
     duplicate_physical_rows: int = 0
     message: str = ""
+
+
+@dataclass(frozen=True)
+class ActivationCompletenessResult:
+    complete: bool
+    errors: Tuple[str, ...] = ()
+    required_derivations: Tuple[str, ...] = ()
+
+    def require_complete(self) -> None:
+        if not self.complete:
+            raise ActivationCompletenessError("; ".join(self.errors) or "activation completeness failed")
 
 
 def parser_manifest_eligible(parser: Any, config: Any = None) -> bool:
@@ -217,16 +238,46 @@ def select_case_file_ingest_mode(*, parser: Any, case_file: Any, config: Any, se
                 for generation in generations
                 if generation.visibility_state == EvidenceGenerationState.BUILDING_INITIAL
             ]
-            if len(building_initial) != 1 or len(generations) != 1:
-                raise ManifestRoutingError("Existing managed generation state is unsupported in Tranche C1")
-            generation = building_initial[0]
+            active = [
+                generation
+                for generation in generations
+                if generation.visibility_state == EvidenceGenerationState.ACTIVE
+            ]
+            building_replacement = [
+                generation
+                for generation in generations
+                if generation.visibility_state == EvidenceGenerationState.BUILDING_REPLACEMENT
+            ]
             if not _parser_manifest_capable(parser):
                 raise ManifestRoutingError("Existing managed generation requires a manifest-capable parser")
-            if getattr(parser, "manifest_ordering_contract", None) != generation.ordering_contract:
-                raise ManifestRoutingError("Existing managed generation ordering contract mismatch")
-            if getattr(parser, "parser_version", None) != generation.parser_version:
-                raise ManifestRoutingError("Existing managed generation parser version mismatch")
-            return INGEST_MODE_MANAGED_INITIAL
+            if building_initial:
+                if len(building_initial) != 1 or len(generations) != 1:
+                    raise ManifestRoutingError("Existing BUILDING_INITIAL source has unsupported companion generations")
+                generation = building_initial[0]
+                if getattr(parser, "manifest_ordering_contract", None) != generation.ordering_contract:
+                    raise ManifestRoutingError("Existing managed generation ordering contract mismatch")
+                if getattr(parser, "parser_version", None) != generation.parser_version:
+                    raise ManifestRoutingError("Existing managed generation parser version mismatch")
+                return INGEST_MODE_MANAGED_INITIAL
+            if active:
+                if len(active) != 1:
+                    raise ManifestRoutingError("Existing managed source has multiple ACTIVE generations")
+                if building_replacement:
+                    if len(building_replacement) != 1:
+                        raise ManifestRoutingError("Existing managed source has multiple replacement generations")
+                    replacement = building_replacement[0]
+                    if getattr(parser, "manifest_ordering_contract", None) != replacement.ordering_contract:
+                        raise ManifestRoutingError("Existing replacement generation ordering contract mismatch")
+                    if getattr(parser, "parser_version", None) != replacement.parser_version:
+                        raise ManifestRoutingError("Existing replacement generation parser version mismatch")
+                    return INGEST_MODE_MANAGED_REPLACEMENT
+                active_generation = active[0]
+                if getattr(parser, "manifest_ordering_contract", None) != active_generation.ordering_contract:
+                    raise ManifestRoutingError("Existing ACTIVE generation ordering contract mismatch")
+                if getattr(parser, "parser_version", None) != active_generation.parser_version:
+                    raise ManifestRoutingError("Existing ACTIVE generation parser version mismatch")
+                return INGEST_MODE_MANAGED_REPLACEMENT
+            raise ManifestRoutingError("Existing managed generation state is unsupported")
     if parser_manifest_eligible(parser, config):
         if getattr(case_file, "ingest_protocol_origin", None) == "not_started":
             return INGEST_MODE_MANAGED_INITIAL
@@ -240,8 +291,10 @@ def contract_from_parser(
     normalization_version: str,
     producer_version: Optional[str] = None,
     config: Any = None,
+    require_global_flag: bool = True,
 ) -> ManifestParserContract:
-    if not parser_manifest_eligible(parser, config):
+    eligible = parser_manifest_eligible(parser, config) if require_global_flag else _parser_manifest_capable(parser)
+    if not eligible:
         raise ManifestEligibilityError("parser/source is not manifest-protocol eligible")
     return ManifestParserContract(
         parser_version=str(getattr(parser, "parser_version")),
@@ -301,6 +354,7 @@ def allocate_case_file_initial_generation(
         )
         .order_by(EvidenceSourceGeneration.source_generation.asc())
         .with_for_update()
+        .populate_existing()
         .all()
     )
 
@@ -363,6 +417,90 @@ def allocate_case_file_initial_generation(
         duration_ms=(time.perf_counter() - started) * 1000.0,
     )
     return generation
+
+
+def allocate_case_file_replacement_generation(
+    *,
+    session,
+    case_id: int,
+    case_file_id: int,
+    contract: ManifestParserContract,
+) -> EvidenceSourceGeneration:
+    """Allocate a new hidden CASE_FILE replacement generation for an ACTIVE source."""
+    if not contract.manifest_eligible:
+        raise ManifestEligibilityError("manifest parser contract is not eligible")
+
+    case_file = (
+        session.query(CaseFile)
+        .filter(CaseFile.id == int(case_file_id))
+        .with_for_update()
+        .one()
+    )
+    if getattr(case_file, "ingest_protocol_origin", None) != IngestProtocolOrigin.MANIFEST_INITIAL:
+        raise GenerationAllocationError("CaseFile is not an existing managed source")
+
+    source_ref_id = str(case_file.id)
+    generations = (
+        session.query(EvidenceSourceGeneration)
+        .filter_by(
+            case_id=int(case_id),
+            source_ref_type=SourceRefType.CASE_FILE,
+            source_ref_id=source_ref_id,
+        )
+        .order_by(EvidenceSourceGeneration.source_generation.asc())
+        .with_for_update()
+        .populate_existing()
+        .all()
+    )
+    active = [generation for generation in generations if generation.visibility_state == EvidenceGenerationState.ACTIVE]
+    building = [
+        generation
+        for generation in generations
+        if generation.visibility_state in {
+            EvidenceGenerationState.BUILDING_INITIAL,
+            EvidenceGenerationState.BUILDING_REPLACEMENT,
+        }
+    ]
+    if len(active) != 1:
+        raise GenerationAllocationError("replacement allocation requires exactly one ACTIVE generation")
+    if building:
+        replacement = building[0]
+        if replacement.visibility_state != EvidenceGenerationState.BUILDING_REPLACEMENT:
+            raise ReplacementInProgressError("initial build is still in progress")
+        _assert_frozen_contract_matches(replacement, contract)
+        raise ReplacementInProgressError("replacement generation already in progress")
+
+    prior_active = active[0]
+    if prior_active.source_generation != max(generation.source_generation for generation in generations):
+        # Failed generations may exist after the active one; numbering still uses max+1.
+        pass
+    next_generation = max(generation.source_generation for generation in generations) + 1
+    replacement = EvidenceSourceGeneration(
+        case_id=int(case_id),
+        source_ref_type=SourceRefType.CASE_FILE,
+        source_ref_id=source_ref_id,
+        source_generation=next_generation,
+        visibility_state=EvidenceGenerationState.BUILDING_REPLACEMENT,
+        state_version=1,
+        parser_version=contract.parser_version,
+        normalization_version=contract.normalization_version,
+        batching_contract_version=contract.batching_contract_version,
+        configured_batch_size=int(contract.configured_batch_size),
+        ordering_contract=contract.ordering_contract,
+        producer_version=contract.producer_version,
+        started_at=_utcnow(),
+    )
+    session.add(replacement)
+    session.flush()
+    emit_metric(
+        "phase1b_replacement_generation_allocation",
+        case_id=case_id,
+        source_ref_type=SourceRefType.CASE_FILE,
+        source_ref_id=source_ref_id,
+        prior_active_generation=prior_active.source_generation,
+        replacement_generation=replacement.source_generation,
+    )
+    return replacement
 
 
 def create_ingest_attempt(
@@ -722,10 +860,260 @@ def update_generation_ingest_accounting(
     if expected_rows is not None:
         generation.expected_rows = int(expected_rows)
     generation.landed_rows = int(durable_rows or 0)
-    if expected_rows is not None and int(durable_rows or 0) >= int(expected_rows):
-        generation.completed_at = generation.completed_at or _utcnow()
     session.flush()
     return generation
+
+
+def declare_generation_ingest_complete(
+    *,
+    session,
+    generation: EvidenceSourceGeneration,
+    expected_rows: int,
+    final_batch_ordinal: Optional[int],
+) -> EvidenceSourceGeneration:
+    """Durably declare parser EOF for a generation after successful enumeration."""
+    expected_rows = int(expected_rows)
+    if expected_rows < 0:
+        raise ManifestProtocolError("expected_rows must be nonnegative")
+    if expected_rows == 0:
+        if final_batch_ordinal is not None:
+            raise ManifestProtocolError("zero-event generation must not declare a final batch ordinal")
+    elif final_batch_ordinal is None or int(final_batch_ordinal) < 0:
+        raise ManifestProtocolError("non-empty generation requires a nonnegative final batch ordinal")
+    if generation.visibility_state not in {
+        EvidenceGenerationState.BUILDING_INITIAL,
+        EvidenceGenerationState.BUILDING_REPLACEMENT,
+    }:
+        raise ManifestProtocolError("only building generations can declare ingest completion")
+    generation.expected_rows = expected_rows
+    generation.final_batch_ordinal = None if final_batch_ordinal is None else int(final_batch_ordinal)
+    generation.completed_at = _utcnow()
+    update_generation_ingest_accounting(session=session, generation=generation)
+    session.flush()
+    return generation
+
+
+def _declared_activation_requirements(_generation: EvidenceSourceGeneration) -> Tuple[str, ...]:
+    """Return currently implemented activation-blocking derivation requirements."""
+    return ()
+
+
+def check_generation_activation_completeness(
+    *,
+    session,
+    generation: EvidenceSourceGeneration,
+) -> ActivationCompletenessResult:
+    errors: List[str] = []
+    required_derivations = _declared_activation_requirements(generation)
+    if generation.completed_at is None:
+        errors.append("missing durable ingest completion declaration")
+    if generation.expected_rows is None:
+        errors.append("missing expected row count")
+
+    expected_rows = int(generation.expected_rows or 0)
+    final_batch_ordinal = generation.final_batch_ordinal
+    batches = (
+        session.query(IngestBatch)
+        .filter_by(generation_id=generation.id)
+        .order_by(IngestBatch.batch_ordinal.asc())
+        .with_for_update()
+        .all()
+    )
+
+    if expected_rows == 0:
+        if final_batch_ordinal is not None:
+            errors.append("zero-event generation must not have a final batch ordinal")
+        if batches:
+            errors.append("zero-event generation must not have ingest batches")
+    else:
+        if final_batch_ordinal is None:
+            errors.append("missing final batch ordinal")
+        else:
+            expected_ordinals = set(range(int(final_batch_ordinal) + 1))
+            observed_ordinals = {int(batch.batch_ordinal) for batch in batches}
+            missing = sorted(expected_ordinals - observed_ordinals)
+            extra = sorted(observed_ordinals - expected_ordinals)
+            if missing:
+                errors.append(f"missing expected batch ordinals {missing}")
+            if extra:
+                errors.append(f"unexpected batch ordinals {extra}")
+            required_batches = [batch for batch in batches if int(batch.batch_ordinal) in expected_ordinals]
+            staged = [int(batch.batch_ordinal) for batch in required_batches if batch.state != IngestBatchState.DURABLE]
+            if staged:
+                errors.append(f"non-durable required batch ordinals {staged}")
+            row_sum = sum(int(batch.row_count or 0) for batch in required_batches)
+            if row_sum != expected_rows:
+                errors.append(f"durable row count {row_sum} does not match expected {expected_rows}")
+
+    if required_derivations:
+        errors.append("activation-blocking derivation requirements are not implemented in D1")
+
+    return ActivationCompletenessResult(
+        complete=not errors,
+        errors=tuple(errors),
+        required_derivations=tuple(required_derivations),
+    )
+
+
+def _audit_generation_transition(
+    *,
+    session,
+    case_id: int,
+    source_ref_type: str,
+    source_ref_id: str,
+    prior_active_generation: Optional[int],
+    new_active_generation: Optional[int],
+    actor: str,
+    reason: str,
+    transition: str,
+) -> EvidenceGenerationAudit:
+    audit = EvidenceGenerationAudit(
+        case_id=int(case_id),
+        source_ref_type=source_ref_type,
+        source_ref_id=source_ref_id,
+        prior_active_generation=prior_active_generation,
+        new_active_generation=new_active_generation,
+        actor=str(actor or "system"),
+        reason=str(reason or ""),
+        transition=transition,
+        occurred_at=_utcnow(),
+    )
+    session.add(audit)
+    session.flush()
+    return audit
+
+
+def activate_initial_generation(
+    *,
+    session,
+    generation: EvidenceSourceGeneration,
+    actor: str = "system",
+    reason: str = "initial_generation_complete",
+) -> EvidenceSourceGeneration:
+    locked = (
+        session.query(EvidenceSourceGeneration)
+        .filter_by(id=generation.id)
+        .with_for_update()
+        .one()
+    )
+    if locked.visibility_state == EvidenceGenerationState.ACTIVE:
+        return locked
+    if locked.visibility_state != EvidenceGenerationState.BUILDING_INITIAL:
+        raise ActivationCompletenessError("initial activation requires BUILDING_INITIAL")
+    check_generation_activation_completeness(session=session, generation=locked).require_complete()
+    locked.visibility_state = EvidenceGenerationState.ACTIVE
+    locked.state_version = int(locked.state_version or 0) + 1
+    locked.activated_at = _utcnow()
+    _audit_generation_transition(
+        session=session,
+        case_id=locked.case_id,
+        source_ref_type=locked.source_ref_type,
+        source_ref_id=locked.source_ref_id,
+        prior_active_generation=None,
+        new_active_generation=locked.source_generation,
+        actor=actor,
+        reason=reason,
+        transition="BUILDING_INITIAL_TO_ACTIVE",
+    )
+    session.flush()
+    return locked
+
+
+def activate_replacement_generation(
+    *,
+    session,
+    replacement: EvidenceSourceGeneration,
+    actor: str = "system",
+    reason: str = "replacement_generation_complete",
+    inject_failure_after_supersede: bool = False,
+) -> EvidenceSourceGeneration:
+    rows = (
+        session.query(EvidenceSourceGeneration)
+        .filter(
+            EvidenceSourceGeneration.case_id == int(replacement.case_id),
+            EvidenceSourceGeneration.source_ref_type == replacement.source_ref_type,
+            EvidenceSourceGeneration.source_ref_id == replacement.source_ref_id,
+        )
+        .order_by(EvidenceSourceGeneration.source_generation.asc())
+        .with_for_update()
+        .populate_existing()
+        .all()
+    )
+    active = [row for row in rows if row.visibility_state == EvidenceGenerationState.ACTIVE]
+    building_replacements = [row for row in rows if row.visibility_state == EvidenceGenerationState.BUILDING_REPLACEMENT]
+    replacement_row = next((row for row in building_replacements if row.id == replacement.id), None)
+    if replacement.visibility_state == EvidenceGenerationState.ACTIVE:
+        return replacement
+    active_replacement = next((row for row in active if row.id == replacement.id), None)
+    if active_replacement is not None:
+        return active_replacement
+    if len(active) != 1 or replacement_row is None or len(building_replacements) != 1:
+        raise ActivationCompletenessError("replacement activation requires one ACTIVE and one BUILDING_REPLACEMENT")
+    prior = active[0]
+    check_generation_activation_completeness(session=session, generation=replacement_row).require_complete()
+
+    prior.visibility_state = EvidenceGenerationState.SUPERSEDED
+    prior.state_version = int(prior.state_version or 0) + 1
+    prior.superseded_at = _utcnow()
+    prior.superseded_by_generation = int(replacement_row.source_generation)
+    session.flush()
+    if inject_failure_after_supersede:
+        raise RuntimeError("injected failure after prior generation supersede")
+
+    replacement_row.visibility_state = EvidenceGenerationState.ACTIVE
+    replacement_row.state_version = int(replacement_row.state_version or 0) + 1
+    replacement_row.activated_at = _utcnow()
+    _audit_generation_transition(
+        session=session,
+        case_id=replacement_row.case_id,
+        source_ref_type=replacement_row.source_ref_type,
+        source_ref_id=replacement_row.source_ref_id,
+        prior_active_generation=prior.source_generation,
+        new_active_generation=replacement_row.source_generation,
+        actor=actor,
+        reason=reason,
+        transition="BUILDING_REPLACEMENT_TO_ACTIVE",
+    )
+    session.flush()
+    return replacement_row
+
+
+def fail_generation_terminal(
+    *,
+    session,
+    generation: EvidenceSourceGeneration,
+    actor: str = "system",
+    reason: str = "generation_failed",
+) -> EvidenceSourceGeneration:
+    locked = (
+        session.query(EvidenceSourceGeneration)
+        .filter_by(id=generation.id)
+        .with_for_update()
+        .one()
+    )
+    if locked.visibility_state not in {
+        EvidenceGenerationState.BUILDING_INITIAL,
+        EvidenceGenerationState.BUILDING_REPLACEMENT,
+    }:
+        raise ManifestProtocolError("only building generations can be terminally failed")
+    prior_state = locked.visibility_state
+    locked.visibility_state = EvidenceGenerationState.FAILED
+    locked.state_version = int(locked.state_version or 0) + 1
+    locked.failed_at = _utcnow()
+    locked.failure_reason = reason
+    _audit_generation_transition(
+        session=session,
+        case_id=locked.case_id,
+        source_ref_type=locked.source_ref_type,
+        source_ref_id=locked.source_ref_id,
+        prior_active_generation=None,
+        new_active_generation=None,
+        actor=actor,
+        reason=reason,
+        transition=f"{prior_state}_TO_FAILED",
+    )
+    session.flush()
+    return locked
 
 
 def project_generation_control_state(clickhouse_client, session, generation: EvidenceSourceGeneration) -> None:
@@ -783,6 +1171,49 @@ def project_generation_control_state(clickhouse_client, session, generation: Evi
                 batch_rows,
                 column_names=list(DURABLE_INGEST_BATCHES_COLUMNS),
             )
+
+
+def project_generation_authority_swap(
+    clickhouse_client,
+    session,
+    *,
+    prior_generation: EvidenceSourceGeneration,
+    new_generation: EvidenceSourceGeneration,
+) -> None:
+    """Project an atomic PG authority swap without publishing replacement first."""
+    project_generation_control_state(clickhouse_client, session, prior_generation)
+    project_generation_control_state(clickhouse_client, session, new_generation)
+
+
+def resolve_projected_visible_generation(
+    clickhouse_client,
+    *,
+    case_id: int,
+    source_ref_type: str,
+    source_ref_id: str,
+) -> Optional[int]:
+    """Return the generation currently visible through the CH control projection."""
+    result = clickhouse_client.query(
+        """
+        SELECT source_generation
+        FROM visible_evidence_generations FINAL
+        WHERE case_id = {case_id:UInt32}
+          AND source_ref_type = {source_ref_type:String}
+          AND source_ref_id = {source_ref_id:String}
+          AND visibility_state = 'ACTIVE'
+          AND publishable = 1
+        ORDER BY source_generation DESC
+        LIMIT 1
+        """,
+        parameters={
+            "case_id": int(case_id),
+            "source_ref_type": source_ref_type,
+            "source_ref_id": source_ref_id,
+        },
+    )
+    if not result.result_rows:
+        return None
+    return int(result.result_rows[0][0])
 
 
 def batch_became_durable(*_args, **_kwargs) -> None:

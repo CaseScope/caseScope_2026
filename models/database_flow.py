@@ -93,9 +93,13 @@ class EvidenceSourceGeneration(db.Model):
 
     expected_rows = db.Column(db.BigInteger, nullable=True)
     landed_rows = db.Column(db.BigInteger, nullable=False, default=0)
+    final_batch_ordinal = db.Column(db.Integer, nullable=True)
     created_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
     started_at = db.Column(db.DateTime, nullable=True)
     completed_at = db.Column(db.DateTime, nullable=True)
+    activated_at = db.Column(db.DateTime, nullable=True)
+    superseded_at = db.Column(db.DateTime, nullable=True)
+    superseded_by_generation = db.Column(db.Integer, nullable=True)
     failed_at = db.Column(db.DateTime, nullable=True)
     failure_reason = db.Column(db.Text, nullable=True)
 
@@ -116,6 +120,10 @@ class EvidenceSourceGeneration(db.Model):
         db.CheckConstraint(
             "expected_rows IS NULL OR expected_rows >= 0",
             name="ck_evidence_source_generation_expected_rows_nonnegative",
+        ),
+        db.CheckConstraint(
+            "final_batch_ordinal IS NULL OR final_batch_ordinal >= 0",
+            name="ck_evidence_source_generation_final_batch_ordinal_nonnegative",
         ),
         db.CheckConstraint(
             "visibility_state IN ('BUILDING_INITIAL', 'BUILDING_REPLACEMENT', 'ACTIVE', "
@@ -141,6 +149,37 @@ class EvidenceSourceGeneration(db.Model):
             postgresql_where=text("visibility_state = 'ACTIVE'"),
             sqlite_where=text("visibility_state = 'ACTIVE'"),
         ),
+    )
+
+
+class EvidenceGenerationAudit(db.Model):
+    """Durable audit row for source-generation authority transitions."""
+
+    __tablename__ = "evidence_generation_audit"
+
+    id = db.Column(db.Integer, primary_key=True)
+    case_id = db.Column(db.Integer, db.ForeignKey("cases.id", ondelete="CASCADE"), nullable=False, index=True)
+    source_ref_type = db.Column(db.String(40), nullable=False, index=True)
+    source_ref_id = db.Column(db.String(128), nullable=False, index=True)
+    prior_active_generation = db.Column(db.Integer, nullable=True)
+    new_active_generation = db.Column(db.Integer, nullable=True)
+    actor = db.Column(db.String(255), nullable=False, default="system")
+    reason = db.Column(db.Text, nullable=False, default="")
+    transition = db.Column(db.String(80), nullable=False)
+    occurred_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow, index=True)
+
+    case = db.relationship("Case", backref=db.backref("evidence_generation_audit", lazy="dynamic"))
+
+    __table_args__ = (
+        db.CheckConstraint(
+            "prior_active_generation IS NULL OR prior_active_generation >= 1",
+            name="ck_evidence_generation_audit_prior_positive",
+        ),
+        db.CheckConstraint(
+            "new_active_generation IS NULL OR new_active_generation >= 1",
+            name="ck_evidence_generation_audit_new_positive",
+        ),
+        db.Index("idx_evidence_generation_audit_source", "case_id", "source_ref_type", "source_ref_id", "occurred_at"),
     )
 
 
