@@ -23,9 +23,9 @@ import logging
 import hashlib
 import codecs
 import struct
+import importlib.metadata
 from datetime import datetime, timedelta
 from typing import Generator, Dict, List, Any, Optional
-from pathlib import Path
 
 from parsers.base import BaseParser, ParsedEvent, to_naive_utc
 
@@ -2337,8 +2337,10 @@ class MFTParser(BaseParser):
 class USNParser(BaseParser):
     """Parser for NTFS USN Journal ($UsnJrnl:$J) files using dissect.ntfs."""
 
-    VERSION = '1.1.0'
+    VERSION = '1.2.0'
     ARTIFACT_TYPE = 'usn'
+    supports_manifest_protocol = True
+    manifest_ordering_contract = 'usn:physical-record-offset-order:v1'
     _FLAG_MEMBER_CACHE: Dict[int, List[tuple]] = {}
     # Extractors flatten the ADS name in different ways, so the colon may become
     # nothing, an underscore or a dot depending on the tool that wrote the file.
@@ -2362,6 +2364,16 @@ class USNParser(BaseParser):
             self._ntfs_constants = c_ntfs
         except ImportError:
             raise ImportError("dissect.ntfs not installed. Install with: pip install dissect.ntfs")
+
+    def manifest_producer_version(self) -> str:
+        try:
+            dissect_ntfs = importlib.metadata.version('dissect.ntfs')
+        except importlib.metadata.PackageNotFoundError:
+            dissect_ntfs = 'unknown'
+        return (
+            f"{self.parser_version};dissect.ntfs={dissect_ntfs};"
+            "usn_companion_mft=absent;usn_record_versions=2"
+        )
 
     @property
     def artifact_type(self) -> str:
@@ -2450,6 +2462,7 @@ class USNParser(BaseParser):
 
             try:
                 record = UsnRecord(journal, stream, offset)
+                setattr(record, '_casescope_stream_offset', offset)
             except EOFError:
                 break
             except Exception:
@@ -2590,6 +2603,10 @@ class USNParser(BaseParser):
 
         try:
             if mft_path:
+                if getattr(self, 'managed_manifest_mode', False):
+                    raise RuntimeError(
+                        "USN managed manifest certification currently requires an absent companion $MFT"
+                    )
                 try:
                     from dissect.ntfs import NTFS
                     mft_fh = open(mft_path, 'rb')
@@ -2657,6 +2674,7 @@ class USNParser(BaseParser):
 
                         raw_data = {
                             'usn': int(getattr(record, 'Usn', 0)),
+                            'journal_offset': self.safe_int(getattr(record, '_casescope_stream_offset', None)),
                             'filename': filename,
                             'full_path': target_path,
                             'path_resolution': path_resolution,
@@ -2689,9 +2707,10 @@ class USNParser(BaseParser):
                             record_id=self.safe_int(getattr(record, 'Usn', None)),
                             process_name=self.safe_str(process_name),
                             target_path=self.safe_str(target_path),
-                            raw_json=json.dumps(raw_data, default=str),
+                            raw_json=json.dumps(raw_data, default=str, sort_keys=True),
                             search_blob=' '.join(str(part) for part in search_parts if part),
                             extra_fields=json.dumps({
+                                'journal_offset': self.safe_int(getattr(record, '_casescope_stream_offset', None)),
                                 'filename': filename,
                                 'path_resolution': path_resolution,
                                 'reason_flags': reasons,
@@ -2701,8 +2720,13 @@ class USNParser(BaseParser):
                                 'major_version': self.safe_int(getattr(record.header, 'MajorVersion', None)),
                                 'minor_version': self.safe_int(getattr(record.header, 'MinorVersion', None)),
                                 **reference_fields,
-                            }, default=str),
+                            }, default=str, sort_keys=True),
                             parser_version=self.parser_version,
+                            source_record_identifier_authoritative=True,
+                            source_record_identifier_type='usn_journal_offset',
+                            source_record_identifier_value=str(
+                                self.safe_int(getattr(record, '_casescope_stream_offset', None))
+                            ),
                         )
                     except Exception as e:
                         self.warnings.append(f"Error processing USN record: {e}")
@@ -2832,7 +2856,7 @@ class SRUMParser(BaseParser):
                                         id_map[id_index] = decoded or id_blob.hex()
                                 else:
                                     id_map[id_index] = str(id_blob)
-                        except Exception as e:
+                        except Exception:
                             pass
                     break
         except Exception as e:
@@ -2950,7 +2974,7 @@ class SRUMParser(BaseParser):
                                                 except:
                                                     value = value.hex()
                                         record_dict[col.name] = str(value)
-                                except Exception as e:
+                                except Exception:
                                     pass
                             
                             # Get timestamp - SRUM stores as OLE Automation Date

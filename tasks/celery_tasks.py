@@ -1041,7 +1041,7 @@ def _process_managed_initial_case_file(
     from parsers.base import ParseResult
     from utils.manifest_protocol import (
         allocate_case_file_initial_generation,
-        construct_managed_batches,
+        construct_managed_batch,
         contract_from_parser,
         create_ingest_attempt,
         finish_ingest_attempt,
@@ -1086,39 +1086,32 @@ def _process_managed_initial_case_file(
         )
         db.session.commit()
 
-        events = []
+        event_buffer = []
+        events_count = 0
+        next_batch_ordinal = 0
         previous_managed_mode = getattr(parser, 'managed_manifest_mode', False)
         setattr(parser, 'managed_manifest_mode', True)
-        with timed_stage(
-            "phase1b_managed_parser_stream",
-            case_id=case_id,
-            case_file_id=case_file_id,
-            source_generation=generation.source_generation,
-        ) as stream_metric:
-            try:
-                for event in parser.parse(file_path):
-                    events.append(event)
-            finally:
-                setattr(parser, 'managed_manifest_mode', previous_managed_mode)
-            stream_metric["events_parsed"] = len(events)
 
-        producer_version_after = _producer_version_for_managed_parser()
-        if producer_version_after != producer_version:
-            finish_ingest_attempt(
-                db.session,
-                attempt,
-                status='FAILED',
-                error='Managed producer signature changed during parse',
+        def flush_managed_buffer() -> None:
+            nonlocal event_buffer, events_count, next_batch_ordinal
+            if not event_buffer:
+                return
+            current_producer_version = _producer_version_for_managed_parser()
+            if current_producer_version != producer_version:
+                finish_ingest_attempt(
+                    db.session,
+                    attempt,
+                    status='FAILED',
+                    error='Managed producer signature changed during parse',
+                )
+                db.session.commit()
+                raise RuntimeError("Managed producer signature changed during parse")
+            manifest = construct_managed_batch(
+                generation=generation,
+                attempt=attempt,
+                events=tuple(event_buffer),
+                batch_ordinal=next_batch_ordinal,
             )
-            db.session.commit()
-            raise RuntimeError("Managed producer signature changed during parse")
-
-        batches = construct_managed_batches(
-            generation=generation,
-            attempt=attempt,
-            events=events,
-        )
-        for manifest in batches:
             with timed_stage(
                 "phase1b_staged_reservation",
                 case_id=case_id,
@@ -1157,17 +1150,46 @@ def _process_managed_initial_case_file(
                 update_generation_ingest_accounting(
                     session=db.session,
                     generation=generation,
-                    expected_rows=len(events),
                 )
                 db.session.commit()
 
             project_generation_control_state(clickhouse_client, db.session, generation)
+            events_count += len(event_buffer)
+            event_buffer = []
+            next_batch_ordinal += 1
+
+        with timed_stage(
+            "phase1b_managed_parser_stream",
+            case_id=case_id,
+            case_file_id=case_file_id,
+            source_generation=generation.source_generation,
+        ) as stream_metric:
+            try:
+                for event in parser.parse(file_path):
+                    event_buffer.append(event)
+                    if len(event_buffer) >= int(generation.configured_batch_size):
+                        flush_managed_buffer()
+                flush_managed_buffer()
+            finally:
+                setattr(parser, 'managed_manifest_mode', previous_managed_mode)
+            stream_metric["events_parsed"] = events_count
+
+        producer_version_after = _producer_version_for_managed_parser()
+        if producer_version_after != producer_version:
+            finish_ingest_attempt(
+                db.session,
+                attempt,
+                status='FAILED',
+                error='Managed producer signature changed during parse',
+            )
+            db.session.commit()
+            raise RuntimeError("Managed producer signature changed during parse")
 
         finish_ingest_attempt(db.session, attempt, status='SUCCEEDED')
         update_generation_ingest_accounting(
             session=db.session,
             generation=generation,
-            expected_rows=len(events),
+            expected_rows=events_count,
         )
         db.session.commit()
 
@@ -1175,7 +1197,7 @@ def _process_managed_initial_case_file(
             success=not bool(parser.errors),
             file_path=file_path,
             artifact_type=parser.artifact_type,
-            events_count=len(events),
+            events_count=events_count,
             errors=list(parser.errors),
             warnings=list(parser.warnings),
             duration_seconds=0.0,
