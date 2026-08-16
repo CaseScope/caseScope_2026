@@ -1,0 +1,722 @@
+"""Phase 1B Tranche B manifest protocol engine.
+
+This module implements the CASE_FILE BUILDING_INITIAL durable batch protocol
+without enabling any production parser by default.
+"""
+from __future__ import annotations
+
+import time
+import uuid
+from dataclasses import dataclass
+from datetime import datetime, timezone
+from typing import Any, Dict, Iterable, List, Mapping, Optional, Sequence, Tuple
+
+from sqlalchemy import func
+
+from models.case_file import CaseFile
+from models.database import db
+from models.database_flow import (
+    EvidenceGenerationState,
+    EvidenceSourceGeneration,
+    IngestAttempt,
+    IngestBatch,
+    IngestBatchState,
+    SourceRefType,
+)
+from parsers.base import ParsedEvent
+from utils.ingest_fence import exclusive_ingest_fence, shared_ingest_admission
+from utils.ingest_identity import (
+    BATCHING_CONTRACT_VERSION,
+    batch_content_hash,
+    batch_content_hash_for_ordinals,
+    canonical_source_locator,
+    deterministic_ingest_batch_id,
+    ingest_row_hash,
+    validate_zero_based_manifest_ordinals,
+)
+from utils.ingest_metrics import emit_metric, estimate_rows_bytes, timed_stage
+
+
+MANIFEST_PROTOCOL_COLUMNS = (
+    "source_ref_type",
+    "source_ref_id",
+    "source_generation",
+    "ingest_batch_id",
+    "ingest_row_ordinal",
+    "ingest_row_hash",
+    "ingest_attempt_id",
+)
+
+INGEST_MODE_LEGACY = "LEGACY"
+INGEST_MODE_MANAGED_INITIAL = "MANAGED_INITIAL"
+
+PROTOCOL_CLICKHOUSE_COLUMNS = tuple(ParsedEvent.clickhouse_columns()) + MANIFEST_PROTOCOL_COLUMNS
+
+VISIBLE_EVIDENCE_GENERATIONS_COLUMNS = (
+    "case_id",
+    "source_ref_type",
+    "source_ref_id",
+    "source_generation",
+    "visibility_state",
+    "state_version",
+    "publishable",
+    "updated_at",
+)
+
+DURABLE_INGEST_BATCHES_COLUMNS = (
+    "ingest_batch_id",
+    "case_id",
+    "source_ref_type",
+    "source_ref_id",
+    "source_generation",
+    "batch_ordinal",
+    "expected_row_count",
+    "batch_content_hash",
+    "state",
+    "state_version",
+    "durable_at",
+    "updated_at",
+)
+
+
+class ManifestProtocolError(RuntimeError):
+    """Base error for managed manifest protocol failures."""
+
+
+def _utcnow() -> datetime:
+    return datetime.now(timezone.utc).replace(tzinfo=None)
+
+
+class ManifestEligibilityError(ManifestProtocolError):
+    """Raised when a source/parser is not eligible for managed ingest."""
+
+
+class GenerationAllocationError(ManifestProtocolError):
+    """Raised when CASE_FILE generation allocation cannot proceed safely."""
+
+
+class FrozenGenerationMismatch(ManifestProtocolError):
+    """Raised when retry inputs do not match the frozen generation contract."""
+
+
+class ManifestMismatchError(ManifestProtocolError):
+    """Raised when an existing STAGED manifest conflicts with expected input."""
+
+
+@dataclass(frozen=True)
+class ManifestParserContract:
+    parser_version: str
+    normalization_version: str
+    configured_batch_size: int
+    ordering_contract: str
+    producer_version: Optional[str] = None
+    manifest_eligible: bool = False
+    batching_contract_version: str = BATCHING_CONTRACT_VERSION
+
+
+@dataclass(frozen=True)
+class ProtocolRow:
+    ordinal: int
+    event: ParsedEvent
+    clickhouse_row: Tuple[Any, ...]
+    ingest_row_hash: str
+    source_locator: Optional[dict]
+
+
+@dataclass(frozen=True)
+class ManagedBatch:
+    ingest_batch_id: str
+    generation: EvidenceSourceGeneration
+    batch_ordinal: int
+    rows: Tuple[ProtocolRow, ...]
+    row_hashes: Tuple[str, ...]
+    batch_content_hash: str
+    first_source_locator: Optional[dict]
+    last_source_locator: Optional[dict]
+    ingest_attempt_id: str
+
+    @property
+    def row_count(self) -> int:
+        return len(self.rows)
+
+    @property
+    def clickhouse_rows(self) -> Tuple[Tuple[Any, ...], ...]:
+        return tuple(row.clickhouse_row for row in self.rows)
+
+
+@dataclass(frozen=True)
+class BatchVerificationResult:
+    outcome: str
+    success: bool
+    retry_equivalent_duplicate: bool = False
+    physical_rows: int = 0
+    duplicate_physical_rows: int = 0
+    message: str = ""
+
+
+def parser_manifest_eligible(parser: Any, config: Any = None) -> bool:
+    enabled = bool(getattr(config, "PHASE1B_MANIFEST_PROTOCOL_ENABLED", False)) if config else False
+    return (
+        enabled
+        and bool(getattr(parser, "supports_manifest_protocol", False))
+        and bool(getattr(parser, "manifest_ordering_contract", None))
+    )
+
+
+def select_case_file_ingest_mode(*, parser: Any, case_file: Any, config: Any) -> str:
+    if not case_file or not getattr(case_file, "id", None):
+        return INGEST_MODE_LEGACY
+    if parser_manifest_eligible(parser, config):
+        return INGEST_MODE_MANAGED_INITIAL
+    return INGEST_MODE_LEGACY
+
+
+def contract_from_parser(
+    parser: Any,
+    *,
+    configured_batch_size: int,
+    normalization_version: str,
+    producer_version: Optional[str] = None,
+    config: Any = None,
+) -> ManifestParserContract:
+    if not parser_manifest_eligible(parser, config):
+        raise ManifestEligibilityError("parser/source is not manifest-protocol eligible")
+    return ManifestParserContract(
+        parser_version=str(getattr(parser, "parser_version")),
+        normalization_version=str(normalization_version),
+        configured_batch_size=int(configured_batch_size),
+        ordering_contract=str(getattr(parser, "manifest_ordering_contract")),
+        producer_version=producer_version,
+        manifest_eligible=True,
+    )
+
+
+def _assert_frozen_contract_matches(generation: EvidenceSourceGeneration, contract: ManifestParserContract) -> None:
+    expected = {
+        "parser_version": contract.parser_version,
+        "normalization_version": contract.normalization_version,
+        "batching_contract_version": contract.batching_contract_version,
+        "configured_batch_size": int(contract.configured_batch_size),
+        "ordering_contract": contract.ordering_contract,
+        "producer_version": contract.producer_version,
+    }
+    actual = {
+        "parser_version": generation.parser_version,
+        "normalization_version": generation.normalization_version,
+        "batching_contract_version": generation.batching_contract_version,
+        "configured_batch_size": int(generation.configured_batch_size),
+        "ordering_contract": generation.ordering_contract,
+        "producer_version": generation.producer_version,
+    }
+    if actual != expected:
+        raise FrozenGenerationMismatch(f"frozen generation contract mismatch: expected {expected}, got {actual}")
+
+
+def allocate_case_file_initial_generation(
+    *,
+    session,
+    case_id: int,
+    case_file_id: int,
+    contract: ManifestParserContract,
+) -> EvidenceSourceGeneration:
+    if not contract.manifest_eligible:
+        raise ManifestEligibilityError("manifest parser contract is not eligible")
+
+    started = time.perf_counter()
+    case_file = (
+        session.query(CaseFile)
+        .filter(CaseFile.id == int(case_file_id))
+        .with_for_update()
+        .one()
+    )
+    source_ref_id = str(case_file.id)
+    generations = (
+        session.query(EvidenceSourceGeneration)
+        .filter_by(
+            case_id=int(case_id),
+            source_ref_type=SourceRefType.CASE_FILE,
+            source_ref_id=source_ref_id,
+        )
+        .order_by(EvidenceSourceGeneration.source_generation.asc())
+        .with_for_update()
+        .all()
+    )
+
+    building = [
+        generation
+        for generation in generations
+        if generation.visibility_state in {
+            EvidenceGenerationState.BUILDING_INITIAL,
+            EvidenceGenerationState.BUILDING_REPLACEMENT,
+        }
+    ]
+    active = [
+        generation
+        for generation in generations
+        if generation.visibility_state == EvidenceGenerationState.ACTIVE
+    ]
+    if len(building) > 1:
+        raise GenerationAllocationError("multiple open building generations exist for source")
+    if active and not building:
+        raise GenerationAllocationError("replacement generation allocation is Tranche D")
+    if building and building[0].visibility_state == EvidenceGenerationState.BUILDING_REPLACEMENT:
+        raise GenerationAllocationError("BUILDING_REPLACEMENT is unsupported in Tranche B")
+    if building:
+        generation = building[0]
+        if generation.source_generation != 1:
+            raise GenerationAllocationError("Tranche B only supports first generation BUILDING_INITIAL")
+        _assert_frozen_contract_matches(generation, contract)
+    elif generations:
+        raise GenerationAllocationError("existing non-building generation cannot enter Tranche B initial path")
+    else:
+        generation = EvidenceSourceGeneration(
+            case_id=int(case_id),
+            source_ref_type=SourceRefType.CASE_FILE,
+            source_ref_id=source_ref_id,
+            source_generation=1,
+            visibility_state=EvidenceGenerationState.BUILDING_INITIAL,
+            state_version=1,
+            parser_version=contract.parser_version,
+            normalization_version=contract.normalization_version,
+            batching_contract_version=contract.batching_contract_version,
+            configured_batch_size=int(contract.configured_batch_size),
+            ordering_contract=contract.ordering_contract,
+            producer_version=contract.producer_version,
+            started_at=_utcnow(),
+        )
+        session.add(generation)
+        session.flush()
+
+    emit_metric(
+        "phase1b_generation_allocation",
+        case_id=case_id,
+        source_ref_type=SourceRefType.CASE_FILE,
+        source_ref_id=source_ref_id,
+        source_generation=generation.source_generation,
+        duration_ms=(time.perf_counter() - started) * 1000.0,
+    )
+    return generation
+
+
+def create_ingest_attempt(
+    *,
+    session,
+    generation: EvidenceSourceGeneration,
+    celery_task_id: Optional[str] = None,
+    worker_name: Optional[str] = None,
+) -> IngestAttempt:
+    attempt = IngestAttempt(
+        ingest_attempt_id=str(uuid.uuid4()),
+        generation_id=generation.id,
+        status="STARTED",
+        celery_task_id=celery_task_id,
+        worker_name=worker_name,
+        started_at=_utcnow(),
+    )
+    session.add(attempt)
+    session.flush()
+    return attempt
+
+
+def finish_ingest_attempt(session, attempt: IngestAttempt, *, status: str, error: Optional[str] = None) -> IngestAttempt:
+    attempt.status = status
+    attempt.finished_at = _utcnow()
+    attempt.error = error
+    session.flush()
+    return attempt
+
+
+def _event_mapping_from_row(event: ParsedEvent, row: Tuple[Any, ...]) -> Dict[str, Any]:
+    mapping = dict(zip(ParsedEvent.clickhouse_columns(), row))
+    mapping["parser_provenance"] = {
+        "parser_version": event.parser_version,
+        "native_record_id_authoritative": bool(event.native_record_id_authoritative),
+        "source_record_identifier_authoritative": bool(event.source_record_identifier_authoritative),
+        "source_record_identifier_type": event.source_record_identifier_type or None,
+        "source_record_identifier_value": event.source_record_identifier_value or None,
+    }
+    return mapping
+
+
+def _source_locator_for_event(event: ParsedEvent, ordinal: int) -> Optional[dict]:
+    try:
+        return canonical_source_locator(
+            parser_source_id=(
+                event.source_record_identifier_value
+                if event.source_record_identifier_authoritative and event.source_record_identifier_value
+                else None
+            ),
+            native_record_id=event.record_id if event.native_record_id_authoritative and event.record_id is not None else None,
+            deterministic_ordinal=ordinal,
+        ).canonical()
+    except ValueError:
+        return None
+
+
+def _protocol_row(
+    *,
+    event: ParsedEvent,
+    generation: EvidenceSourceGeneration,
+    ingest_batch_id: str,
+    ingest_attempt_id: str,
+    ingest_row_ordinal: int,
+) -> ProtocolRow:
+    base_row = event.to_clickhouse_row()
+    mapping = _event_mapping_from_row(event, base_row)
+    mapping.update(
+        {
+            "source_ref_type": generation.source_ref_type,
+            "source_ref_id": generation.source_ref_id,
+            "source_generation": int(generation.source_generation),
+            "ingest_batch_id": ingest_batch_id,
+            "ingest_row_ordinal": ingest_row_ordinal,
+        }
+    )
+    row_hash = ingest_row_hash(mapping)
+    protocol_values = (
+        generation.source_ref_type,
+        generation.source_ref_id,
+        int(generation.source_generation),
+        ingest_batch_id,
+        ingest_row_ordinal,
+        row_hash,
+        ingest_attempt_id,
+    )
+    return ProtocolRow(
+        ordinal=ingest_row_ordinal,
+        event=event,
+        clickhouse_row=tuple(base_row) + protocol_values,
+        ingest_row_hash=row_hash,
+        source_locator=_source_locator_for_event(event, ingest_row_ordinal),
+    )
+
+
+def construct_managed_batches(
+    *,
+    generation: EvidenceSourceGeneration,
+    attempt: IngestAttempt,
+    events: Sequence[ParsedEvent],
+) -> Tuple[ManagedBatch, ...]:
+    batch_size = int(generation.configured_batch_size)
+    if batch_size <= 0:
+        raise ManifestProtocolError("configured_batch_size must be positive")
+    batches: List[ManagedBatch] = []
+    for batch_ordinal, start in enumerate(range(0, len(events), batch_size)):
+        batch_events = tuple(events[start:start + batch_size])
+        ingest_batch_id = deterministic_ingest_batch_id(
+            case_id=generation.case_id,
+            source_ref_type=generation.source_ref_type,
+            source_ref_id=generation.source_ref_id,
+            source_generation=generation.source_generation,
+            batch_ordinal=batch_ordinal,
+            batching_contract_version=generation.batching_contract_version,
+        )
+        rows = tuple(
+            _protocol_row(
+                event=event,
+                generation=generation,
+                ingest_batch_id=ingest_batch_id,
+                ingest_attempt_id=attempt.ingest_attempt_id,
+                ingest_row_ordinal=ordinal,
+            )
+            for ordinal, event in enumerate(batch_events)
+        )
+        validate_zero_based_manifest_ordinals(row.ordinal for row in rows)
+        row_hashes = tuple(row.ingest_row_hash for row in rows)
+        batches.append(
+            ManagedBatch(
+                ingest_batch_id=ingest_batch_id,
+                generation=generation,
+                batch_ordinal=batch_ordinal,
+                rows=rows,
+                row_hashes=row_hashes,
+                batch_content_hash=batch_content_hash(row_hashes),
+                first_source_locator=rows[0].source_locator if rows else None,
+                last_source_locator=rows[-1].source_locator if rows else None,
+                ingest_attempt_id=attempt.ingest_attempt_id,
+            )
+        )
+    return tuple(batches)
+
+
+def _manifest_matches(existing: IngestBatch, manifest: ManagedBatch) -> bool:
+    return (
+        existing.generation_id == manifest.generation.id
+        and existing.batch_ordinal == manifest.batch_ordinal
+        and existing.row_count == manifest.row_count
+        and existing.batch_content_hash == manifest.batch_content_hash
+        and list(existing.expected_ingest_row_hashes or []) == list(manifest.row_hashes)
+        and (existing.first_source_locator or None) == manifest.first_source_locator
+        and (existing.last_source_locator or None) == manifest.last_source_locator
+    )
+
+
+def reserve_staged_batch(*, session, manifest: ManagedBatch) -> IngestBatch:
+    existing = (
+        session.query(IngestBatch)
+        .filter_by(ingest_batch_id=manifest.ingest_batch_id)
+        .with_for_update()
+        .one_or_none()
+    )
+    if existing:
+        if not _manifest_matches(existing, manifest):
+            raise ManifestMismatchError(f"existing manifest differs for {manifest.ingest_batch_id}")
+        existing.ingest_attempt_id = manifest.ingest_attempt_id
+        session.flush()
+        return existing
+
+    batch = IngestBatch(
+        ingest_batch_id=manifest.ingest_batch_id,
+        generation_id=manifest.generation.id,
+        batch_ordinal=manifest.batch_ordinal,
+        row_count=manifest.row_count,
+        batch_content_hash=manifest.batch_content_hash,
+        expected_ingest_row_hashes=list(manifest.row_hashes),
+        first_source_locator=manifest.first_source_locator,
+        last_source_locator=manifest.last_source_locator,
+        ingest_attempt_id=manifest.ingest_attempt_id,
+        state=IngestBatchState.STAGED,
+        state_version=1,
+    )
+    session.add(batch)
+    session.flush()
+    return batch
+
+
+def insert_managed_batch(clickhouse_client, manifest: ManagedBatch) -> None:
+    rows = manifest.clickhouse_rows
+    if not rows:
+        return
+    estimated_bytes = estimate_rows_bytes(rows)
+    with timed_stage(
+        "phase1b_clickhouse_insert",
+        case_id=manifest.generation.case_id,
+        ingest_batch_id=manifest.ingest_batch_id,
+        row_count=len(rows),
+    ):
+        with shared_ingest_admission(
+            "events_insert",
+            case_id=manifest.generation.case_id,
+            source_ref=f"ingest_batch:{manifest.ingest_batch_id}",
+        ):
+            clickhouse_client.insert("events", list(rows), column_names=list(PROTOCOL_CLICKHOUSE_COLUMNS))
+    emit_metric(
+        "phase1b_clickhouse_insert_summary",
+        ingest_batch_id=manifest.ingest_batch_id,
+        row_count=len(rows),
+        estimated_bytes=estimated_bytes,
+    )
+
+
+def _grouped_batch_rows(clickhouse_client, ingest_batch_id: str) -> List[Tuple[int, str, int, int]]:
+    result = clickhouse_client.query(
+        """
+        SELECT
+            ingest_row_ordinal,
+            ingest_row_hash,
+            count() AS physical_copies,
+            uniqExact(ingest_row_hash) AS distinct_hashes
+        FROM events
+        WHERE ingest_batch_id = {id:String}
+        GROUP BY ingest_row_ordinal, ingest_row_hash
+        """,
+        parameters={"id": ingest_batch_id},
+    )
+    return [
+        (int(row[0]), str(row[1]), int(row[2]), int(row[3]))
+        for row in result.result_rows
+    ]
+
+
+def verify_ingest_batch(clickhouse_client, manifest: ManagedBatch) -> BatchVerificationResult:
+    started = time.perf_counter()
+    grouped = _grouped_batch_rows(clickhouse_client, manifest.ingest_batch_id)
+    physical_rows = sum(row[2] for row in grouped)
+    duplicate_physical_rows = sum(max(row[2] - 1, 0) for row in grouped)
+    try:
+        if not grouped:
+            return BatchVerificationResult("absent", False, physical_rows=0, message="no ClickHouse rows")
+
+        by_ordinal: Dict[int, List[Tuple[str, int, int]]] = {}
+        for ordinal, row_hash, physical_copies, distinct_hashes in grouped:
+            by_ordinal.setdefault(ordinal, []).append((row_hash, physical_copies, distinct_hashes))
+
+        expected_ordinals = set(range(manifest.row_count))
+        observed_ordinals = set(by_ordinal)
+        missing = expected_ordinals - observed_ordinals
+        extra = observed_ordinals - expected_ordinals
+        if missing:
+            return BatchVerificationResult("partial", False, physical_rows=physical_rows, message=f"missing ordinals {sorted(missing)}")
+        if extra:
+            return BatchVerificationResult("extra_ordinal", False, physical_rows=physical_rows, message=f"extra ordinals {sorted(extra)}")
+
+        collapsed_hashes: List[str] = []
+        retry_equivalent_duplicate = False
+        for ordinal in range(manifest.row_count):
+            entries = by_ordinal[ordinal]
+            hashes = {entry[0] for entry in entries}
+            distinct_counts = {entry[2] for entry in entries}
+            if len(hashes) > 1 or any(count > 1 for count in distinct_counts):
+                return BatchVerificationResult(
+                    "duplicate_different",
+                    False,
+                    physical_rows=physical_rows,
+                    duplicate_physical_rows=duplicate_physical_rows,
+                    message=f"ordinal {ordinal} has conflicting hashes",
+                )
+            row_hash = entries[0][0]
+            if row_hash != manifest.row_hashes[ordinal]:
+                return BatchVerificationResult(
+                    "hash_mismatch",
+                    False,
+                    physical_rows=physical_rows,
+                    duplicate_physical_rows=duplicate_physical_rows,
+                    message=f"ordinal {ordinal} hash mismatch",
+                )
+            if entries[0][1] > 1:
+                retry_equivalent_duplicate = True
+            collapsed_hashes.append(row_hash)
+
+        if batch_content_hash_for_ordinals(tuple(enumerate(collapsed_hashes))) != manifest.batch_content_hash:
+            return BatchVerificationResult(
+                "aggregate_mismatch",
+                False,
+                physical_rows=physical_rows,
+                duplicate_physical_rows=duplicate_physical_rows,
+                message="batch_content_hash mismatch",
+            )
+
+        outcome = "duplicate_identical" if retry_equivalent_duplicate else "exact"
+        return BatchVerificationResult(
+            outcome,
+            True,
+            retry_equivalent_duplicate=retry_equivalent_duplicate,
+            physical_rows=physical_rows,
+            duplicate_physical_rows=duplicate_physical_rows,
+        )
+    finally:
+        emit_metric(
+            "phase1b_clickhouse_verify",
+            ingest_batch_id=manifest.ingest_batch_id,
+            row_count=manifest.row_count,
+            physical_rows=physical_rows,
+            duration_ms=(time.perf_counter() - started) * 1000.0,
+        )
+
+
+def purge_ingest_batch_rows(clickhouse_client, ingest_batch_id: str) -> None:
+    from utils.clickhouse import clickhouse_string_literal, wait_for_mutation_completion
+
+    command_fragment = f"DELETE WHERE ingest_batch_id = {clickhouse_string_literal(ingest_batch_id)}"
+    with exclusive_ingest_fence("manifest_batch_purge", source_ref=f"ingest_batch:{ingest_batch_id}"):
+        clickhouse_client.command(f"ALTER TABLE events {command_fragment}")
+        wait_for_mutation_completion("events", command_fragment, client=clickhouse_client)
+
+
+def mark_batch_durable(*, session, batch: IngestBatch, verification: BatchVerificationResult) -> IngestBatch:
+    if not verification.success:
+        raise ManifestProtocolError(f"verification did not authorize DURABLE: {verification.outcome}")
+    if batch.state != IngestBatchState.DURABLE:
+        batch.state = IngestBatchState.DURABLE
+        batch.state_version = int(batch.state_version or 0) + 1
+        batch.durable_at = _utcnow()
+    session.flush()
+    return batch
+
+
+def update_generation_ingest_accounting(
+    *,
+    session,
+    generation: EvidenceSourceGeneration,
+    expected_rows: Optional[int] = None,
+) -> EvidenceSourceGeneration:
+    durable_rows = (
+        session.query(func.coalesce(func.sum(IngestBatch.row_count), 0))
+        .filter_by(generation_id=generation.id, state=IngestBatchState.DURABLE)
+        .scalar()
+    )
+    if expected_rows is not None:
+        generation.expected_rows = int(expected_rows)
+    generation.landed_rows = int(durable_rows or 0)
+    if expected_rows is not None and int(durable_rows or 0) >= int(expected_rows):
+        generation.completed_at = generation.completed_at or _utcnow()
+    session.flush()
+    return generation
+
+
+def project_generation_control_state(clickhouse_client, session, generation: EvidenceSourceGeneration) -> None:
+    now = _utcnow()
+    publishable = 1 if generation.visibility_state in {EvidenceGenerationState.BUILDING_INITIAL, EvidenceGenerationState.ACTIVE} else 0
+    generation_row = (
+        int(generation.case_id),
+        generation.source_ref_type,
+        generation.source_ref_id,
+        int(generation.source_generation),
+        generation.visibility_state,
+        int(generation.state_version),
+        publishable,
+        now,
+    )
+    durable_batches = (
+        session.query(IngestBatch)
+        .filter_by(generation_id=generation.id, state=IngestBatchState.DURABLE)
+        .order_by(IngestBatch.batch_ordinal.asc())
+        .all()
+    )
+    batch_rows = [
+        (
+            batch.ingest_batch_id,
+            int(generation.case_id),
+            generation.source_ref_type,
+            generation.source_ref_id,
+            int(generation.source_generation),
+            int(batch.batch_ordinal),
+            int(batch.row_count),
+            batch.batch_content_hash,
+            batch.state,
+            int(batch.state_version),
+            batch.durable_at,
+            now,
+        )
+        for batch in durable_batches
+    ]
+    with timed_stage(
+        "phase1b_control_projection",
+        case_id=generation.case_id,
+        source_ref_type=generation.source_ref_type,
+        source_ref_id=generation.source_ref_id,
+        source_generation=generation.source_generation,
+        durable_batch_count=len(batch_rows),
+    ):
+        clickhouse_client.insert(
+            "visible_evidence_generations",
+            [generation_row],
+            column_names=list(VISIBLE_EVIDENCE_GENERATIONS_COLUMNS),
+        )
+        if batch_rows:
+            clickhouse_client.insert(
+                "durable_ingest_batches",
+                batch_rows,
+                column_names=list(DURABLE_INGEST_BATCHES_COLUMNS),
+            )
+
+
+def batch_became_durable(*_args, **_kwargs) -> None:
+    """Internal hook placeholder. Tranche B does not activate derivations."""
+    return None
+
+
+def handle_failed_verification(
+    *,
+    clickhouse_client,
+    verification: BatchVerificationResult,
+    manifest: ManagedBatch,
+) -> None:
+    if verification.outcome in {
+        "partial",
+        "extra_ordinal",
+        "duplicate_different",
+        "hash_mismatch",
+        "aggregate_mismatch",
+    }:
+        purge_ingest_batch_rows(clickhouse_client, manifest.ingest_batch_id)

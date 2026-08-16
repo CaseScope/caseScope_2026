@@ -1014,6 +1014,152 @@ celery_app.conf.task_routes = {
 }
 
 
+def _ingestion_status_for_result(result) -> str:
+    if result.artifact_type is None:
+        return 'no_parser'
+    if result.warnings:
+        return 'partial'
+    if result.events_count > 0:
+        return 'full'
+    if result.artifact_type == 'registry':
+        return 'partial'
+    return 'full'
+
+
+def _process_managed_initial_case_file(
+    *,
+    parser,
+    file_path: str,
+    case_id: int,
+    case_file_id: int,
+    clickhouse_client,
+    task_id: Optional[str],
+) -> Any:
+    """Run the inactive Phase 1B managed CASE_FILE BUILDING_INITIAL path."""
+    from models.case_file import CaseFile
+    from models.database import db
+    from models.database_flow import IngestBatch
+    from parsers.base import ParseResult
+    from utils.manifest_protocol import (
+        allocate_case_file_initial_generation,
+        construct_managed_batches,
+        contract_from_parser,
+        create_ingest_attempt,
+        finish_ingest_attempt,
+        handle_failed_verification,
+        insert_managed_batch,
+        mark_batch_durable,
+        project_generation_control_state,
+        reserve_staged_batch,
+        update_generation_ingest_accounting,
+        verify_ingest_batch,
+    )
+
+    app = get_flask_app()
+    with app.app_context():
+        case_file = db.session.get(CaseFile, int(case_file_id))
+        if case_file is None:
+            raise RuntimeError(f"CaseFile {case_file_id} not found for managed ingest")
+        contract = contract_from_parser(
+            parser,
+            configured_batch_size=getattr(Config, 'PHASE1B_MANIFEST_BATCH_SIZE', 10000),
+            normalization_version=getattr(Config, 'PHASE1B_NORMALIZATION_VERSION', 'normalization:v1'),
+            producer_version=getattr(Config, 'PHASE1B_PRODUCER_VERSION', 'casescope:4.19.0'),
+            config=Config,
+        )
+        generation = allocate_case_file_initial_generation(
+            session=db.session,
+            case_id=case_id,
+            case_file_id=case_file_id,
+            contract=contract,
+        )
+        attempt = create_ingest_attempt(
+            session=db.session,
+            generation=generation,
+            celery_task_id=task_id,
+        )
+        db.session.commit()
+
+        events = []
+        with timed_stage(
+            "phase1b_managed_parser_stream",
+            case_id=case_id,
+            case_file_id=case_file_id,
+            source_generation=generation.source_generation,
+        ) as stream_metric:
+            for event in parser.parse(file_path):
+                events.append(event)
+            stream_metric["events_parsed"] = len(events)
+
+        batches = construct_managed_batches(
+            generation=generation,
+            attempt=attempt,
+            events=events,
+        )
+        for manifest in batches:
+            with timed_stage(
+                "phase1b_staged_reservation",
+                case_id=case_id,
+                case_file_id=case_file_id,
+                ingest_batch_id=manifest.ingest_batch_id,
+                row_count=manifest.row_count,
+            ):
+                batch_row = reserve_staged_batch(session=db.session, manifest=manifest)
+                db.session.commit()
+
+            insert_managed_batch(clickhouse_client, manifest)
+            verification = verify_ingest_batch(clickhouse_client, manifest)
+            if not verification.success:
+                handle_failed_verification(
+                    clickhouse_client=clickhouse_client,
+                    verification=verification,
+                    manifest=manifest,
+                )
+                finish_ingest_attempt(
+                    db.session,
+                    attempt,
+                    status='FAILED',
+                    error=f'Verification failed: {verification.outcome}',
+                )
+                db.session.commit()
+                raise RuntimeError(f"Managed batch verification failed: {verification.outcome}")
+
+            with timed_stage(
+                "phase1b_pg_durable_transition",
+                case_id=case_id,
+                case_file_id=case_file_id,
+                ingest_batch_id=manifest.ingest_batch_id,
+            ):
+                batch_row = db.session.get(IngestBatch, batch_row.id)
+                mark_batch_durable(session=db.session, batch=batch_row, verification=verification)
+                update_generation_ingest_accounting(
+                    session=db.session,
+                    generation=generation,
+                    expected_rows=len(events),
+                )
+                db.session.commit()
+
+            project_generation_control_state(clickhouse_client, db.session, generation)
+
+        finish_ingest_attempt(db.session, attempt, status='SUCCEEDED')
+        update_generation_ingest_accounting(
+            session=db.session,
+            generation=generation,
+            expected_rows=len(events),
+        )
+        db.session.commit()
+
+        return ParseResult(
+            success=not bool(parser.errors),
+            file_path=file_path,
+            artifact_type=parser.artifact_type,
+            events_count=len(events),
+            errors=list(parser.errors),
+            warnings=list(parser.warnings),
+            duration_seconds=0.0,
+        )
+
+
 @celery_app.task(bind=True, name='tasks.parse_file')
 def parse_file_task(self, file_path: str, case_id: int, source_host: str = '',
                    case_file_id: Optional[int] = None,
@@ -1033,8 +1179,14 @@ def parse_file_task(self, file_path: str, case_id: int, source_host: str = '',
     from parsers import process_file, get_registry
     from utils.clickhouse import get_fresh_client
     from models.case import Case
+    from utils.manifest_protocol import (
+        INGEST_MODE_LEGACY,
+        INGEST_MODE_MANAGED_INITIAL,
+        select_case_file_ingest_mode,
+    )
     
     task_started = time.perf_counter()
+    ingest_mode = INGEST_MODE_LEGACY
     source_file_size = os.path.getsize(file_path) if file_path and os.path.exists(file_path) else None
     logger.info(f"Processing file: {file_path} for case {case_id}")
     emit_metric(
@@ -1134,76 +1286,100 @@ def parse_file_task(self, file_path: str, case_id: int, source_host: str = '',
                     parser_type=None
                 )
             return {'success': True, 'events_count': 0, 'artifact_type': None, 'message': 'No parser available'}
+
+        case_file_record = None
+        if case_file_id:
+            app = get_flask_app()
+            with app.app_context():
+                from models.case_file import CaseFile
+                from models.database import db
+
+                case_file_record = db.session.get(CaseFile, int(case_file_id))
+        ingest_mode = select_case_file_ingest_mode(
+            parser=_resolved_parser,
+            case_file=case_file_record,
+            config=Config,
+        )
+        emit_metric(
+            "phase1b_ingest_mode_selected",
+            case_id=case_id,
+            case_file_id=case_file_id,
+            artifact_type=artifact_type,
+            ingest_mode=ingest_mode,
+        )
         
         # Get fresh ClickHouse client for this task
         with timed_stage("clickhouse_client_init", case_id=case_id, case_file_id=case_file_id):
             client = get_fresh_client()
-        
-        # acks_late redelivery safety: a hard-killed worker (OOM/SIGKILL) never
-        # reaches the exception cleanup below, so purge any partially inserted
-        # rows from a prior attempt before inserting to keep this task re-entrant.
-        try:
-            from utils.event_mitre_state import delete_hayabusa_matches_for_case_file
-            with timed_stage("hayabusa_mitre_preparse_cleanup", case_id=case_id, case_file_id=case_file_id):
-                delete_hayabusa_matches_for_case_file(case_id, case_file_id, client=client)
-        except Exception as e:
-            logger.warning(f"Failed to clean Hayabusa MITRE matches for case_file_id={case_file_id}: {e}")
-        _cleanup_case_file_events(case_file_id)
-        
-        # Process the file
-        with timed_stage("process_file_call", case_id=case_id, case_file_id=case_file_id) as process_metric:
-            result = process_file(
-                file_path=file_path,
-                case_id=case_id,
-                source_host=source_host,
-                case_file_id=case_file_id,
-                clickhouse_client=client,
-                case_tz=case_tz,
-                parser_hints=parser_hints,
-                force_parser=force_parser,
-            )
-            process_metric["events_inserted"] = result.events_count
-            process_metric["artifact_type"] = result.artifact_type
 
-        if result.success and result.artifact_type == 'evtx' and result.events_count > 0:
+        if ingest_mode == INGEST_MODE_LEGACY:
+            # acks_late redelivery safety: a hard-killed worker (OOM/SIGKILL)
+            # never reaches exception cleanup, so purge prior legacy rows before
+            # inserting. Managed retry cleanup is batch-scoped below.
             try:
-                with timed_stage("hayabusa_mitre_match_insert", case_id=case_id, case_file_id=case_file_id):
-                    hayabusa_match_count = _insert_hayabusa_mitre_matches_for_case_file(
-                        case_id,
-                        case_file_id,
-                        client,
-                    )
-                result_dict = result.to_dict()
-                result_dict['hayabusa_mitre_matches'] = hayabusa_match_count
+                from utils.event_mitre_state import delete_hayabusa_matches_for_case_file
+                with timed_stage("hayabusa_mitre_preparse_cleanup", case_id=case_id, case_file_id=case_file_id):
+                    delete_hayabusa_matches_for_case_file(case_id, case_file_id, client=client)
             except Exception as e:
-                logger.warning(f"Hayabusa MITRE match insertion failed for case_file_id={case_file_id}: {e}")
+                logger.warning(f"Failed to clean Hayabusa MITRE matches for case_file_id={case_file_id}: {e}")
+            _cleanup_case_file_events(case_file_id)
+
+            # Process the file
+            with timed_stage("process_file_call", case_id=case_id, case_file_id=case_file_id) as process_metric:
+                result = process_file(
+                    file_path=file_path,
+                    case_id=case_id,
+                    source_host=source_host,
+                    case_file_id=case_file_id,
+                    clickhouse_client=client,
+                    case_tz=case_tz,
+                    parser_hints=parser_hints,
+                    force_parser=force_parser,
+                )
+                process_metric["events_inserted"] = result.events_count
+                process_metric["artifact_type"] = result.artifact_type
+
+            if result.success and result.artifact_type == 'evtx' and result.events_count > 0:
+                try:
+                    with timed_stage("hayabusa_mitre_match_insert", case_id=case_id, case_file_id=case_file_id):
+                        hayabusa_match_count = _insert_hayabusa_mitre_matches_for_case_file(
+                            case_id,
+                            case_file_id,
+                            client,
+                        )
+                    result_dict = result.to_dict()
+                    result_dict['hayabusa_mitre_matches'] = hayabusa_match_count
+                except Exception as e:
+                    logger.warning(f"Hayabusa MITRE match insertion failed for case_file_id={case_file_id}: {e}")
+                    result_dict = result.to_dict()
+                    result_dict['hayabusa_mitre_match_error'] = str(e)
+            else:
                 result_dict = result.to_dict()
-                result_dict['hayabusa_mitre_match_error'] = str(e)
         else:
+            with timed_stage("phase1b_managed_process_file_call", case_id=case_id, case_file_id=case_file_id) as process_metric:
+                result = _process_managed_initial_case_file(
+                    parser=_resolved_parser,
+                    file_path=file_path,
+                    case_id=case_id,
+                    case_file_id=case_file_id,
+                    clickhouse_client=client,
+                    task_id=getattr(self.request, 'id', None),
+                )
+                process_metric["events_inserted"] = result.events_count
+                process_metric["artifact_type"] = result.artifact_type
             result_dict = result.to_dict()
         
         # Update case_file status in PostgreSQL
         if case_file_id:
             if result.success:
-                # Check if parser rejected file (artifact_type is None)
-                if result.artifact_type is None:
-                    ingestion_status = 'no_parser'
-                elif result.warnings:
-                    ingestion_status = 'partial'
-                elif result.events_count > 0:
-                    ingestion_status = 'full'
-                elif result.artifact_type == 'registry':
-                    ingestion_status = 'partial'
-                else:
-                    ingestion_status = 'full'
-                    
                 _update_case_file_status(
                     case_file_id=case_file_id,
                     status='done',
-                    ingestion_status=ingestion_status,
+                    ingestion_status=_ingestion_status_for_result(result),
                     events_count=result.events_count,
                     parser_type=result.artifact_type,
-                    error_message=_join_warning_messages(result.warnings) if result.warnings else ''
+                    error_message=_join_warning_messages(result.warnings) if result.warnings else '',
+                    trigger_completion=(ingest_mode == INGEST_MODE_LEGACY),
                 )
             else:
                 _update_case_file_status(
@@ -1212,7 +1388,8 @@ def parse_file_task(self, file_path: str, case_id: int, source_host: str = '',
                     ingestion_status='parse_error',
                     events_count=result.events_count,
                     parser_type=result.artifact_type,
-                    error_message=_join_error_messages(result.errors)
+                    error_message=_join_error_messages(result.errors),
+                    trigger_completion=(ingest_mode == INGEST_MODE_LEGACY),
                 )
         
         emit_metric(
@@ -1228,13 +1405,15 @@ def parse_file_task(self, file_path: str, case_id: int, source_host: str = '',
         
     except SoftTimeLimitExceeded:
         logger.warning(f"Task soft time limit exceeded for {file_path}")
-        _cleanup_case_file_events(case_file_id)
+        if ingest_mode != INGEST_MODE_MANAGED_INITIAL:
+            _cleanup_case_file_events(case_file_id)
         if case_file_id:
             _update_case_file_status(
                 case_file_id=case_file_id,
                 status='error',
                 ingestion_status='error',
-                error_message='Task timeout'
+                error_message='Task timeout',
+                trigger_completion=(ingest_mode == INGEST_MODE_LEGACY),
             )
         emit_metric(
             "parse_file_task_total",
@@ -1269,13 +1448,15 @@ def parse_file_task(self, file_path: str, case_id: int, source_host: str = '',
         
     except Exception as e:
         logger.exception(f"Error processing file {file_path}")
-        _cleanup_case_file_events(case_file_id)
+        if ingest_mode != INGEST_MODE_MANAGED_INITIAL:
+            _cleanup_case_file_events(case_file_id)
         if case_file_id:
             _update_case_file_status(
                 case_file_id=case_file_id,
                 status='error',
                 ingestion_status='error',
-                error_message=_format_error_message(e)
+                error_message=_format_error_message(e),
+                trigger_completion=(ingest_mode == INGEST_MODE_LEGACY),
             )
         emit_metric(
             "parse_file_task_total",
@@ -2016,7 +2197,8 @@ def _update_case_file_status(case_file_id: int, status: str = None,
                             events_count: int = None,
                             parser_type: str = None,
                             error_message: str = None,
-                            errors: List[str] = None):
+                            errors: List[str] = None,
+                            trigger_completion: bool = True):
     """Update CaseFile status in PostgreSQL
     
     Uses row-level locking (SELECT FOR UPDATE) to prevent concurrent update conflicts.
@@ -2057,7 +2239,7 @@ def _update_case_file_status(case_file_id: int, status: str = None,
                     cf.error_message = '; '.join(errors)
                 
                 # Set processed_at when done or error
-                if status in ('done', 'error'):
+                if trigger_completion and status in ('done', 'error'):
                     cf.processed_at = datetime.utcnow()
                 
                 # Standard ingest now keeps raw uploads under the originals tree.

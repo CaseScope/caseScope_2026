@@ -495,6 +495,8 @@ class BaseParser(ABC):
     """
     
     VERSION = '1.0.0'
+    supports_manifest_protocol = False
+    manifest_ordering_contract = None
     
     def __init__(self, case_id: int, source_host: str = '', case_file_id: Optional[int] = None,
                  case_tz: str = 'UTC'):

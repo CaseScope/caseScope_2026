@@ -6,6 +6,8 @@ schema only; current ingest/read behavior remains unchanged.
 """
 from datetime import datetime
 
+from sqlalchemy import text
+
 from models.database import db
 
 
@@ -121,6 +123,24 @@ class EvidenceSourceGeneration(db.Model):
             name="ck_evidence_source_generation_visibility_state",
         ),
         db.Index("idx_evidence_source_generation_source_state", "case_id", "source_ref_type", "source_ref_id", "visibility_state"),
+        db.Index(
+            "uq_evidence_source_generation_open_building",
+            "case_id",
+            "source_ref_type",
+            "source_ref_id",
+            unique=True,
+            postgresql_where=text("visibility_state IN ('BUILDING_INITIAL', 'BUILDING_REPLACEMENT')"),
+            sqlite_where=text("visibility_state IN ('BUILDING_INITIAL', 'BUILDING_REPLACEMENT')"),
+        ),
+        db.Index(
+            "uq_evidence_source_generation_active",
+            "case_id",
+            "source_ref_type",
+            "source_ref_id",
+            unique=True,
+            postgresql_where=text("visibility_state = 'ACTIVE'"),
+            sqlite_where=text("visibility_state = 'ACTIVE'"),
+        ),
     )
 
 

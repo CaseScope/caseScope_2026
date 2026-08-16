@@ -65,11 +65,11 @@ sudo -u casescope /opt/casescope/venv/bin/pip install -r /opt/casescope/requirem
 sudo -u casescope /opt/casescope/venv/bin/pip install volatility3
 ```
 
-### Version 4.19.0 / Phase 1B Tranche A Foundation
+### Version 4.19.0 / Phase 1B Tranche A-B Inactive Foundation
 
-Version 4.19.0 installs the inactive Phase 1B Tranche A database-flow foundation. It adds PostgreSQL control-plane tables for source generations, ingest attempts, ingest batches, and per-source capability state; adds nullable/default-compatible ClickHouse `events` columns for future source-generation and batch metadata; and adds deterministic identity/hash utilities. It does not activate source generations, batch manifests, `events_current`, `event_observations_current`, readiness UI, AI gating, or any reader cutover.
+Version 4.19.0 installs the inactive Phase 1B Tranche A database-flow foundation and the Tranche B managed CASE_FILE BUILDING_INITIAL protocol engine. It adds PostgreSQL control-plane tables for source generations, ingest attempts, ingest batches, and per-source capability state; adds nullable/default-compatible ClickHouse `events` columns for future source-generation and batch metadata; adds deterministic identity/hash utilities; and adds the initial managed manifest engine, exact batch verifier, batch-scoped purge, and shadow ClickHouse control tables for visible generations and durable batches. It does not activate any normal production parser for manifest ingest, does not create `events_current` or `event_observations_current`, and does not cut over product readers, graph behavior, derivations, readiness UI, or AI gating.
 
-For installs already on 4.18.7, stop CaseScope services, pull the release, install requirements if needed, inspect the migration DDL, and run the two schema migrations before restarting:
+For installs already on 4.18.7, stop CaseScope services, pull the release, install requirements if needed, inspect the migration DDL, and run the schema migrations before restarting:
 
 ```bash
 cd /opt/casescope
@@ -83,12 +83,14 @@ sudo -u casescope /opt/casescope/venv/bin/pip install -r /opt/casescope/requirem
 
 sudo -u casescope bash -lc 'cd /opt/casescope && set -a && source /etc/casescope/casescope.env && set +a && /opt/casescope/venv/bin/python migrations/add_phase1b_control_plane_tables.py'
 sudo -u casescope bash -lc 'cd /opt/casescope && set -a && source /etc/casescope/casescope.env && set +a && /opt/casescope/venv/bin/python migrations/add_phase1b_event_protocol_columns.py'
+sudo -u casescope bash -lc 'cd /opt/casescope && set -a && source /etc/casescope/casescope.env && set +a && /opt/casescope/venv/bin/python migrations/add_phase1b_tranche_b_manifest_protocol.py'
 clickhouse-client -q "DESCRIBE TABLE events" | awk '$1 ~ /^(source_ref_type|source_ref_id|source_generation|ingest_batch_id|ingest_row_ordinal|ingest_row_hash|ingest_attempt_id)$/ { print $1, $2 }'
+clickhouse-client -q "SELECT name FROM system.tables WHERE database = currentDatabase() AND name IN ('visible_evidence_generations', 'durable_ingest_batches') ORDER BY name"
 ```
 
-The ClickHouse migration uses only `ALTER TABLE events ADD COLUMN IF NOT EXISTS ... Nullable(...) DEFAULT NULL`. It performs no historical protocol backfill, no `ALTER UPDATE`, no `OPTIMIZE FINAL`, no table swap, and no full events rewrite.
+The ClickHouse migrations use only additive `ALTER TABLE events ADD COLUMN IF NOT EXISTS ... Nullable(...) DEFAULT NULL` and `CREATE TABLE IF NOT EXISTS` statements for small control tables. They perform no historical protocol backfill, no `ALTER UPDATE`, no `OPTIMIZE FINAL`, no table swap, and no full events rewrite.
 
-Leave `PHASE1B_MANIFEST_PROTOCOL_ENABLED` unset or false. Current ingestion and readers remain on the Phase 1 behavior until later Phase 1B tranches explicitly activate the manifest protocol.
+Leave `PHASE1B_MANIFEST_PROTOCOL_ENABLED` unset or false. Current ingestion and readers remain on the Phase 1 behavior until later Phase 1B tranches explicitly activate eligible parser families.
 
 ### Version 4.18.7 / Reconciled Follow-up Release
 
