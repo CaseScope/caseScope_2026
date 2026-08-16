@@ -29,6 +29,8 @@ class IISLogParser(BaseParser):
     
     VERSION = '1.0.0'
     ARTIFACT_TYPE = 'iis'
+    supports_manifest_protocol = True
+    manifest_ordering_contract = 'iis:w3c-data-line-order:v1'
     
     # W3C field mappings
     FIELD_MAP = {
@@ -383,6 +385,8 @@ class FirewallLogParser(BaseParser):
     
     VERSION = '1.0.0'
     ARTIFACT_TYPE = 'firewall'
+    supports_manifest_protocol = True
+    manifest_ordering_contract = 'firewall:physical-log-line-order:v1'
     
     # Regex patterns for different formats
     SYSLOG_PATTERN = re.compile(
@@ -633,6 +637,8 @@ class HuntressParser(BaseParser):
     
     VERSION = '2.2.0'
     ARTIFACT_TYPE = 'huntress'
+    supports_manifest_protocol = True
+    manifest_ordering_contract = 'huntress:physical-ndjson-line-order:v1'
     
     def __init__(self, case_id: int, source_host: str = '', case_file_id: Optional[int] = None,
                  case_tz: str = 'UTC', **kwargs):
@@ -1381,6 +1387,8 @@ class GenericJSONParser(BaseParser):
     
     VERSION = '1.1.0'
     ARTIFACT_TYPE = 'json_log'
+    supports_manifest_protocol = True
+    manifest_ordering_contract = 'json-log:document-order:v1'
     # A JSON array must be materialised to be parsed, unlike NDJSON. This bounds
     # that case so one oversized file cannot exhaust the worker.
     MAX_JSON_DOCUMENT_BYTES = 512 * 1024 * 1024
@@ -1804,6 +1812,8 @@ class CSVLogParser(BaseParser):
     
     VERSION = '1.0.0'
     ARTIFACT_TYPE = 'csv_log'
+    supports_manifest_protocol = True
+    manifest_ordering_contract = 'csv-log:csv-row-order:v1'
     
     def __init__(self, case_id: int, source_host: str = '', case_file_id: Optional[int] = None,
                  case_tz: str = 'UTC', artifact_type_override: str = None, **kwargs):
@@ -2004,6 +2014,8 @@ class SonicWallCSVParser(BaseParser):
     
     VERSION = '1.1.0'
     ARTIFACT_TYPE = 'sonicwall'
+    supports_manifest_protocol = True
+    manifest_ordering_contract = 'sonicwall:csv-row-order:v1'
     FIREWALL_SUBTYPE = 'firewall'
     AUDIT_SUBTYPE = 'audit'
     THREAT_FLOW_SUBTYPE = 'flow'

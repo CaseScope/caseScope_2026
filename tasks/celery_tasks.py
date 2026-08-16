@@ -1160,6 +1160,22 @@ def _process_managed_initial_case_file(
         )
 
 
+def _mark_case_file_legacy_origin_if_unset(case_file_id: Optional[int]) -> None:
+    if not case_file_id:
+        return
+    from models.case_file import CaseFile, IngestProtocolOrigin
+    from models.database import db
+    from sqlalchemy import select
+
+    app = get_flask_app()
+    with app.app_context():
+        stmt = select(CaseFile).where(CaseFile.id == int(case_file_id)).with_for_update()
+        case_file = db.session.execute(stmt).scalar_one_or_none()
+        if case_file and case_file.ingest_protocol_origin == IngestProtocolOrigin.NOT_STARTED:
+            case_file.ingest_protocol_origin = IngestProtocolOrigin.LEGACY_OR_UNKNOWN
+            db.session.commit()
+
+
 @celery_app.task(bind=True, name='tasks.parse_file')
 def parse_file_task(self, file_path: str, case_id: int, source_host: str = '',
                    case_file_id: Optional[int] = None,
@@ -1182,6 +1198,7 @@ def parse_file_task(self, file_path: str, case_id: int, source_host: str = '',
     from utils.manifest_protocol import (
         INGEST_MODE_LEGACY,
         INGEST_MODE_MANAGED_INITIAL,
+        ManifestRoutingError,
         select_case_file_ingest_mode,
     )
     
@@ -1295,11 +1312,22 @@ def parse_file_task(self, file_path: str, case_id: int, source_host: str = '',
                 from models.database import db
 
                 case_file_record = db.session.get(CaseFile, int(case_file_id))
-        ingest_mode = select_case_file_ingest_mode(
-            parser=_resolved_parser,
-            case_file=case_file_record,
-            config=Config,
-        )
+                try:
+                    ingest_mode = select_case_file_ingest_mode(
+                        parser=_resolved_parser,
+                        case_file=case_file_record,
+                        config=Config,
+                        session=db.session,
+                    )
+                except ManifestRoutingError:
+                    ingest_mode = INGEST_MODE_MANAGED_INITIAL
+                    raise
+        else:
+            ingest_mode = select_case_file_ingest_mode(
+                parser=_resolved_parser,
+                case_file=case_file_record,
+                config=Config,
+            )
         emit_metric(
             "phase1b_ingest_mode_selected",
             case_id=case_id,
@@ -1313,6 +1341,7 @@ def parse_file_task(self, file_path: str, case_id: int, source_host: str = '',
             client = get_fresh_client()
 
         if ingest_mode == INGEST_MODE_LEGACY:
+            _mark_case_file_legacy_origin_if_unset(case_file_id)
             # acks_late redelivery safety: a hard-killed worker (OOM/SIGKILL)
             # never reaches exception cleanup, so purge prior legacy rows before
             # inserting. Managed retry cleanup is batch-scoped below.

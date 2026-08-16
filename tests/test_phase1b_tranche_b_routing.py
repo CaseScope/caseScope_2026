@@ -12,7 +12,7 @@ from celery.exceptions import SoftTimeLimitExceeded
 from flask import Flask
 
 from models.case import Case
-from models.case_file import CaseFile
+from models.case_file import CaseFile, IngestProtocolOrigin
 from models.client import Client
 from models.database import db
 from models.database_flow import EvidenceSourceGeneration, IngestAttempt, IngestBatch
@@ -21,6 +21,7 @@ from models.graph_saved_view import GraphSavedView  # noqa: F401
 from models.investigation_thread import InvestigationThread  # noqa: F401
 from parsers.base import BaseParser, ParseResult
 from tasks.celery_tasks import parse_file_task
+from utils.manifest_protocol import ManifestRoutingError
 
 
 class _RoutingParser(BaseParser):
@@ -101,7 +102,7 @@ class Phase1BTrancheBRoutingTestCase(unittest.TestCase):
         db.drop_all()
         self.ctx.pop()
 
-    def _run_task(self, *, parser, flag_enabled, managed_side_effect=None):
+    def _run_task(self, *, parser, flag_enabled, managed_side_effect=None, expected_exception=None):
         cleanup_calls = []
         managed_calls = []
         status_calls = []
@@ -147,8 +148,9 @@ class Phase1BTrancheBRoutingTestCase(unittest.TestCase):
              patch("utils.event_mitre_state.delete_hayabusa_matches_for_case_file", return_value=None), \
              patch.object(parse_file_task, "update_state", return_value=None), \
              patch("tasks.celery_tasks.Config.PHASE1B_MANIFEST_PROTOCOL_ENABLED", flag_enabled):
-            if managed_side_effect:
-                with self.assertRaises(managed_side_effect.__class__):
+            expected = expected_exception or (managed_side_effect.__class__ if managed_side_effect else None)
+            if expected:
+                with self.assertRaises(expected):
                     parse_file_task.run(
                         file_path=self.file_path,
                         case_id=self.case.id,
@@ -174,10 +176,26 @@ class Phase1BTrancheBRoutingTestCase(unittest.TestCase):
         self.assertEqual(cleanup_calls, [self.case_file.id])
         self.assertEqual(managed_calls, [])
         self.assertTrue(status_calls[-1]["trigger_completion"])
+        db.session.expire_all()
+        self.assertEqual(
+            db.session.get(CaseFile, self.case_file.id).ingest_protocol_origin,
+            IngestProtocolOrigin.LEGACY_OR_UNKNOWN,
+        )
 
     def test_global_on_parser_ineligible_uses_legacy(self):
         result, cleanup_calls, managed_calls, _status_calls = self._run_task(
             parser=_RoutingParser(self.case.id, eligible=False),
+            flag_enabled=True,
+        )
+        self.assertTrue(result["success"])
+        self.assertEqual(cleanup_calls, [self.case_file.id])
+        self.assertEqual(managed_calls, [])
+
+    def test_global_on_certified_previously_legacy_source_uses_legacy(self):
+        self.case_file.ingest_protocol_origin = IngestProtocolOrigin.LEGACY_OR_UNKNOWN
+        db.session.commit()
+        result, cleanup_calls, managed_calls, _status_calls = self._run_task(
+            parser=_RoutingParser(self.case.id, eligible=True),
             flag_enabled=True,
         )
         self.assertTrue(result["success"])
@@ -195,18 +213,20 @@ class Phase1BTrancheBRoutingTestCase(unittest.TestCase):
         self.assertFalse(status_calls[-1]["trigger_completion"])
 
     def test_managed_retry_with_prior_durable_batch_does_not_casefile_cleanup(self):
+        parser = _RoutingParser(self.case.id, eligible=True)
         generation = EvidenceSourceGeneration(
             case_id=self.case.id,
             source_ref_type=SourceRefType.CASE_FILE,
             source_ref_id=str(self.case_file.id),
             source_generation=1,
             visibility_state=EvidenceGenerationState.BUILDING_INITIAL,
-            parser_version="test:v1",
+            parser_version=parser.parser_version,
             normalization_version="test:norm:v1",
             batching_contract_version="ingest-batch:v1",
             configured_batch_size=2,
-            ordering_contract="test:fixture-order:v1",
+            ordering_contract=parser.manifest_ordering_contract,
         )
+        self.case_file.ingest_protocol_origin = IngestProtocolOrigin.MANIFEST_INITIAL
         db.session.add(generation)
         db.session.flush()
         durable_batch = IngestBatch(
@@ -222,8 +242,8 @@ class Phase1BTrancheBRoutingTestCase(unittest.TestCase):
         db.session.commit()
 
         result, cleanup_calls, managed_calls, _status_calls = self._run_task(
-            parser=_RoutingParser(self.case.id, eligible=True),
-            flag_enabled=True,
+            parser=parser,
+            flag_enabled=False,
         )
         self.assertTrue(result["success"])
         self.assertEqual(cleanup_calls, [])
@@ -232,6 +252,67 @@ class Phase1BTrancheBRoutingTestCase(unittest.TestCase):
             db.session.get(IngestBatch, durable_batch.id).state,
             IngestBatchState.DURABLE,
         )
+
+    def test_existing_building_generation_parser_capability_removed_fails_closed(self):
+        parser = _RoutingParser(self.case.id, eligible=True)
+        self._create_existing_generation(
+            parser_version=parser.parser_version,
+            ordering_contract=parser.manifest_ordering_contract,
+        )
+        _result, cleanup_calls, managed_calls, status_calls = self._run_task(
+            parser=_RoutingParser(self.case.id, eligible=False),
+            flag_enabled=False,
+            expected_exception=ManifestRoutingError,
+        )
+        self.assertEqual(cleanup_calls, [])
+        self.assertEqual(managed_calls, [])
+        self.assertFalse(status_calls[-1]["trigger_completion"])
+
+    def test_existing_building_generation_ordering_contract_mismatch_fails_closed(self):
+        parser = _RoutingParser(self.case.id, eligible=True)
+        self._create_existing_generation(
+            parser_version=parser.parser_version,
+            ordering_contract="test:old-order:v1",
+        )
+        _result, cleanup_calls, managed_calls, status_calls = self._run_task(
+            parser=parser,
+            flag_enabled=True,
+            expected_exception=ManifestRoutingError,
+        )
+        self.assertEqual(cleanup_calls, [])
+        self.assertEqual(managed_calls, [])
+        self.assertFalse(status_calls[-1]["trigger_completion"])
+
+    def test_existing_building_generation_parser_version_mismatch_fails_closed(self):
+        parser = _RoutingParser(self.case.id, eligible=True)
+        self._create_existing_generation(
+            parser_version="old-parser:v1",
+            ordering_contract=parser.manifest_ordering_contract,
+        )
+        _result, cleanup_calls, managed_calls, status_calls = self._run_task(
+            parser=parser,
+            flag_enabled=True,
+            expected_exception=ManifestRoutingError,
+        )
+        self.assertEqual(cleanup_calls, [])
+        self.assertEqual(managed_calls, [])
+        self.assertFalse(status_calls[-1]["trigger_completion"])
+
+    def _create_existing_generation(self, *, parser_version, ordering_contract):
+        self.case_file.ingest_protocol_origin = IngestProtocolOrigin.MANIFEST_INITIAL
+        db.session.add(EvidenceSourceGeneration(
+            case_id=self.case.id,
+            source_ref_type=SourceRefType.CASE_FILE,
+            source_ref_id=str(self.case_file.id),
+            source_generation=1,
+            visibility_state=EvidenceGenerationState.BUILDING_INITIAL,
+            parser_version=parser_version,
+            normalization_version="test:norm:v1",
+            batching_contract_version="ingest-batch:v1",
+            configured_batch_size=2,
+            ordering_contract=ordering_contract,
+        ))
+        db.session.commit()
 
     def test_managed_exception_does_not_casefile_cleanup(self):
         _result, cleanup_calls, managed_calls, status_calls = self._run_task(

@@ -13,7 +13,7 @@ from typing import Any, Dict, Iterable, List, Mapping, Optional, Sequence, Tuple
 
 from sqlalchemy import func
 
-from models.case_file import CaseFile
+from models.case_file import CaseFile, IngestProtocolOrigin
 from models.database import db
 from models.database_flow import (
     EvidenceGenerationState,
@@ -103,6 +103,10 @@ class ManifestMismatchError(ManifestProtocolError):
     """Raised when an existing STAGED manifest conflicts with expected input."""
 
 
+class ManifestRoutingError(ManifestProtocolError):
+    """Raised when an existing managed source cannot safely route."""
+
+
 @dataclass(frozen=True)
 class ManifestParserContract:
     parser_version: str
@@ -163,11 +167,70 @@ def parser_manifest_eligible(parser: Any, config: Any = None) -> bool:
     )
 
 
-def select_case_file_ingest_mode(*, parser: Any, case_file: Any, config: Any) -> str:
+def _parser_manifest_capable(parser: Any) -> bool:
+    return bool(
+        getattr(parser, "supports_manifest_protocol", False)
+        and getattr(parser, "manifest_ordering_contract", None)
+    )
+
+
+def _case_file_case_id(case_file: Any) -> Optional[int]:
+    if hasattr(case_file, "case_id"):
+        value = getattr(case_file, "case_id", None)
+        return int(value) if value is not None else None
+    case_uuid = getattr(case_file, "case_uuid", None)
+    if case_uuid:
+        from models.case import Case
+
+        case = Case.query.filter_by(uuid=case_uuid).first()
+        return int(case.id) if case else None
+    return None
+
+
+def _existing_generations_for_case_file(session: Any, *, case_id: int, case_file_id: int) -> List[EvidenceSourceGeneration]:
+    return (
+        session.query(EvidenceSourceGeneration)
+        .filter(
+            EvidenceSourceGeneration.case_id == int(case_id),
+            EvidenceSourceGeneration.source_ref_type == SourceRefType.CASE_FILE,
+            EvidenceSourceGeneration.source_ref_id == str(case_file_id),
+        )
+        .order_by(EvidenceSourceGeneration.source_generation.asc())
+        .all()
+    )
+
+
+def select_case_file_ingest_mode(*, parser: Any, case_file: Any, config: Any, session: Any = None) -> str:
     if not case_file or not getattr(case_file, "id", None):
         return INGEST_MODE_LEGACY
+    if session is not None:
+        case_id = _case_file_case_id(case_file)
+        if case_id is None:
+            return INGEST_MODE_LEGACY
+        generations = _existing_generations_for_case_file(
+            session,
+            case_id=case_id,
+            case_file_id=int(case_file.id),
+        )
+        if generations:
+            building_initial = [
+                generation
+                for generation in generations
+                if generation.visibility_state == EvidenceGenerationState.BUILDING_INITIAL
+            ]
+            if len(building_initial) != 1 or len(generations) != 1:
+                raise ManifestRoutingError("Existing managed generation state is unsupported in Tranche C1")
+            generation = building_initial[0]
+            if not _parser_manifest_capable(parser):
+                raise ManifestRoutingError("Existing managed generation requires a manifest-capable parser")
+            if getattr(parser, "manifest_ordering_contract", None) != generation.ordering_contract:
+                raise ManifestRoutingError("Existing managed generation ordering contract mismatch")
+            if getattr(parser, "parser_version", None) != generation.parser_version:
+                raise ManifestRoutingError("Existing managed generation parser version mismatch")
+            return INGEST_MODE_MANAGED_INITIAL
     if parser_manifest_eligible(parser, config):
-        return INGEST_MODE_MANAGED_INITIAL
+        if getattr(case_file, "ingest_protocol_origin", None) == "not_started":
+            return INGEST_MODE_MANAGED_INITIAL
     return INGEST_MODE_LEGACY
 
 
@@ -265,10 +328,15 @@ def allocate_case_file_initial_generation(
         generation = building[0]
         if generation.source_generation != 1:
             raise GenerationAllocationError("Tranche B only supports first generation BUILDING_INITIAL")
+        if getattr(case_file, "ingest_protocol_origin", None) != IngestProtocolOrigin.MANIFEST_INITIAL:
+            case_file.ingest_protocol_origin = IngestProtocolOrigin.MANIFEST_INITIAL
         _assert_frozen_contract_matches(generation, contract)
     elif generations:
         raise GenerationAllocationError("existing non-building generation cannot enter Tranche B initial path")
     else:
+        if getattr(case_file, "ingest_protocol_origin", None) != IngestProtocolOrigin.NOT_STARTED:
+            raise GenerationAllocationError("CaseFile is not eligible for first managed adoption")
+        case_file.ingest_protocol_origin = IngestProtocolOrigin.MANIFEST_INITIAL
         generation = EvidenceSourceGeneration(
             case_id=int(case_id),
             source_ref_type=SourceRefType.CASE_FILE,

@@ -79,6 +79,18 @@ class IngestionStatus:
         ]
 
 
+class IngestProtocolOrigin:
+    """Durable source-adoption state for generation-aware ingest."""
+
+    NOT_STARTED = 'not_started'
+    LEGACY_OR_UNKNOWN = 'legacy_or_unknown'
+    MANIFEST_INITIAL = 'manifest_initial'
+
+    @classmethod
+    def all(cls):
+        return [cls.NOT_STARTED, cls.LEGACY_OR_UNKNOWN, cls.MANIFEST_INITIAL]
+
+
 class CaseFile(db.Model):
     """Model for tracking files associated with a case
     
@@ -149,6 +161,10 @@ class CaseFile(db.Model):
     
     # Parser type used (e.g., EVTX, HuntressNDJSON, Registry, etc.)
     parser_type = db.Column(db.String(50), nullable=True)
+
+    # Existing CaseFiles are legacy/unknown until an explicit first managed
+    # adoption marks a never-ingested source as manifest_initial.
+    ingest_protocol_origin = db.Column(db.String(32), nullable=False, default=IngestProtocolOrigin.NOT_STARTED)
     
     # Event counts from parsing
     events_indexed = db.Column(db.Integer, nullable=False, default=0)
@@ -203,6 +219,7 @@ class CaseFile(db.Model):
             'ingestion_status': self.ingestion_status,
             'retention_state': self.retention_state,
             'parser_type': self.parser_type,
+            'ingest_protocol_origin': self.ingest_protocol_origin,
             'events_indexed': self.events_indexed,
             'error_message': self.error_message,
             'review_status': review_status,
