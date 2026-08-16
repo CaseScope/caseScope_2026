@@ -725,6 +725,12 @@ def create_app(run_startup_bootstrap: bool = True, register_blueprints: bool = T
             from models.license import LicenseActivation, ActivationAuditLog
             from models.graph import GraphEntity, GraphEntityObservation, GraphRelationship, GraphRelationshipEvidence
             from models.graph_saved_view import GraphSavedView
+            from models.database_flow import (
+                CaseCapabilitySourceState,
+                EvidenceSourceGeneration,
+                IngestAttempt,
+                IngestBatch,
+            )
             from models.investigation_thread import (
                 InvestigationThread,
                 InvestigationThreadEntity,

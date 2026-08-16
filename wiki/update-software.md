@@ -65,6 +65,31 @@ sudo -u casescope /opt/casescope/venv/bin/pip install -r /opt/casescope/requirem
 sudo -u casescope /opt/casescope/venv/bin/pip install volatility3
 ```
 
+### Version 4.19.0 / Phase 1B Tranche A Foundation
+
+Version 4.19.0 installs the inactive Phase 1B Tranche A database-flow foundation. It adds PostgreSQL control-plane tables for source generations, ingest attempts, ingest batches, and per-source capability state; adds nullable/default-compatible ClickHouse `events` columns for future source-generation and batch metadata; and adds deterministic identity/hash utilities. It does not activate source generations, batch manifests, `events_current`, `event_observations_current`, readiness UI, AI gating, or any reader cutover.
+
+For installs already on 4.18.7, stop CaseScope services, pull the release, install requirements if needed, inspect the migration DDL, and run the two schema migrations before restarting:
+
+```bash
+cd /opt/casescope
+sudo systemctl stop casescope-web
+sudo systemctl stop casescope-workers
+sudo systemctl stop casescope-beat
+
+sudo -u casescope git fetch --all --prune
+sudo -u casescope git pull --ff-only
+sudo -u casescope /opt/casescope/venv/bin/pip install -r /opt/casescope/requirements.txt
+
+sudo -u casescope bash -lc 'cd /opt/casescope && set -a && source /etc/casescope/casescope.env && set +a && /opt/casescope/venv/bin/python migrations/add_phase1b_control_plane_tables.py'
+sudo -u casescope bash -lc 'cd /opt/casescope && set -a && source /etc/casescope/casescope.env && set +a && /opt/casescope/venv/bin/python migrations/add_phase1b_event_protocol_columns.py'
+clickhouse-client -q "DESCRIBE TABLE events" | awk '$1 ~ /^(source_ref_type|source_ref_id|source_generation|ingest_batch_id|ingest_row_ordinal|ingest_row_hash|ingest_attempt_id)$/ { print $1, $2 }'
+```
+
+The ClickHouse migration uses only `ALTER TABLE events ADD COLUMN IF NOT EXISTS ... Nullable(...) DEFAULT NULL`. It performs no historical protocol backfill, no `ALTER UPDATE`, no `OPTIMIZE FINAL`, no table swap, and no full events rewrite.
+
+Leave `PHASE1B_MANIFEST_PROTOCOL_ENABLED` unset or false. Current ingestion and readers remain on the Phase 1 behavior until later Phase 1B tranches explicitly activate the manifest protocol.
+
 ### Version 4.18.7 / Reconciled Follow-up Release
 
 Version 4.18.7 contains post-4.18.6 admin ingest-fence follow-ups, graph bulk timing aggregation, disposable PostgreSQL GraphBulkWriter replay/idempotence regressions, the restored database-flow baseline utility, and parser/delete test isolation improvements.

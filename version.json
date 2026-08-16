@@ -1,6 +1,17 @@
 {
-  "version": "4.18.7",
+  "version": "4.19.0",
   "changelog": [
+    {
+      "version": "4.19.0",
+      "date": "2026-08-15",
+      "changes": [
+        "Installed the inactive Phase 1B Tranche A database-flow control-plane foundation",
+        "Added PostgreSQL source-generation, ingest-attempt, ingest-batch, and per-source capability-state schema foundations",
+        "Added nullable/default-compatible ClickHouse events protocol columns for future source generation and deterministic batch metadata",
+        "Added deterministic ingest batch ID, zero-based ordinal, ingest row hash, batch content hash, and source-locator utilities with contract tests",
+        "Kept current CaseFile ingest, readers, graph behavior, AI/privacy behavior, and historical event visibility unchanged"
+      ]
+    },
     {
       "version": "4.18.7",
       "date": "2026-08-15",

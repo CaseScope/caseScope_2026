@@ -73,6 +73,9 @@ class Config:
     ARCHIVE_MAX_MEMBERS = int(os.environ.get('ARCHIVE_MAX_MEMBERS', 250000))
     ARCHIVE_MAX_UNCOMPRESSED_GB = int(os.environ.get('ARCHIVE_MAX_UNCOMPRESSED_GB', 256))
     ARCHIVE_MAX_UNCOMPRESSED_BYTES = ARCHIVE_MAX_UNCOMPRESSED_GB * 1024 * 1024 * 1024
+    PHASE1B_MANIFEST_PROTOCOL_ENABLED = os.environ.get(
+        'PHASE1B_MANIFEST_PROTOCOL_ENABLED', ''
+    ).strip().lower() in {'1', 'true', 'yes', 'on'}
     
     # RAG System Configuration
     QDRANT_HOST = os.environ.get('QDRANT_HOST', 'localhost')
