@@ -378,8 +378,10 @@ class ActivitiesCacheParser(BaseParser):
     - Cross-device sync data
     """
     
-    VERSION = '1.1.0'
+    VERSION = '1.2.0'
     ARTIFACT_TYPE = 'activities_cache'
+    supports_manifest_protocol = True
+    manifest_ordering_contract = 'activities-cache:activity-id-then-operation-order:v1'
     
     def __init__(self, case_id: int, source_host: str = '', case_file_id: Optional[int] = None,
                  case_tz: str = 'UTC', **kwargs):
@@ -388,6 +390,13 @@ class ActivitiesCacheParser(BaseParser):
     @property
     def artifact_type(self) -> str:
         return self.ARTIFACT_TYPE
+
+    def manifest_producer_version(self) -> str:
+        return (
+            f'{self.parser_version};'
+            'sqlite_companions=absent;'
+            f'query_contract={self.manifest_ordering_contract}'
+        )
     
     def can_parse(self, file_path: str) -> bool:
         """Check if file is an ActivitiesCache database"""
@@ -417,6 +426,27 @@ class ActivitiesCacheParser(BaseParser):
         except (TypeError, ValueError):
             return {}
         return parsed if isinstance(parsed, dict) else {}
+
+    @staticmethod
+    def _sqlite_companion_paths(file_path: str) -> Dict[str, str]:
+        return {
+            '-wal': file_path + '-wal',
+            '-shm': file_path + '-shm',
+            '-journal': file_path + '-journal',
+        }
+
+    def _assert_managed_standalone_sqlite_source(self, file_path: str) -> None:
+        """C3D1 certifies primary-DB bytes only, not mutable SQLite sidecars."""
+        present = [
+            suffix
+            for suffix, sidecar_path in self._sqlite_companion_paths(file_path).items()
+            if os.path.exists(sidecar_path)
+        ]
+        if present:
+            raise RuntimeError(
+                'ActivitiesCache managed manifest certification requires standalone '
+                f'SQLite source without companions; present={",".join(sorted(present))}'
+            )
     
     def _filetime_to_datetime(self, filetime: int) -> Optional[datetime]:
         """Convert an ActivitiesCache timestamp to datetime.
@@ -484,6 +514,9 @@ class ActivitiesCacheParser(BaseParser):
         
         source_file = os.path.basename(file_path)
         hostname = self.extract_hostname(file_path)
+        managed_manifest_mode = bool(getattr(self, 'managed_manifest_mode', False))
+        if managed_manifest_mode:
+            self._assert_managed_standalone_sqlite_source(file_path)
         
         # Copy to temp (SQLite needs write access for WAL)
         temp_dir = tempfile.mkdtemp()
@@ -492,11 +525,13 @@ class ActivitiesCacheParser(BaseParser):
         try:
             shutil.copy2(file_path, temp_path)
             
-            # Copy WAL and SHM if they exist
-            for ext in ['-wal', '-shm', '-journal']:
-                wal_path = file_path + ext
-                if os.path.exists(wal_path):
-                    shutil.copy2(wal_path, temp_path + ext)
+            # Legacy parsing preserves prior best-effort sidecar behavior. Managed
+            # C3D1 parsing has already failed closed if any companion is present.
+            if not managed_manifest_mode:
+                for ext in ['-wal', '-shm', '-journal']:
+                    wal_path = file_path + ext
+                    if os.path.exists(wal_path):
+                        shutil.copy2(wal_path, temp_path + ext)
             
             conn = sqlite3.connect(
                 f'file:{temp_path}?mode=ro&immutable=1',
@@ -523,11 +558,19 @@ class ActivitiesCacheParser(BaseParser):
                         ExpirationTime, Payload, OriginalPayload,
                         ClipboardPayload, PlatformDeviceId
                     FROM Activity
-                    ORDER BY StartTime DESC
+                    ORDER BY Id ASC
                 """
                 cursor.execute(query)
+                seen_activity_ids = set()
                 
                 for row in cursor:
+                    activity_id = self.safe_str(row['Id'])
+                    if managed_manifest_mode:
+                        if not activity_id:
+                            raise RuntimeError('ActivitiesCache Activity row missing native Id')
+                        if activity_id in seen_activity_ids:
+                            raise RuntimeError(f'Duplicate ActivitiesCache Activity Id: {activity_id}')
+                        seen_activity_ids.add(activity_id)
                     # Parse timestamps
                     start_time = self._filetime_to_datetime(row['StartTime'])
                     end_time = self._filetime_to_datetime(row['EndTime'])
@@ -566,7 +609,7 @@ class ActivitiesCacheParser(BaseParser):
                         )
                     
                     raw_data = {
-                        'id': row['Id'],
+                        'id': activity_id or row['Id'],
                         'app_id': app_id,
                         'app_activity_id': row['AppActivityId'],
                         'activity_type': activity_type,
@@ -606,18 +649,25 @@ class ActivitiesCacheParser(BaseParser):
                         case_file_id=self.case_file_id,
                         process_name=self.safe_str(app_display_name or app_id),
                         target_path=self.safe_str(content_uri),
-                        raw_json=json.dumps(raw_data, default=str),
+                        raw_json=json.dumps(raw_data, default=str, sort_keys=True),
                         search_blob=' '.join(str(p) for p in search_parts if p),
                         extra_fields=json.dumps({
                             'activity_type': activity_type,
                             'duration_seconds': duration_seconds,
                             'is_local_only': bool(row['IsLocalOnly']),
                             'has_clipboard_content': bool(clipboard_text),
-                        }, default=str),
+                            'source_table': 'Activity',
+                            'activity_id': activity_id,
+                        }, default=str, sort_keys=True),
                         parser_version=self.parser_version,
+                        source_record_identifier_authoritative=bool(activity_id),
+                        source_record_identifier_type='activities_cache_activity_id' if activity_id else '',
+                        source_record_identifier_value=f'Activity:{activity_id}' if activity_id else '',
                     )
                     
             except sqlite3.OperationalError as e:
+                if managed_manifest_mode:
+                    raise
                 self.warnings.append(f"Error querying Activity table: {e}")
             
             # Query ActivityOperation table (clipboard, etc.)
@@ -628,11 +678,22 @@ class ActivitiesCacheParser(BaseParser):
                         CreatedTime, EndTime, LastModifiedTime,
                         OperationType, Payload, ClipboardPayload
                     FROM ActivityOperation
-                    ORDER BY CreatedTime DESC
+                    ORDER BY OperationOrder ASC
                 """
                 cursor.execute(query)
+                seen_operation_orders = set()
                 
                 for row in cursor:
+                    operation_order = row['OperationOrder']
+                    operation_id = self.safe_str(operation_order)
+                    if managed_manifest_mode:
+                        if not operation_id:
+                            raise RuntimeError('ActivitiesCache ActivityOperation row missing OperationOrder')
+                        if operation_id in seen_operation_orders:
+                            raise RuntimeError(
+                                f'Duplicate ActivitiesCache ActivityOperation OperationOrder: {operation_id}'
+                            )
+                        seen_operation_orders.add(operation_id)
                     created_time = self._filetime_to_datetime(row['CreatedTime'])
                     timestamp = self.first_timestamp(
                         created_time,
@@ -647,7 +708,7 @@ class ActivitiesCacheParser(BaseParser):
                     activity_type = activity_types.get(row['ActivityType'], str(row['ActivityType']))
                     
                     raw_data = {
-                        'operation_order': row['OperationOrder'],
+                        'operation_order': operation_order,
                         'app_id': app_id,
                         'activity_type': activity_type,
                         'activity_type_id': row['ActivityType'],
@@ -666,12 +727,21 @@ class ActivitiesCacheParser(BaseParser):
                         source_host=hostname,
                         case_file_id=self.case_file_id,
                         process_name=self.safe_str(app_id),
-                        raw_json=json.dumps(raw_data, default=str),
+                        raw_json=json.dumps(raw_data, default=str, sort_keys=True),
                         search_blob=f"{app_id} {activity_type}",
+                        extra_fields=json.dumps({
+                            'source_table': 'ActivityOperation',
+                            'operation_order': operation_id,
+                        }, default=str, sort_keys=True),
                         parser_version=self.parser_version,
+                        source_record_identifier_authoritative=bool(operation_id),
+                        source_record_identifier_type='activities_cache_operation_order' if operation_id else '',
+                        source_record_identifier_value=f'ActivityOperation:{operation_id}' if operation_id else '',
                     )
                     
             except sqlite3.OperationalError as e:
+                if managed_manifest_mode:
+                    raise
                 self.warnings.append(f"Error querying ActivityOperation table: {e}")
             
             conn.close()
