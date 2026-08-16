@@ -22,11 +22,9 @@ import logging
 import re
 import time
 from concurrent.futures import ThreadPoolExecutor
-from datetime import datetime
 from typing import Generator, Dict, List, Any, Optional, Sequence, Tuple
-from pathlib import Path
 
-from parsers.base import BaseParser, ParsedEvent, ParseResult
+from parsers.base import BaseParser, ParsedEvent
 from utils.ingest_metrics import emit_metric, timed_stage
 from utils.evtx_directory_mode import lookup_hayabusa_detections
 
@@ -138,8 +136,10 @@ class EvtxECmdParser(BaseParser):
     Results are merged by RecordID after both complete.
     """
     
-    VERSION = '2.2.2'  # Promote UserData.EventXML fields into normalized columns
+    VERSION = '2.2.3'  # Deterministic detection tie-breaking and EVTX JSON/search serialization
     ARTIFACT_TYPE = 'evtx'
+    supports_manifest_protocol = True
+    manifest_ordering_contract = 'evtx:evtxecmd-source-file-json-order:v1'
     
     # Tool paths - wrapper scripts handle .NET
     EVTXECMD_BIN = '/opt/casescope/bin/evtxecmd'
@@ -209,6 +209,7 @@ class EvtxECmdParser(BaseParser):
         self.rules_config_dir = self.HAYABUSA_RULES_CONFIG
         self.hayabusa_profile = hayabusa_profile or self.HAYABUSA_PROFILE
         self.enrich_detections = enrich_detections
+        self.managed_manifest_mode = False
         
         # Verify EvtxECmd exists
         if not os.path.isfile(self.evtxecmd_bin):
@@ -253,6 +254,56 @@ class EvtxECmdParser(BaseParser):
         if normalized and normalized not in values:
             values.append(normalized)
 
+    @classmethod
+    def _detection_sort_key(cls, entry: Dict[str, Any]) -> Tuple[int, str, str, str]:
+        return (
+            -cls._severity_rank(entry.get('rule_level')),
+            str(entry.get('rule_file') or ''),
+            str(entry.get('rule_title') or ''),
+            json.dumps(
+                {
+                    'mitre_tactics': entry.get('mitre_tactics') or [],
+                    'mitre_tags': entry.get('mitre_tags') or [],
+                },
+                sort_keys=True,
+                separators=(',', ':'),
+                ensure_ascii=True,
+            ),
+        )
+
+    def _canonical_detection_entries(self, entries: Sequence[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        canonical = []
+        for entry in entries or []:
+            item = dict(entry)
+            item['mitre_tactics'] = sorted(
+                {str(value).strip() for value in item.get('mitre_tactics') or [] if str(value).strip()}
+            )
+            item['mitre_tags'] = sorted(
+                {
+                    self._normalize_mitre_technique(value)
+                    for value in item.get('mitre_tags') or []
+                    if self._normalize_mitre_technique(value)
+                }
+            )
+            canonical.append(item)
+        canonical.sort(key=self._detection_sort_key)
+        return canonical
+
+    def manifest_producer_version(self) -> str:
+        from utils.evtx_producer_signature import compact_evtx_producer_signature
+
+        return compact_evtx_producer_signature(
+            evtxecmd_bin=self.evtxecmd_bin,
+            maps_dir=self.maps_dir,
+            hayabusa_bin=self.hayabusa_bin,
+            rules_dir=self.rules_dir,
+            rules_config_dir=self.rules_config_dir,
+            hayabusa_profile=self.hayabusa_profile,
+            min_level='informational',
+            enrich_detections=self.enrich_detections,
+            wrapper_version=self.parser_version,
+        )
+
     def _ensure_phase0a_metric_counters(self) -> None:
         """Initialize Phase 0A counters for tests that bypass __init__."""
         if not hasattr(self, '_evtx_payload_decode_ms'):
@@ -292,6 +343,8 @@ class EvtxECmdParser(BaseParser):
         if not self.can_parse(file_path):
             self.errors.append(f"Cannot parse file: {file_path}")
             return
+        if self.managed_manifest_mode and self.enrich_detections and not self._hayabusa_available:
+            raise RuntimeError("Managed EVTX enrichment is configured but Hayabusa is unavailable")
         
         source_file = os.path.basename(file_path)
         
@@ -324,12 +377,14 @@ class EvtxECmdParser(BaseParser):
                 logger.exception(f"EvtxECmd error: {e}")
                 return
             
-            # Wait for Hayabusa (produces detections) - non-fatal if fails
+            # Wait for Hayabusa (produces detections) - non-fatal for legacy, fatal for managed
             try:
                 detections = hayabusa_future.result(timeout=3600)
                 if detections:
                     logger.info(f"Hayabusa found {len(detections)} detections for enrichment")
             except Exception as e:
+                if self.managed_manifest_mode and self.enrich_detections:
+                    raise RuntimeError(f"Managed EVTX Hayabusa enrichment failed: {e}") from e
                 self.warnings.append(f"Hayabusa enrichment failed: {e}")
                 logger.warning(f"Hayabusa failed, continuing without detections: {e}")
                 detections = {}
@@ -452,7 +507,7 @@ class EvtxECmdParser(BaseParser):
             if os.path.isdir(self.rules_dir):
                 cmd.extend(['-r', self.rules_dir])
             
-            logger.info(f"Running Hayabusa for detection enrichment...")
+            logger.info("Running Hayabusa for detection enrichment...")
             
             with timed_stage("hayabusa_process", case_id=self.case_id, case_file_id=self.case_file_id):
                 result = subprocess.run(
@@ -511,13 +566,19 @@ class EvtxECmdParser(BaseParser):
                     detection_count=sum(len(items) for items in detections.values()),
                 )
             elif result.returncode != 0 and result.stderr:
+                if self.managed_manifest_mode and self.enrich_detections:
+                    raise RuntimeError(f"Hayabusa error: {result.stderr[:500]}")
                 self.warnings.append(f"Hayabusa error: {result.stderr[:500]}")
             else:
                 logger.debug("No Hayabusa detections for this file")
                             
         except subprocess.TimeoutExpired:
+            if self.managed_manifest_mode and self.enrich_detections:
+                raise RuntimeError("Hayabusa timed out after 1 hour")
             self.warnings.append("Hayabusa timed out after 1 hour")
         except Exception as e:
+            if self.managed_manifest_mode and self.enrich_detections:
+                raise
             self.warnings.append(f"Hayabusa error: {e}")
             logger.warning(f"Hayabusa error: {e}")
         finally:
@@ -889,11 +950,8 @@ class EvtxECmdParser(BaseParser):
                 source_token=source_token,
                 allow_record_id_only=not any(isinstance(key, tuple) for key in detections),
             )
-            primary_detection = max(
-                detection_entries,
-                key=lambda entry: self._severity_rank(entry.get('rule_level')),
-                default={},
-            )
+            detection_entries = self._canonical_detection_entries(detection_entries)
+            primary_detection = detection_entries[0] if detection_entries else {}
             
             # Parse the Payload JSON to extract EventData fields
             event_data = {}
@@ -1158,14 +1216,14 @@ class EvtxECmdParser(BaseParser):
             # Enables searches like "KeyLength:0" or "LogonType:3"
             if event_data:
                 kv_parts = []
-                for key, value in event_data.items():
+                for key, value in sorted(event_data.items()):
                     if value is not None and str(value).strip():
                         kv_parts.append(f"{key}:{value}")
                 if kv_parts:
                     search_blob += ' ' + ' '.join(kv_parts)
             if user_data:
                 kv_parts = []
-                for key, value in user_data.items():
+                for key, value in sorted(user_data.items()):
                     if value is not None and str(value).strip():
                         kv_parts.append(f"{key}:{value}")
                 if kv_parts:
@@ -1178,7 +1236,7 @@ class EvtxECmdParser(BaseParser):
             
             # Build raw JSON (include key fields, exclude large Payload)
             raw_data = {
-                k: v for k, v in event.items() 
+                k: v for k, v in sorted(event.items())
                 if k not in ('Payload',) and v is not None and v != ''
             }
             # Add parsed EventData
@@ -1268,9 +1326,9 @@ class EvtxECmdParser(BaseParser):
                 mitre_attack_tactics=mitre_tactics,
                 mitre_attack_sources=['hayabusa'] if detection_entries else [],
                 mitre_mapping_max_confidence=hayabusa_confidence,
-                raw_json=json.dumps(raw_data, default=str),
+                raw_json=json.dumps(raw_data, default=str, sort_keys=True),
                 search_blob=search_blob,
-                extra_fields=json.dumps(extra_fields, default=str),
+                extra_fields=json.dumps(extra_fields, default=str, sort_keys=True),
                 parser_version=self.parser_version,
                 native_record_id_authoritative=True,
             )
@@ -1324,8 +1382,10 @@ class EvtxFallbackParser(BaseParser):
     Provides raw parsing without Maps field normalization or detection enrichment.
     """
     
-    VERSION = '1.0.1'
+    VERSION = '1.0.2'
     ARTIFACT_TYPE = 'evtx'
+    supports_manifest_protocol = False
+    manifest_ordering_contract = None
     
     def __init__(self, case_id: int, source_host: str = '', case_file_id: Optional[int] = None,
                  case_tz: str = 'UTC', **kwargs):
@@ -1411,14 +1471,14 @@ class EvtxFallbackParser(BaseParser):
                     # Add EventData key:value pairs for field-based searching
                     if event_data:
                         kv_parts = []
-                        for key, value in event_data.items():
+                        for key, value in sorted(event_data.items()):
                             if value is not None and str(value).strip():
                                 kv_parts.append(f"{key}:{value}")
                         if kv_parts:
                             search_blob += ' ' + ' '.join(kv_parts)
                     if user_data:
                         kv_parts = []
-                        for key, value in user_data.items():
+                        for key, value in sorted(user_data.items()):
                             if value is not None and str(value).strip():
                                 kv_parts.append(f"{key}:{value}")
                         if kv_parts:
@@ -1431,7 +1491,7 @@ class EvtxFallbackParser(BaseParser):
                         search_blob += f' {searchable_src_ip}'
 
                     raw_data = {
-                        k: v for k, v in event.items()
+                        k: v for k, v in sorted(event.items())
                         if k not in ('EventData', 'UserData') and v is not None and v != ''
                     }
                     if event_data:
@@ -1489,9 +1549,9 @@ class EvtxFallbackParser(BaseParser):
                         process_id=self.safe_int(event_data.get('NewProcessId')),
                         command_line=self.safe_str(event_data.get('CommandLine')),
                         src_ip=src_ip,
-                        raw_json=json.dumps(raw_data, default=str),
+                        raw_json=json.dumps(raw_data, default=str, sort_keys=True),
                         search_blob=search_blob,
-                        extra_fields=json.dumps(extra_fields, default=str),
+                        extra_fields=json.dumps(extra_fields, default=str, sort_keys=True),
                         parser_version=self.parser_version,
                         native_record_id_authoritative=True,
                     )

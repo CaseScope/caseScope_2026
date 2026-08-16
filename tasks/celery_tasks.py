@@ -501,7 +501,6 @@ def _ingest_standard_rebuild_entries(
 ) -> Dict[str, Any]:
     """Ingest retained originals through the normal staging/parse lifecycle."""
     from models.database import db
-    from models.case import Case
     from models.case_file import CaseFile, ExtractionStatus
     from utils.artifact_paths import copy_to_directory, ensure_case_artifact_paths
 
@@ -1055,16 +1054,23 @@ def _process_managed_initial_case_file(
         verify_ingest_batch,
     )
 
+    def _producer_version_for_managed_parser():
+        producer_method = getattr(parser, 'manifest_producer_version', None)
+        if callable(producer_method):
+            return producer_method()
+        return getattr(Config, 'PHASE1B_PRODUCER_VERSION', 'casescope:4.19.0')
+
     app = get_flask_app()
     with app.app_context():
         case_file = db.session.get(CaseFile, int(case_file_id))
         if case_file is None:
             raise RuntimeError(f"CaseFile {case_file_id} not found for managed ingest")
+        producer_version = _producer_version_for_managed_parser()
         contract = contract_from_parser(
             parser,
             configured_batch_size=getattr(Config, 'PHASE1B_MANIFEST_BATCH_SIZE', 10000),
             normalization_version=getattr(Config, 'PHASE1B_NORMALIZATION_VERSION', 'normalization:v1'),
-            producer_version=getattr(Config, 'PHASE1B_PRODUCER_VERSION', 'casescope:4.19.0'),
+            producer_version=producer_version,
             config=Config,
         )
         generation = allocate_case_file_initial_generation(
@@ -1081,15 +1087,31 @@ def _process_managed_initial_case_file(
         db.session.commit()
 
         events = []
+        previous_managed_mode = getattr(parser, 'managed_manifest_mode', False)
+        setattr(parser, 'managed_manifest_mode', True)
         with timed_stage(
             "phase1b_managed_parser_stream",
             case_id=case_id,
             case_file_id=case_file_id,
             source_generation=generation.source_generation,
         ) as stream_metric:
-            for event in parser.parse(file_path):
-                events.append(event)
+            try:
+                for event in parser.parse(file_path):
+                    events.append(event)
+            finally:
+                setattr(parser, 'managed_manifest_mode', previous_managed_mode)
             stream_metric["events_parsed"] = len(events)
+
+        producer_version_after = _producer_version_for_managed_parser()
+        if producer_version_after != producer_version:
+            finish_ingest_attempt(
+                db.session,
+                attempt,
+                status='FAILED',
+                error='Managed producer signature changed during parse',
+            )
+            db.session.commit()
+            raise RuntimeError("Managed producer signature changed during parse")
 
         batches = construct_managed_batches(
             generation=generation,
@@ -1174,6 +1196,250 @@ def _mark_case_file_legacy_origin_if_unset(case_file_id: Optional[int]) -> None:
         if case_file and case_file.ingest_protocol_origin == IngestProtocolOrigin.NOT_STARTED:
             case_file.ingest_protocol_origin = IngestProtocolOrigin.LEGACY_OR_UNKNOWN
             db.session.commit()
+
+
+def _managed_producer_version_for_parser(parser) -> str:
+    producer_method = getattr(parser, 'manifest_producer_version', None)
+    if callable(producer_method):
+        return producer_method()
+    return getattr(Config, 'PHASE1B_PRODUCER_VERSION', 'casescope:4.19.0')
+
+
+def _process_managed_evtx_directory_group(
+    *,
+    parser,
+    members: List[Dict[str, Any]],
+    case_id: int,
+    clickhouse_client,
+    case_tz: str,
+    task_id: Optional[str],
+) -> List[Any]:
+    """Run one EVTX directory tool invocation with independent per-CaseFile manifests."""
+    from models.case_file import CaseFile
+    from models.database import db
+    from models.database_flow import IngestBatch
+    from parsers.base import ParseResult
+    from utils.evtx_directory_mode import DirectoryModeError, EvtxGroupMember
+    from utils.manifest_protocol import (
+        allocate_case_file_initial_generation,
+        construct_managed_batch,
+        contract_from_parser,
+        create_ingest_attempt,
+        finish_ingest_attempt,
+        handle_failed_verification,
+        insert_managed_batch,
+        mark_batch_durable,
+        project_generation_control_state,
+        reserve_staged_batch,
+        update_generation_ingest_accounting,
+        verify_ingest_batch,
+    )
+
+    if parser is None or not hasattr(parser, 'parse_directory_group'):
+        raise DirectoryModeError(
+            'managed_directory_parser_unavailable',
+            'Managed EVTX directory ingest requires EvtxECmd directory parser support',
+        )
+
+    app = get_flask_app()
+    with app.app_context():
+        producer_version = _managed_producer_version_for_parser(parser)
+        contract = contract_from_parser(
+            parser,
+            configured_batch_size=getattr(Config, 'PHASE1B_MANIFEST_BATCH_SIZE', 10000),
+            normalization_version=getattr(Config, 'PHASE1B_NORMALIZATION_VERSION', 'normalization:v1'),
+            producer_version=producer_version,
+            config=Config,
+        )
+
+        states: Dict[int, Dict[str, Any]] = {}
+        group_members: List[EvtxGroupMember] = []
+        for item in members:
+            case_file_id = int(item['case_file_id'])
+            case_file = db.session.get(CaseFile, case_file_id)
+            if case_file is None:
+                raise DirectoryModeError(
+                    'managed_routing_failed',
+                    f'CaseFile {case_file_id} not found for managed EVTX directory ingest',
+                )
+            generation = allocate_case_file_initial_generation(
+                session=db.session,
+                case_id=case_id,
+                case_file_id=case_file_id,
+                contract=contract,
+            )
+            attempt = create_ingest_attempt(
+                session=db.session,
+                generation=generation,
+                celery_task_id=task_id,
+            )
+            states[case_file_id] = {
+                'item': item,
+                'generation': generation,
+                'attempt': attempt,
+                'buffer': [],
+                'next_batch_ordinal': 0,
+                'events_count': 0,
+            }
+            group_members.append(EvtxGroupMember(
+                file_path=item['file_path'],
+                case_file_id=case_file_id,
+                source_host=item.get('source_host') or '',
+                source_file=item.get('source_file') or os.path.basename(item['file_path']),
+            ))
+        db.session.commit()
+
+        def flush_state(case_file_id: int) -> None:
+            state = states[case_file_id]
+            events = state['buffer']
+            if not events:
+                return
+            current_producer_version = _managed_producer_version_for_parser(parser)
+            if current_producer_version != producer_version:
+                raise RuntimeError('Managed producer signature changed during EVTX directory parse')
+            manifest = construct_managed_batch(
+                generation=state['generation'],
+                attempt=state['attempt'],
+                events=tuple(events),
+                batch_ordinal=state['next_batch_ordinal'],
+            )
+            with timed_stage(
+                "phase1b_evtx_directory_staged_reservation",
+                case_id=case_id,
+                case_file_id=case_file_id,
+                ingest_batch_id=manifest.ingest_batch_id,
+                row_count=manifest.row_count,
+            ):
+                batch_row = reserve_staged_batch(session=db.session, manifest=manifest)
+                db.session.commit()
+
+            insert_managed_batch(clickhouse_client, manifest)
+            verification = verify_ingest_batch(clickhouse_client, manifest)
+            if not verification.success:
+                handle_failed_verification(
+                    clickhouse_client=clickhouse_client,
+                    verification=verification,
+                    manifest=manifest,
+                )
+                finish_ingest_attempt(
+                    db.session,
+                    state['attempt'],
+                    status='FAILED',
+                    error=f'Verification failed: {verification.outcome}',
+                )
+                db.session.commit()
+                raise RuntimeError(f"Managed EVTX directory batch verification failed: {verification.outcome}")
+
+            batch_row = db.session.get(IngestBatch, batch_row.id)
+            mark_batch_durable(session=db.session, batch=batch_row, verification=verification)
+            state['events_count'] += len(events)
+            update_generation_ingest_accounting(
+                session=db.session,
+                generation=state['generation'],
+                expected_rows=state['events_count'],
+            )
+            db.session.commit()
+            project_generation_control_state(clickhouse_client, db.session, state['generation'])
+            state['buffer'] = []
+            state['next_batch_ordinal'] += 1
+
+        previous_managed_mode = getattr(parser, 'managed_manifest_mode', False)
+        setattr(parser, 'managed_manifest_mode', True)
+        try:
+            with timed_stage(
+                "phase1b_evtx_managed_directory_stream",
+                case_id=case_id,
+                group_size=len(group_members),
+            ) as stream_metric:
+                for event in parser.parse_directory_group(group_members):
+                    case_file_id = int(event.case_file_id or 0)
+                    if case_file_id not in states:
+                        raise DirectoryModeError(
+                            'managed_directory_attribution_failed',
+                            f'Parsed EVTX event mapped to unknown CaseFile {case_file_id}',
+                            unsafe_retry=True,
+                        )
+                    state = states[case_file_id]
+                    state['buffer'].append(event)
+                    if len(state['buffer']) >= int(state['generation'].configured_batch_size):
+                        flush_state(case_file_id)
+                for case_file_id in sorted(states):
+                    flush_state(case_file_id)
+                stream_metric["events_parsed"] = sum(int(state['events_count']) for state in states.values())
+        except DirectoryModeError as exc:
+            for state in states.values():
+                finish_ingest_attempt(
+                    db.session,
+                    state['attempt'],
+                    status='FAILED',
+                    error=f'EVTX directory failed: {exc.reason}: {exc}',
+                )
+            db.session.commit()
+            results = []
+            for item in members:
+                retry_parser = parser.__class__(
+                    case_id=case_id,
+                    source_host=item.get('source_host') or '',
+                    case_file_id=int(item['case_file_id']),
+                    case_tz=case_tz,
+                )
+                result = _process_managed_initial_case_file(
+                    parser=retry_parser,
+                    file_path=item['file_path'],
+                    case_id=case_id,
+                    case_file_id=int(item['case_file_id']),
+                    clickhouse_client=clickhouse_client,
+                    task_id=task_id,
+                )
+                result.warnings.append(
+                    f"Managed directory-mode per-file recovery ({exc.reason}): {exc}"
+                )
+                results.append(result)
+            return results
+        except Exception as exc:
+            for state in states.values():
+                finish_ingest_attempt(
+                    db.session,
+                    state['attempt'],
+                    status='FAILED',
+                    error=f'EVTX managed directory failed closed: {exc}',
+                )
+            db.session.commit()
+            raise
+        finally:
+            setattr(parser, 'managed_manifest_mode', previous_managed_mode)
+
+        producer_version_after = _managed_producer_version_for_parser(parser)
+        if producer_version_after != producer_version:
+            for state in states.values():
+                finish_ingest_attempt(
+                    db.session,
+                    state['attempt'],
+                    status='FAILED',
+                    error='Managed producer signature changed during EVTX directory parse',
+                )
+            db.session.commit()
+            raise RuntimeError('Managed producer signature changed during EVTX directory parse')
+
+        results = []
+        for state in states.values():
+            finish_ingest_attempt(db.session, state['attempt'], status='SUCCEEDED')
+            update_generation_ingest_accounting(
+                session=db.session,
+                generation=state['generation'],
+                expected_rows=state['events_count'],
+            )
+            results.append(ParseResult(
+                success=not bool(parser.errors),
+                file_path=state['item']['file_path'],
+                artifact_type=parser.artifact_type,
+                events_count=state['events_count'],
+                errors=list(parser.errors),
+                warnings=list(parser.warnings),
+                duration_seconds=0.0,
+            ))
+        db.session.commit()
+        return results
 
 
 @celery_app.task(bind=True, name='tasks.parse_file')
@@ -1542,6 +1808,93 @@ def parse_evtx_group_task(self, case_id: int, members: List[Dict[str, Any]]) -> 
     except Exception as e:
         logger.warning(f"Could not fetch case timezone: {e}")
 
+    managed_group_mode = False
+    managed_group_parser = None
+    try:
+        app = get_flask_app()
+        with app.app_context():
+            from sqlalchemy import inspect
+            from models.case_file import CaseFile
+            from models.database import db
+            from parsers import get_registry
+            from utils.manifest_protocol import (
+                INGEST_MODE_LEGACY,
+                INGEST_MODE_MANAGED_INITIAL,
+                ManifestRoutingError,
+                select_case_file_ingest_mode,
+            )
+
+            registry = get_registry()
+            member_modes = {}
+            inspector = inspect(db.engine)
+            case_file_columns = {
+                column['name']
+                for column in inspector.get_columns('case_files')
+            }
+            if 'ingest_protocol_origin' not in case_file_columns:
+                member_modes = {
+                    item.get('case_file_id'): INGEST_MODE_LEGACY
+                    for item in members
+                }
+                raise StopIteration
+            for item in members:
+                case_file_id = item.get('case_file_id')
+                if not case_file_id:
+                    member_modes[case_file_id] = INGEST_MODE_LEGACY
+                    continue
+                case_file = db.session.get(CaseFile, int(case_file_id))
+                if case_file is None:
+                    raise DirectoryModeError(
+                        'managed_routing_failed',
+                        f'CaseFile {case_file_id} not found before EVTX group cleanup',
+                    )
+                _artifact_type, parser = registry.resolve_parser_for_file(
+                    file_path=item.get('file_path'),
+                    case_id=case_id,
+                    source_host=item.get('source_host') or '',
+                    case_file_id=case_file_id,
+                    case_tz=case_tz,
+                    parser_hints=['evtx'],
+                    force_parser=True,
+                )
+                if parser is None:
+                    member_modes[case_file_id] = INGEST_MODE_LEGACY
+                    continue
+                try:
+                    ingest_mode = select_case_file_ingest_mode(
+                        parser=parser,
+                        case_file=case_file,
+                        config=Config,
+                        session=db.session,
+                    )
+                except ManifestRoutingError as exc:
+                    raise DirectoryModeError(
+                        'managed_routing_failed',
+                        f'EVTX group member {case_file_id} failed managed routing: {exc}',
+                    ) from exc
+                member_modes[case_file_id] = ingest_mode
+            if any(mode == INGEST_MODE_MANAGED_INITIAL for mode in member_modes.values()):
+                if any(mode != INGEST_MODE_MANAGED_INITIAL for mode in member_modes.values()):
+                    raise DirectoryModeError(
+                        'managed_mixed_directory_not_enabled',
+                        'EVTX managed directory ingest cannot share a group with legacy members',
+                    )
+                managed_group_mode = True
+                managed_group_parser = registry.get_parser(
+                    'evtx',
+                    case_id=case_id,
+                    source_host='',
+                    case_file_id=None,
+                    case_tz=case_tz,
+                )
+            for case_file_id, mode in member_modes.items():
+                if case_file_id and mode == INGEST_MODE_LEGACY:
+                    _mark_case_file_legacy_origin_if_unset(int(case_file_id))
+    except StopIteration:
+        pass
+    except DirectoryModeError:
+        raise
+
     for item in members:
         if item.get('case_file_id'):
             _update_case_file_status(
@@ -1549,6 +1902,109 @@ def parse_evtx_group_task(self, case_id: int, members: List[Dict[str, Any]]) -> 
                 status='ingesting',
                 ingestion_status='not_done',
             )
+
+    if managed_group_mode:
+        try:
+            client = get_fresh_client()
+            results = _process_managed_evtx_directory_group(
+                parser=managed_group_parser,
+                members=members,
+                case_id=case_id,
+                clickhouse_client=client,
+                case_tz=case_tz,
+                task_id=getattr(self.request, 'id', None),
+            )
+            result_dicts = []
+            for item, result in zip(members, results):
+                case_file_id = item.get('case_file_id')
+                payload = result.to_dict()
+                if result.success and result.artifact_type == 'evtx' and result.events_count > 0:
+                    try:
+                        hayabusa_match_count = _insert_hayabusa_mitre_matches_for_case_file(
+                            case_id, case_file_id, client
+                        )
+                        payload['hayabusa_mitre_matches'] = hayabusa_match_count
+                    except Exception as e:
+                        logger.warning(
+                            "Hayabusa MITRE match insertion failed for managed EVTX case_file_id=%s: %s",
+                            case_file_id,
+                            e,
+                        )
+                        payload['hayabusa_mitre_match_error'] = str(e)
+                result_dicts.append(payload)
+                if case_file_id:
+                    if result.success:
+                        _update_case_file_status(
+                            case_file_id=case_file_id,
+                            status='done',
+                            ingestion_status=_ingestion_status_for_result(result),
+                            events_count=result.events_count,
+                            parser_type=result.artifact_type,
+                            error_message=_join_warning_messages(result.warnings) if result.warnings else '',
+                        )
+                    else:
+                        _update_case_file_status(
+                            case_file_id=case_file_id,
+                            status='error',
+                            ingestion_status='parse_error',
+                            events_count=result.events_count,
+                            parser_type=result.artifact_type,
+                            error_message=_join_error_messages(result.errors),
+                        )
+            emit_metric(
+                "parse_evtx_group_task_total",
+                case_id=case_id,
+                group_size=len(members),
+                events_inserted=sum(item.get('events_count') or 0 for item in result_dicts),
+                duration_ms=(time.perf_counter() - task_started) * 1000.0,
+                success=all(item.get('success') for item in result_dicts),
+                managed_manifest=True,
+            )
+            return {'success': all(item.get('success') for item in result_dicts), 'files': result_dicts}
+        except DirectoryModeError as e:
+            logger.warning(
+                "Managed EVTX directory failed closed for case_id=%s; retrying: %s",
+                case_id,
+                e,
+            )
+            emit_metric(
+                "parse_evtx_group_task_total",
+                case_id=case_id,
+                group_size=len(members),
+                duration_ms=(time.perf_counter() - task_started) * 1000.0,
+                success=False,
+                error_type=e.__class__.__name__,
+                error_reason=getattr(e, 'reason', ''),
+                fail_closed=True,
+                managed_manifest=True,
+            )
+            raise self.retry(
+                exc=e,
+                countdown=min(30, 2 ** max(int(getattr(self.request, 'retries', 0)), 0)),
+                max_retries=10,
+            )
+        except (IngestFenceUnavailable, IngestAdmissionDenied, IngestExclusiveTimeout, IngestFenceLost) as e:
+            logger.warning(
+                "Ingest fence denied or unavailable for managed EVTX group case_id=%s; retrying: %s",
+                case_id,
+                e,
+            )
+            raise self.retry(
+                exc=e,
+                countdown=min(30, 2 ** max(int(getattr(self.request, 'retries', 0)), 0)),
+                max_retries=10,
+            )
+        except Exception as e:
+            logger.exception("Managed EVTX directory failed closed for case %s", case_id)
+            for case_file_id in member_ids:
+                if case_file_id:
+                    _update_case_file_status(
+                        case_file_id=case_file_id,
+                        status='error',
+                        ingestion_status='error',
+                        error_message=_format_error_message(e),
+                    )
+            raise
 
     try:
         client = get_fresh_client()
@@ -2443,7 +2899,7 @@ def case_indexing_complete_task(
                 elif dedup_result.get('skipped_details'):
                     logger.info(f"Deduplication safety skip: {dedup_result.get('message', '')}")
                 else:
-                    logger.debug(f"Deduplication complete: no duplicates found")
+                    logger.debug("Deduplication complete: no duplicates found")
 
             except (IngestFenceUnavailable, IngestExclusiveTimeout, IngestFenceLost):
                 raise
@@ -3390,7 +3846,7 @@ def find_iocs_in_events_task(self, case_id: int, username: str = 'system') -> Di
                                 all_iocs[key].extend(iocs[key])
                                 found_count += len(iocs[key])
                                 
-                    except Exception as e:
+                    except Exception:
                         # Skip problematic events silently for speed
                         continue
             
@@ -3849,4 +4305,6 @@ celery_app.conf.beat_schedule = {
 # tasks to execute.
 
 # Import additional task modules to register their tasks
-import tasks.pcap_tasks  # noqa: F401 - PCAP/Zeek processing tasks
+from tasks import pcap_tasks as _pcap_tasks
+
+_pcap_tasks

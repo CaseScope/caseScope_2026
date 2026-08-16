@@ -9,12 +9,11 @@ import time
 import uuid
 from dataclasses import dataclass
 from datetime import datetime, timezone
-from typing import Any, Dict, Iterable, List, Mapping, Optional, Sequence, Tuple
+from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 from sqlalchemy import func
 
 from models.case_file import CaseFile, IngestProtocolOrigin
-from models.database import db
 from models.database_flow import (
     EvidenceGenerationState,
     EvidenceSourceGeneration,
@@ -470,41 +469,58 @@ def construct_managed_batches(
         raise ManifestProtocolError("configured_batch_size must be positive")
     batches: List[ManagedBatch] = []
     for batch_ordinal, start in enumerate(range(0, len(events), batch_size)):
-        batch_events = tuple(events[start:start + batch_size])
-        ingest_batch_id = deterministic_ingest_batch_id(
-            case_id=generation.case_id,
-            source_ref_type=generation.source_ref_type,
-            source_ref_id=generation.source_ref_id,
-            source_generation=generation.source_generation,
-            batch_ordinal=batch_ordinal,
-            batching_contract_version=generation.batching_contract_version,
-        )
-        rows = tuple(
-            _protocol_row(
-                event=event,
-                generation=generation,
-                ingest_batch_id=ingest_batch_id,
-                ingest_attempt_id=attempt.ingest_attempt_id,
-                ingest_row_ordinal=ordinal,
-            )
-            for ordinal, event in enumerate(batch_events)
-        )
-        validate_zero_based_manifest_ordinals(row.ordinal for row in rows)
-        row_hashes = tuple(row.ingest_row_hash for row in rows)
         batches.append(
-            ManagedBatch(
-                ingest_batch_id=ingest_batch_id,
+            construct_managed_batch(
                 generation=generation,
+                attempt=attempt,
+                events=tuple(events[start:start + batch_size]),
                 batch_ordinal=batch_ordinal,
-                rows=rows,
-                row_hashes=row_hashes,
-                batch_content_hash=batch_content_hash(row_hashes),
-                first_source_locator=rows[0].source_locator if rows else None,
-                last_source_locator=rows[-1].source_locator if rows else None,
-                ingest_attempt_id=attempt.ingest_attempt_id,
             )
         )
     return tuple(batches)
+
+
+def construct_managed_batch(
+    *,
+    generation: EvidenceSourceGeneration,
+    attempt: IngestAttempt,
+    events: Sequence[ParsedEvent],
+    batch_ordinal: int,
+) -> ManagedBatch:
+    """Construct one deterministic manifest batch from an already bounded slice."""
+    if not events:
+        raise ManifestProtocolError("managed batch cannot be empty")
+    ingest_batch_id = deterministic_ingest_batch_id(
+        case_id=generation.case_id,
+        source_ref_type=generation.source_ref_type,
+        source_ref_id=generation.source_ref_id,
+        source_generation=generation.source_generation,
+        batch_ordinal=int(batch_ordinal),
+        batching_contract_version=generation.batching_contract_version,
+    )
+    rows = tuple(
+        _protocol_row(
+            event=event,
+            generation=generation,
+            ingest_batch_id=ingest_batch_id,
+            ingest_attempt_id=attempt.ingest_attempt_id,
+            ingest_row_ordinal=ordinal,
+        )
+        for ordinal, event in enumerate(tuple(events))
+    )
+    validate_zero_based_manifest_ordinals(row.ordinal for row in rows)
+    row_hashes = tuple(row.ingest_row_hash for row in rows)
+    return ManagedBatch(
+        ingest_batch_id=ingest_batch_id,
+        generation=generation,
+        batch_ordinal=int(batch_ordinal),
+        rows=rows,
+        row_hashes=row_hashes,
+        batch_content_hash=batch_content_hash(row_hashes),
+        first_source_locator=rows[0].source_locator,
+        last_source_locator=rows[-1].source_locator,
+        ingest_attempt_id=attempt.ingest_attempt_id,
+    )
 
 
 def _manifest_matches(existing: IngestBatch, manifest: ManagedBatch) -> bool:
