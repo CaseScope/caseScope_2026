@@ -292,8 +292,193 @@ class WindowsNotificationsParser(_SQLiteSummaryParser):
 
 
 class EventTranscriptDbParser(_SQLiteSummaryParser):
+    VERSION = '1.1.0'
     ARTIFACT_TYPE = 'eventtranscript'
     FILE_NAMES = ('eventtranscript.db',)
+    supports_manifest_protocol = True
+    manifest_ordering_contract = 'eventtranscript:sqlite-rootpage-rowid-order:v1'
+    MISSING_TIMESTAMP = datetime(1970, 1, 1)
+
+    @staticmethod
+    def _sqlite_companion_paths(file_path: str) -> Dict[str, str]:
+        return {
+            '-wal': file_path + '-wal',
+            '-shm': file_path + '-shm',
+            '-journal': file_path + '-journal',
+        }
+
+    @staticmethod
+    def _quote_identifier(identifier: str) -> str:
+        return '"' + str(identifier).replace('"', '""') + '"'
+
+    @staticmethod
+    def _json_safe(value: Any) -> Any:
+        if isinstance(value, bytes):
+            return {'bytes_hex': value.hex()}
+        if isinstance(value, bytearray):
+            return {'bytes_hex': bytes(value).hex()}
+        if isinstance(value, memoryview):
+            return {'bytes_hex': bytes(value).hex()}
+        return value
+
+    def manifest_producer_version(self) -> str:
+        return (
+            f'{self.parser_version};'
+            'sqlite=standalone;'
+            'contract=eventtranscript:rootpage-rowid:v1;'
+            'missing_ts=epoch'
+        )
+
+    def can_parse(self, file_path: str) -> bool:
+        if not super().can_parse(file_path):
+            return False
+        try:
+            with open(file_path, 'rb') as handle:
+                return handle.read(16).startswith(b'SQLite format 3')
+        except OSError:
+            return False
+
+    def _assert_managed_standalone_sqlite_source(self, file_path: str) -> None:
+        present = [
+            suffix
+            for suffix, sidecar_path in self._sqlite_companion_paths(file_path).items()
+            if os.path.exists(sidecar_path)
+        ]
+        if present:
+            raise RuntimeError(
+                'EventTranscript managed manifest certification requires standalone '
+                f'SQLite source without companions; present={",".join(sorted(present))}'
+            )
+
+    def _iter_managed_tables(self, conn: sqlite3.Connection) -> List[Dict[str, Any]]:
+        rows = conn.execute(
+            """
+            SELECT name, rootpage
+            FROM sqlite_schema
+            WHERE type = 'table'
+              AND name NOT LIKE 'sqlite_%'
+            ORDER BY rootpage ASC
+            """
+        ).fetchall()
+        tables: List[Dict[str, Any]] = []
+        seen_rootpages = set()
+        for row in rows:
+            name = self.safe_str(row['name'])
+            rootpage = self.safe_int(row['rootpage'])
+            if not name or rootpage is None or rootpage <= 0:
+                raise RuntimeError(f'EventTranscript table lacks native rootpage identity: {name or "<unknown>"}')
+            if rootpage in seen_rootpages:
+                raise RuntimeError(f'Duplicate EventTranscript table rootpage: {rootpage}')
+            seen_rootpages.add(rootpage)
+            tables.append({'name': name, 'rootpage': rootpage})
+        return tables
+
+    def _timestamp_for_row(self, row: Dict[str, Any]) -> Tuple[datetime, str]:
+        for key in sorted(row):
+            if 'time' not in key.lower() and 'date' not in key.lower():
+                continue
+            parsed = self.probe_timestamp(row.get(key))
+            if parsed:
+                return parsed, key
+        return self.MISSING_TIMESTAMP, 'missing_timestamp_unix_epoch'
+
+    def _search_blob_for_row(self, payload: Dict[str, Any]) -> str:
+        parts = []
+        for key in sorted(payload):
+            value = payload.get(key)
+            if value in (None, ''):
+                continue
+            parts.append(f'{key}:{value}')
+        return ' '.join(parts)
+
+    def parse(self, file_path: str) -> Generator[ParsedEvent, None, None]:
+        if not self.can_parse(file_path):
+            self.errors.append(f'Cannot parse file: {file_path}')
+            return
+
+        source_file = os.path.basename(file_path)
+        hostname = self.extract_hostname(file_path)
+        managed_manifest_mode = bool(getattr(self, 'managed_manifest_mode', False))
+        if managed_manifest_mode:
+            self._assert_managed_standalone_sqlite_source(file_path)
+
+        conn = sqlite3.connect(f'file:{file_path}?mode=ro', uri=True)
+        conn.row_factory = sqlite3.Row
+        try:
+            tables = self._iter_managed_tables(conn)
+            for table in tables:
+                table_name = table['name']
+                rootpage = table['rootpage']
+                quoted_table = self._quote_identifier(table_name)
+                try:
+                    query = f'SELECT rowid AS __casescope_rowid__, * FROM {quoted_table} ORDER BY rowid ASC'
+                    rows = conn.execute(query)
+                except Exception as exc:
+                    if managed_manifest_mode:
+                        raise RuntimeError(
+                            f'EventTranscript table {table_name} does not expose stable rowid ordering'
+                        ) from exc
+                    self.warnings.append(f'Error querying EventTranscript table {table_name}: {exc}')
+                    continue
+
+                seen_rowids = set()
+                for row in rows:
+                    rowid = self.safe_int(row['__casescope_rowid__'])
+                    if rowid is None:
+                        raise RuntimeError(f'EventTranscript table {table_name} row missing rowid')
+                    if rowid in seen_rowids:
+                        raise RuntimeError(f'Duplicate EventTranscript rowid {rowid} in table {table_name}')
+                    seen_rowids.add(rowid)
+
+                    payload = {
+                        key: self._json_safe(row[key])
+                        for key in row.keys()
+                        if key != '__casescope_rowid__'
+                    }
+                    payload['table'] = table_name
+                    payload['table_rootpage'] = rootpage
+                    payload['rowid'] = rowid
+                    timestamp, timestamp_source = self._timestamp_for_row(payload)
+                    payload['timestamp_source'] = timestamp_source
+                    locator = f'table:{table_name};rootpage:{rootpage};rowid:{rowid}'
+                    extra = {
+                        'table': table_name,
+                        'table_rootpage': rootpage,
+                        'rowid': rowid,
+                        'timestamp_source': timestamp_source,
+                    }
+                    yield ParsedEvent(
+                        case_id=self.case_id,
+                        artifact_type=self.artifact_type,
+                        timestamp=timestamp,
+                        timestamp_source_tz=self.get_source_tz(),
+                        source_file=source_file,
+                        source_path=file_path,
+                        source_host=hostname,
+                        case_file_id=self.case_file_id,
+                        event_id='eventtranscript_row',
+                        target_path=self.safe_str(
+                            payload.get('Path')
+                            or payload.get('path')
+                            or payload.get('Uri')
+                            or payload.get('URI')
+                            or payload.get('url')
+                            or payload.get('Url')
+                        ),
+                        raw_json=json.dumps(payload, default=str, sort_keys=True),
+                        search_blob=self._search_blob_for_row(payload),
+                        extra_fields=json.dumps(extra, default=str, sort_keys=True),
+                        parser_version=self.parser_version,
+                        source_record_identifier_authoritative=True,
+                        source_record_identifier_type='eventtranscript_sqlite_rowid',
+                        source_record_identifier_value=locator,
+                    )
+        except Exception as exc:
+            if managed_manifest_mode:
+                raise
+            self.errors.append(self.format_exception(exc, context=f'Failed to parse {file_path}'))
+        finally:
+            conn.close()
 
 
 class CopilotRecallParser(_SQLiteSummaryParser):
