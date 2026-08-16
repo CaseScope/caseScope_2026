@@ -1,13 +1,12 @@
 """Additional Windows artifact parsers for KAPE/CyLR coverage gaps."""
-import gzip
 import json
 import os
 import re
 import sqlite3
 import struct
 import xml.etree.ElementTree as ET
-from datetime import datetime, timedelta
-from typing import Any, Dict, Generator, Iterable, List, Optional
+from datetime import datetime
+from typing import Any, Dict, Generator, Iterable, List, Tuple
 
 from parsers.base import BaseParser, ParsedEvent
 
@@ -483,16 +482,215 @@ class RdpBitmapCacheParser(_SingleEventFileParser):
 
 
 class RegistryPolParser(_SingleEventFileParser):
+    VERSION = '1.1.0'
     ARTIFACT_TYPE = 'registry_pol'
     EVENT_ID = 'registry_pol'
+    supports_manifest_protocol = True
+    manifest_ordering_contract = 'registry-pol:physical-record-offset-order:v1'
+
+    REGFILE_SIGNATURE = b'PReg'
+    FORMAT_VERSION = 1
+    MAX_DATA_SIZE = 65535
+    _OPEN_RECORD = b'[\x00'
+    _SEPARATOR = b';\x00'
+    _CLOSE_RECORD = b']\x00'
+    _REG_TYPE_NAMES = {
+        0: 'REG_NONE',
+        1: 'REG_SZ',
+        2: 'REG_EXPAND_SZ',
+        3: 'REG_BINARY',
+        4: 'REG_DWORD',
+        5: 'REG_DWORD_BIG_ENDIAN',
+        6: 'REG_LINK',
+        7: 'REG_MULTI_SZ',
+        11: 'REG_QWORD',
+    }
+
+    def manifest_producer_version(self) -> str:
+        return f'{self.parser_version};registry_pol_format=1;record_offsets=physical'
 
     def can_parse(self, file_path: str) -> bool:
-        return os.path.basename(file_path).lower() == 'registry.pol'
+        if os.path.basename(file_path).lower() != 'registry.pol' or not os.path.isfile(file_path):
+            return False
+        try:
+            with open(file_path, 'rb') as handle:
+                return handle.read(4) == self.REGFILE_SIGNATURE
+        except OSError:
+            return False
 
-    def _payload(self, file_path: str) -> Dict[str, Any]:
+    @staticmethod
+    def _read_utf16le_z(data: bytes, offset: int) -> Tuple[str, int]:
+        cursor = offset
+        while cursor + 1 < len(data):
+            if data[cursor:cursor + 2] == b'\x00\x00':
+                return data[offset:cursor].decode('utf-16-le', errors='replace'), cursor + 2
+            cursor += 2
+        raise ValueError('unterminated UTF-16LE string')
+
+    @staticmethod
+    def _decode_data(value_type: int, raw_data: bytes) -> Dict[str, Any]:
+        if value_type in (1, 2, 6):
+            text = raw_data.decode('utf-16-le', errors='replace').rstrip('\x00')
+            return {'decoded_as': 'utf-16-le', 'text': text, 'search_text': text}
+        if value_type == 7:
+            text = raw_data.decode('utf-16-le', errors='replace').rstrip('\x00')
+            items = [item for item in text.split('\x00') if item]
+            return {
+                'decoded_as': 'utf-16-le-multi-sz',
+                'items': items,
+                'text': ';'.join(items),
+                'search_text': ' '.join(items),
+            }
+        if value_type == 4 and len(raw_data) >= 4:
+            value = struct.unpack_from('<I', raw_data, 0)[0]
+            return {'decoded_as': 'uint32-le', 'integer': value, 'text': str(value), 'search_text': str(value)}
+        if value_type == 5 and len(raw_data) >= 4:
+            value = struct.unpack_from('>I', raw_data, 0)[0]
+            return {'decoded_as': 'uint32-be', 'integer': value, 'text': str(value), 'search_text': str(value)}
+        if value_type == 11 and len(raw_data) >= 8:
+            value = struct.unpack_from('<Q', raw_data, 0)[0]
+            return {'decoded_as': 'uint64-le', 'integer': value, 'text': str(value), 'search_text': str(value)}
+        hex_value = raw_data.hex()
+        return {'decoded_as': 'hex', 'hex': hex_value, 'text': hex_value, 'search_text': hex_value}
+
+    def _parse_record(self, data: bytes, offset: int) -> Tuple[Dict[str, Any], int]:
+        record_offset = offset
+        if data[offset:offset + 2] != self._OPEN_RECORD:
+            raise ValueError('missing Registry.pol record opener')
+        offset += 2
+
+        key_path, offset = self._read_utf16le_z(data, offset)
+        if data[offset:offset + 2] != self._SEPARATOR:
+            raise ValueError('missing separator after key path')
+        offset += 2
+
+        value_name, offset = self._read_utf16le_z(data, offset)
+        if data[offset:offset + 2] != self._SEPARATOR:
+            raise ValueError('missing separator after value name')
+        offset += 2
+
+        if offset + 4 > len(data):
+            raise ValueError('truncated registry value type')
+        value_type = struct.unpack_from('<I', data, offset)[0]
+        offset += 4
+        if data[offset:offset + 2] != self._SEPARATOR:
+            raise ValueError('missing separator after value type')
+        offset += 2
+
+        if offset + 4 > len(data):
+            raise ValueError('truncated data size')
+        data_size = struct.unpack_from('<I', data, offset)[0]
+        if data_size > self.MAX_DATA_SIZE:
+            raise ValueError(f'data size {data_size} exceeds Registry.pol maximum')
+        offset += 4
+        if data[offset:offset + 2] != self._SEPARATOR:
+            raise ValueError('missing separator after data size')
+        offset += 2
+
+        data_offset = offset
+        data_end = offset + data_size
+        if data_end > len(data):
+            raise ValueError('truncated registry data')
+        raw_data = data[offset:data_end]
+        offset = data_end
+        if data[offset:offset + 2] != self._CLOSE_RECORD:
+            raise ValueError('missing Registry.pol record closer')
+        offset += 2
+
+        decoded = self._decode_data(value_type, raw_data)
+        return {
+            'record_offset': record_offset,
+            'data_offset': data_offset,
+            'record_length': offset - record_offset,
+            'key_path': key_path,
+            'value_name': value_name,
+            'value_type': value_type,
+            'value_type_name': self._REG_TYPE_NAMES.get(value_type, f'REG_TYPE_{value_type}'),
+            'data_size': data_size,
+            'data': decoded,
+        }, offset
+
+    def parse(self, file_path: str) -> Generator[ParsedEvent, None, None]:
+        if not self.can_parse(file_path):
+            self.errors.append(f'Cannot parse file: {file_path}')
+            return
+
         with open(file_path, 'rb') as handle:
-            return {'path': file_path, 'strings': _strings(handle.read(MAX_BINARY_BYTES), limit=500),
-                    **_truncation(file_path, MAX_BINARY_BYTES)}
+            data = handle.read(MAX_BINARY_BYTES)
+
+        if len(data) < 8:
+            self.errors.append(f'Failed to parse {file_path}: Registry.pol header is truncated')
+            return
+
+        version = struct.unpack_from('<I', data, 4)[0]
+        if version != self.FORMAT_VERSION:
+            self.errors.append(f'Failed to parse {file_path}: unsupported Registry.pol version {version}')
+            return
+
+        source_file = os.path.basename(file_path)
+        hostname = self.extract_hostname(file_path)
+        timestamp = self.fallback_timestamp(file_path=file_path, reason='registry_pol records do not carry timestamps')
+        offset = 8
+        record_index = 0
+        truncated = _truncation(file_path, MAX_BINARY_BYTES)
+
+        while offset < len(data):
+            if data[offset:] in (b'', b'\x00' * (len(data) - offset)):
+                break
+            if data[offset:offset + 2] != self._OPEN_RECORD:
+                self.warnings.append(f'Stopped Registry.pol parsing at offset {offset}: expected record opener')
+                break
+            try:
+                record, next_offset = self._parse_record(data, offset)
+            except Exception as exc:
+                self.warnings.append(f'Stopped Registry.pol parsing at offset {offset}: {exc}')
+                break
+
+            record_index += 1
+            record['record_index'] = record_index
+            if truncated:
+                record.update(truncated)
+            display_value_name = record['value_name'] or '(Default)'
+            data_text = record['data'].get('search_text', '')
+            raw_json = json.dumps(record, default=str, sort_keys=True)
+            extra = {
+                'record_index': record_index,
+                'record_offset': record['record_offset'],
+                'data_offset': record['data_offset'],
+                'record_length': record['record_length'],
+                'value_type': record['value_type'],
+                'value_type_name': record['value_type_name'],
+                'data_size': record['data_size'],
+            }
+            yield ParsedEvent(
+                case_id=self.case_id,
+                artifact_type=self.artifact_type,
+                timestamp=timestamp,
+                timestamp_source_tz=self.get_source_tz(),
+                source_file=source_file,
+                source_path=file_path,
+                source_host=hostname,
+                case_file_id=self.case_file_id,
+                event_id=self.EVENT_ID,
+                target_path=record['key_path'],
+                reg_key=record['key_path'],
+                reg_value=display_value_name,
+                reg_data=self.safe_str(record['data'].get('text', '')),
+                raw_json=raw_json,
+                search_blob=' '.join(str(part) for part in (
+                    source_file,
+                    record['key_path'],
+                    display_value_name,
+                    record['value_type_name'],
+                    data_text,
+                ) if part),
+                extra_fields=json.dumps(extra, default=str, sort_keys=True),
+                parser_version=self.parser_version,
+                source_record_identifier_authoritative=True,
+                source_record_identifier_type='registry_pol_record_offset',
+                source_record_identifier_value=str(record['record_offset']),
+            )
+            offset = next_offset
 
 
 class MofParser(_SingleEventFileParser):
