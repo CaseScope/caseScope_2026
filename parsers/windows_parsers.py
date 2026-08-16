@@ -7,16 +7,14 @@ Parsers for additional Windows forensic artifacts:
 """
 import base64
 import os
-import re
 import json
 import sqlite3
 import logging
 import tempfile
 import shutil
 import xml.etree.ElementTree as ET
-from datetime import datetime, timedelta
+from datetime import datetime
 from typing import Generator, Dict, List, Any, Optional
-from pathlib import Path
 
 from parsers.base import BaseParser, ParsedEvent, to_naive_utc
 
@@ -47,8 +45,10 @@ class ScheduledTaskParser(BaseParser):
     - Principal (user context, privileges)
     """
     
-    VERSION = '1.0.0'
+    VERSION = '1.0.1'
     ARTIFACT_TYPE = 'scheduled_task'
+    supports_manifest_protocol = True
+    manifest_ordering_contract = 'scheduled-task:single-xml-document:v1'
     
     # XML namespace for Task Scheduler schema
     TASK_NS = {'task': 'http://schemas.microsoft.com/windows/2004/02/mit/task'}
@@ -338,7 +338,7 @@ class ScheduledTaskParser(BaseParser):
                 process_name=self.safe_str(process_name),
                 command_line=self.safe_str(command_line),
                 username=self.safe_str(principal.get('user_id', '')),
-                raw_json=json.dumps(raw_data, default=str),
+                raw_json=json.dumps(raw_data, default=str, sort_keys=True),
                 search_blob=' '.join(str(p) for p in search_parts if p),
                 extra_fields=json.dumps({
                     'uri': uri,
@@ -348,8 +348,11 @@ class ScheduledTaskParser(BaseParser):
                     'run_level': principal.get('run_level', ''),
                     'trigger_count': len(triggers),
                     'action_count': len(actions),
-                }, default=str),
+                }, default=str, sort_keys=True),
                 parser_version=self.parser_version,
+                source_record_identifier_authoritative=bool(uri),
+                source_record_identifier_type='scheduled_task_uri' if uri else '',
+                source_record_identifier_value=uri if uri else '',
             )
             
         except Exception as e:
