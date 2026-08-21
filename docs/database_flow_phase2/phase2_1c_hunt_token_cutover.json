@@ -1,0 +1,2760 @@
+{
+  "tranche": "phase2_1c_hunt_token_cutover",
+  "version": "4.25.0",
+  "baseline_version": "4.24.2",
+  "baseline_commit": "9fc6802ff3de6fc48d16c9f7d238e6ffb21ac3e3",
+  "python": "/opt/casescope/venv/bin/python",
+  "clickhouse_version": "26.7.3.19",
+  "text_index": {
+    "name": "idx_search_blob_text",
+    "expr": "search_blob",
+    "type_full": "text(tokenizer = 'splitByNonAlpha', preprocessor = lower(search_blob))",
+    "MATERIALIZED": 25,
+    "PARTIAL": 0,
+    "UNMATERIALIZED": 0,
+    "UNKNOWN": 0,
+    "rows": 745463991,
+    "partitions": 25,
+    "active_parts": 135
+  },
+  "blooms": {
+    "idx_search_ngram": "PRESENT",
+    "idx_search_token": "PRESENT"
+  },
+  "command_line_decision": "DEFER",
+  "materialize_skip_indexes_on_insert": [
+    {
+      "name": "materialize_skip_indexes_on_insert",
+      "value": "1",
+      "changed": 0
+    },
+    {
+      "name": "query_plan_direct_read_from_text_index",
+      "value": "1",
+      "changed": 0
+    }
+  ],
+  "hasAnyTokens_proven_limit": {
+    "space_joined_ok_through": 4096,
+    "array_ok_through": 1024,
+    "compiler_chunk": 256,
+    "never_drops_terms": true
+  },
+  "tokenizer": "splitByNonAlpha; ASCII non [A-Za-z0-9] separates; ASCII alnum and all non-ASCII stay in token",
+  "classifier": {
+    "TOKEN_SAFE": "unquoted positive free-text; not digit-only; no LIKE wildcards; exactly one tokenizer token equal to input",
+    "SUBSTRING_REQUIRED": "quoted, wildcards, punctuation splits, blob/unknown field",
+    "STRUCTURED": "digit-only event_id and SEARCH_FIELD_MAP typed columns",
+    "EXCLUSION_PRESERVE": "NOT search_blob ilike",
+    "spaced_pipe": "bare | token skipped (existing AND); compact a|b is OR",
+    "drive_letter_path": "C:\\... remains unknown field C blob fallback",
+    "unquoted_vchos": "TOKEN_SAFE",
+    "quoted_vchos": "SUBSTRING_REQUIRED"
+  },
+  "reader_paths": [
+    "routes/hunting_query_helpers.py build_hunting_search_clause",
+    "routes/hunting.py get_hunting_events",
+    "routes/hunting.py export_view_events"
+  ],
+  "not_migrated": [
+    "routes/hunting.py match_search_blob position()",
+    "utils/sigma_converter.py",
+    "models/network_log.py",
+    "utils/ioc_artifact_tagger.py",
+    "utils/noise_keywords.py",
+    "models/pattern_rules.py",
+    "utils/chat_tools.py",
+    "utils/forensic_chat_sources.py",
+    "graph",
+    "parsers"
+  ],
+  "parameterization": "all hunt search atoms bound as ClickHouse parameters; no interpolation of user text into SQL",
+  "indexed_vs_scan": {
+    "14": [
+      {
+        "term": "sonicwall",
+        "class": "TOKEN_SAFE",
+        "indexed_count": 13,
+        "scan_count": 13,
+        "erk_a_only": 0,
+        "erk_b_only": 0,
+        "selector_a_only": 0,
+        "selector_b_only": 0
+      },
+      {
+        "term": "SonicWall",
+        "class": "TOKEN_SAFE",
+        "indexed_count": 13,
+        "scan_count": 13,
+        "erk_a_only": 0,
+        "erk_b_only": 0,
+        "selector_a_only": 0,
+        "selector_b_only": 0
+      }
+    ],
+    "10": [
+      {
+        "term": "powershell",
+        "class": "TOKEN_SAFE",
+        "indexed_count": 19455,
+        "scan_count": 19455,
+        "erk_a_only": 0,
+        "erk_b_only": 0,
+        "selector_a_only": 0,
+        "selector_b_only": 0
+      },
+      {
+        "term": "PowerShell",
+        "class": "TOKEN_SAFE",
+        "indexed_count": 19455,
+        "scan_count": 19455,
+        "erk_a_only": 0,
+        "erk_b_only": 0,
+        "selector_a_only": 0,
+        "selector_b_only": 0
+      },
+      {
+        "term": "Administrator",
+        "class": "TOKEN_SAFE",
+        "indexed_count": 199,
+        "scan_count": 199,
+        "erk_a_only": 0,
+        "erk_b_only": 0,
+        "selector_a_only": 0,
+        "selector_b_only": 0
+      },
+      {
+        "term": "PCLAPPVM",
+        "class": "TOKEN_SAFE",
+        "indexed_count": 0,
+        "scan_count": 0,
+        "erk_a_only": 0,
+        "erk_b_only": 0,
+        "selector_a_only": 0,
+        "selector_b_only": 0
+      }
+    ],
+    "7": [
+      {
+        "term": "powershell",
+        "class": "TOKEN_SAFE",
+        "indexed_count": 705353,
+        "scan_count": 705353,
+        "erk_a_only": 0,
+        "erk_b_only": 0,
+        "selector_a_only": 0,
+        "selector_b_only": 0
+      },
+      {
+        "term": "Administrator",
+        "class": "TOKEN_SAFE",
+        "indexed_count": 27100,
+        "scan_count": 27100,
+        "erk_a_only": 0,
+        "erk_b_only": 0,
+        "selector_a_only": 0,
+        "selector_b_only": 0
+      }
+    ],
+    "32": [
+      {
+        "term": "powershell",
+        "class": "TOKEN_SAFE",
+        "indexed_count": 940117,
+        "scan_count": 940117,
+        "erk_a_only": 0,
+        "erk_b_only": 0,
+        "selector_a_only": 0,
+        "selector_b_only": 0
+      },
+      {
+        "term": "Administrator",
+        "class": "TOKEN_SAFE",
+        "indexed_count": 27958,
+        "scan_count": 27958,
+        "erk_a_only": 0,
+        "erk_b_only": 0,
+        "selector_a_only": 0,
+        "selector_b_only": 0
+      }
+    ]
+  },
+  "or_indexed_vs_scan": {
+    "10": {
+      "search": "powershell|administrator",
+      "helper_sql": "hasAnyTokens(search_blob, {simple_0_any_0:String})",
+      "erk_a_only": 0,
+      "erk_b_only": 0
+    },
+    "7": {
+      "search": "powershell|administrator",
+      "helper_sql": "hasAnyTokens(search_blob, {simple_0_any_0:String})",
+      "erk_a_only": 0,
+      "erk_b_only": 0
+    },
+    "32": {
+      "search": "powershell|administrator",
+      "helper_sql": "hasAnyTokens(search_blob, {simple_0_any_0:String})",
+      "erk_a_only": 0,
+      "erk_b_only": 0
+    }
+  },
+  "ilike_differences": {
+    "14": [
+      {
+        "term": "sonicwall",
+        "ilike_only_count": 0,
+        "token_only_count": 0,
+        "sample_classes": [],
+        "unknown_samples": []
+      }
+    ],
+    "10": [
+      {
+        "term": "powershell",
+        "ilike_only_count": 540,
+        "token_only_count": 0,
+        "sample_classes": [
+          "substring_of_larger_token:windowspowershell",
+          "substring_of_larger_token:windowspowershell",
+          "substring_of_larger_token:windowspowershell",
+          "substring_of_larger_token:windowspowershell",
+          "substring_of_larger_token:appvclientpowershell",
+          "substring_of_larger_token:powershellcore",
+          "substring_of_larger_token:powershelltrace",
+          "substring_of_larger_token:powershellcore",
+          "substring_of_larger_token:powershelltrace",
+          "substring_of_larger_token:appvclientpowershell",
+          "substring_of_larger_token:powershellcmdletdefinitionxml",
+          "substring_of_larger_token:powershellxmldata",
+          "substring_of_larger_token:powershellsessionconfiguration",
+          "substring_of_larger_token:windowspowershell",
+          "substring_of_larger_token:windowspowershell",
+          "substring_of_larger_token:reportingpowershell",
+          "substring_of_larger_token:reportingpowershell",
+          "substring_of_larger_token:reportingpowershell",
+          "substring_of_larger_token:reportingpowershell",
+          "substring_of_larger_token:powershellprovider"
+        ],
+        "unknown_samples": []
+      },
+      {
+        "term": "Administrator",
+        "ilike_only_count": 7321,
+        "token_only_count": 0,
+        "sample_classes": [
+          "substring_of_larger_token:administrators",
+          "substring_of_larger_token:administrators",
+          "UNKNOWN",
+          "substring_of_larger_token:behavioroftheelevationpromptforadministratorprotection",
+          "substring_of_larger_token:behavioroftheelevationpromptforadministratorprotection",
+          "substring_of_larger_token:behavioroftheelevationpromptforadministratorprotection",
+          "substring_of_larger_token:behavioroftheelevationpromptforadministratorprotection",
+          "substring_of_larger_token:behavioroftheelevationpromptforadministratorprotection",
+          "substring_of_larger_token:behavioroftheelevationpromptforadministratorprotection",
+          "substring_of_larger_token:behavioroftheelevationpromptforadministratorprotection",
+          "substring_of_larger_token:behavioroftheelevationpromptforadministratorprotection",
+          "substring_of_larger_token:behavioroftheelevationpromptforadministratorprotection",
+          "substring_of_larger_token:hypervadministrators",
+          "substring_of_larger_token:hypervadministrators",
+          "substring_of_larger_token:hypervadministrators",
+          "substring_of_larger_token:hypervadministrators",
+          "substring_of_larger_token:hypervadministrators",
+          "substring_of_larger_token:cmdpromptasadministrator",
+          "substring_of_larger_token:cmdpromptasadministrator",
+          "substring_of_larger_token:cmdpromptasadministrator"
+        ],
+        "unknown_samples": [
+          "Microsoft\\SecurityManager\\CapabilityClasses\\capabilityClass_Windows MemberCapability 7 activityData, applicationDefaults, applicationDefaultsUserChoice, applicationViewActivation, automatedAppLaunch, biometricSystem, bootstrapNetworkConnect"
+        ]
+      },
+      {
+        "term": "svchost",
+        "ilike_only_count": 279,
+        "token_only_count": 0,
+        "sample_classes": [
+          "substring_of_larger_token:svchostsplitthresholdinkb",
+          "substring_of_larger_token:mcsvchost",
+          "substring_of_larger_token:mcsvchost",
+          "substring_of_larger_token:smsvchost",
+          "substring_of_larger_token:smsvchost",
+          "substring_of_larger_token:smsvchost",
+          "substring_of_larger_token:smsvchostperfcounters",
+          "substring_of_larger_token:smsvchost",
+          "substring_of_larger_token:smsvchost",
+          "substring_of_larger_token:svchostsplitdisable",
+          "substring_of_larger_token:smsvchost",
+          "substring_of_larger_token:smsvchost",
+          "substring_of_larger_token:smsvchost",
+          "substring_of_larger_token:smsvchost",
+          "substring_of_larger_token:smsvchost",
+          "substring_of_larger_token:smsvchost",
+          "substring_of_larger_token:smsvchost",
+          "substring_of_larger_token:smsvchost",
+          "substring_of_larger_token:smsvchost",
+          "substring_of_larger_token:smsvchost"
+        ],
+        "unknown_samples": []
+      }
+    ],
+    "7": [
+      {
+        "term": "powershell",
+        "ilike_only_count": 62581,
+        "token_only_count": 0,
+        "sample_classes": [
+          "substring_of_larger_token:powershellwebaccess",
+          "substring_of_larger_token:powershellwebaccess",
+          "substring_of_larger_token:powershellwebaccess",
+          "substring_of_larger_token:powershellwebaccess",
+          "substring_of_larger_token:powershellwebaccess",
+          "substring_of_larger_token:powershellwebaccess",
+          "substring_of_larger_token:powershellwebaccess",
+          "substring_of_larger_token:powershellwebaccess",
+          "substring_of_larger_token:powershellwebaccess",
+          "substring_of_larger_token:powershellwebaccess",
+          "substring_of_larger_token:powershellwebaccess",
+          "substring_of_larger_token:powershellwebaccess",
+          "substring_of_larger_token:powershellwebaccess",
+          "substring_of_larger_token:powershellwebaccess",
+          "substring_of_larger_token:powershellwebaccess",
+          "substring_of_larger_token:powershellwebaccess",
+          "substring_of_larger_token:powershellwebaccess",
+          "substring_of_larger_token:powershellwebaccess",
+          "substring_of_larger_token:powershellwebaccess",
+          "substring_of_larger_token:powershellwebaccess"
+        ],
+        "unknown_samples": []
+      },
+      {
+        "term": "Administrator",
+        "ilike_only_count": 59548,
+        "token_only_count": 0,
+        "sample_classes": [
+          "substring_of_larger_token:hypervadministrators",
+          "substring_of_larger_token:hypervadministrators",
+          "substring_of_larger_token:hypervadministrators",
+          "substring_of_larger_token:administrators",
+          "substring_of_larger_token:administrators",
+          "substring_of_larger_token:administrators",
+          "substring_of_larger_token:administrators",
+          "substring_of_larger_token:administrators",
+          "substring_of_larger_token:administrators",
+          "substring_of_larger_token:administrators",
+          "substring_of_larger_token:administrators",
+          "substring_of_larger_token:behavioroftheelevationpromptforadministratorprotection",
+          "substring_of_larger_token:behavioroftheelevationpromptforadministratorprotection",
+          "substring_of_larger_token:behavioroftheelevationpromptforadministratorprotection",
+          "substring_of_larger_token:behavioroftheelevationpromptforadministratorprotection",
+          "substring_of_larger_token:behavioroftheelevationpromptforadministratorprotection",
+          "substring_of_larger_token:behavioroftheelevationpromptforadministratorprotection",
+          "substring_of_larger_token:behavioroftheelevationpromptforadministratorprotection",
+          "substring_of_larger_token:behavioroftheelevationpromptforadministratorprotection",
+          "substring_of_larger_token:behavioroftheelevationpromptforadministratorprotection"
+        ],
+        "unknown_samples": []
+      }
+    ],
+    "32": [
+      {
+        "term": "powershell",
+        "ilike_only_count": 49324,
+        "token_only_count": 0,
+        "sample_classes": [
+          "substring_of_larger_token:powershellprovider",
+          "substring_of_larger_token:powershellextension",
+          "substring_of_larger_token:powershellextension",
+          "substring_of_larger_token:powershellcmdlets",
+          "substring_of_larger_token:powershellextension",
+          "substring_of_larger_token:powershellextension",
+          "substring_of_larger_token:powershellextension",
+          "substring_of_larger_token:powershellextension",
+          "substring_of_larger_token:powershellextension",
+          "substring_of_larger_token:powershellextension",
+          "substring_of_larger_token:powershellextension",
+          "substring_of_larger_token:powershellextension",
+          "substring_of_larger_token:powershellextension",
+          "substring_of_larger_token:powershellextension",
+          "substring_of_larger_token:powershellextension",
+          "substring_of_larger_token:powershellextension",
+          "substring_of_larger_token:powershellextension",
+          "substring_of_larger_token:powershelltools",
+          "substring_of_larger_token:powershelltools",
+          "substring_of_larger_token:powershelltools"
+        ],
+        "unknown_samples": []
+      },
+      {
+        "term": "Administrator",
+        "ilike_only_count": 41808,
+        "token_only_count": 0,
+        "sample_classes": [
+          "substring_of_larger_token:projsrvpwaadministrator",
+          "substring_of_larger_token:administrators",
+          "substring_of_larger_token:administrators",
+          "substring_of_larger_token:administrators",
+          "substring_of_larger_token:administrators",
+          "substring_of_larger_token:administrators",
+          "substring_of_larger_token:administrators",
+          "substring_of_larger_token:administrators",
+          "substring_of_larger_token:filteradministratortoken",
+          "UNKNOWN",
+          "UNKNOWN",
+          "UNKNOWN",
+          "UNKNOWN",
+          "UNKNOWN",
+          "substring_of_larger_token:administrators",
+          "substring_of_larger_token:administrators",
+          "substring_of_larger_token:administrators",
+          "substring_of_larger_token:administrators",
+          "substring_of_larger_token:administrators",
+          "substring_of_larger_token:administrators"
+        ],
+        "unknown_samples": [
+          "Microsoft\\SecurityManager\\CapabilityClasses\\capabilityClass_Windows MemberCapability 7 activityData, applicationDefaults, applicationViewActivation, automatedAppLaunch, biometricSystem, bootstrapNetworkConnection, browserAppList, browserCre",
+          "Microsoft\\SecurityManager\\CapabilityClasses\\capabilityClass_Windows AllCachedMemberCapability 7 S-1-15-3-715121970-1157172444-427173784-4221709359, activityData, browserCredentials, automatedAppLaunch, backgroundSpatialPerception, bluetooth",
+          "Microsoft\\Windows NT\\CurrentVersion\\Print\\PrinterMigrationEx\\Konika C654e Default DevMode 3 Konika C654eonika C654e,LocalO\u0401\u0100\u00dc\u38a4\ubf0f\u0200\u0001\u0001\u0aea\u086f\u0001\u0007\u04b0\u0002\u0001\u04b0\u00038 1/2x11\u0101\u0002\ucacaCourier NewTimes New Roman \u04b0\u0001\uffff\u0401\u0401\uffff\u0001\u0001\u0401\uffff\u0401\uffff\u0002\u0001\u0001\u00c8\u00c8\u00c8\u00c8\u0001 \u0001\u0401\uffff\u0001\u0001",
+          "Microsoft\\SecurityManager\\CapabilityClasses\\capabilityClass_Windows MemberCapability 7 activityData, applicationDefaults, applicationViewActivation, automatedAppLaunch, biometricSystem, bootstrapNetworkConnection, browserAppList, browserCre",
+          "Microsoft\\SecurityManager\\CapabilityClasses\\capabilityClass_Windows AllCachedMemberCapability 7 S-1-15-3-715121970-1157172444-427173784-4221709359, activityData, browserCredentials, automatedAppLaunch, backgroundSpatialPerception, bluetooth"
+        ]
+      }
+    ]
+  },
+  "ilike_unknown_resolution": "truncated 240-char prefixes; match-window reclassifies as substring_of_larger_token (administrators) or hex-encoded Administrators; token_only_count=0",
+  "substring_parity": {
+    "14": [
+      {
+        "term": "cmd.exe",
+        "class": "SUBSTRING_REQUIRED",
+        "helper_sql": "search_blob ilike {simple_0_txt:String}",
+        "erk_a_only": 0,
+        "erk_b_only": 0,
+        "exact_parity": true
+      },
+      {
+        "term": "10.0.0.1",
+        "class": "SUBSTRING_REQUIRED",
+        "helper_sql": "search_blob ilike {simple_0_txt:String}",
+        "erk_a_only": 0,
+        "erk_b_only": 0,
+        "exact_parity": true
+      },
+      {
+        "term": "host.domain.local",
+        "class": "SUBSTRING_REQUIRED",
+        "helper_sql": "search_blob ilike {simple_0_txt:String}",
+        "erk_a_only": 0,
+        "erk_b_only": 0,
+        "exact_parity": true
+      },
+      {
+        "term": "\\Windows\\System32\\cmd.exe",
+        "class": "SUBSTRING_REQUIRED",
+        "helper_sql": "search_blob ilike {simple_0_txt:String}",
+        "erk_a_only": 0,
+        "erk_b_only": 0,
+        "exact_parity": true
+      },
+      {
+        "term": "\"Windows PowerShell\"",
+        "class": "SUBSTRING_REQUIRED",
+        "helper_sql": "search_blob ilike {simple_0_txt:String}",
+        "erk_a_only": 0,
+        "erk_b_only": 0,
+        "exact_parity": true
+      },
+      {
+        "term": "\"vchos\"",
+        "class": "SUBSTRING_REQUIRED",
+        "helper_sql": "search_blob ilike {simple_0_txt:String}",
+        "erk_a_only": 0,
+        "erk_b_only": 0,
+        "exact_parity": true
+      }
+    ],
+    "10": [
+      {
+        "term": "cmd.exe",
+        "class": "SUBSTRING_REQUIRED",
+        "helper_sql": "search_blob ilike {simple_0_txt:String}",
+        "erk_a_only": 0,
+        "erk_b_only": 0,
+        "exact_parity": true
+      },
+      {
+        "term": "10.0.0.1",
+        "class": "SUBSTRING_REQUIRED",
+        "helper_sql": "search_blob ilike {simple_0_txt:String}",
+        "erk_a_only": 0,
+        "erk_b_only": 0,
+        "exact_parity": true
+      },
+      {
+        "term": "host.domain.local",
+        "class": "SUBSTRING_REQUIRED",
+        "helper_sql": "search_blob ilike {simple_0_txt:String}",
+        "erk_a_only": 0,
+        "erk_b_only": 0,
+        "exact_parity": true
+      },
+      {
+        "term": "\\Windows\\System32\\cmd.exe",
+        "class": "SUBSTRING_REQUIRED",
+        "helper_sql": "search_blob ilike {simple_0_txt:String}",
+        "erk_a_only": 0,
+        "erk_b_only": 0,
+        "exact_parity": true
+      },
+      {
+        "term": "\"Windows PowerShell\"",
+        "class": "SUBSTRING_REQUIRED",
+        "helper_sql": "search_blob ilike {simple_0_txt:String}",
+        "erk_a_only": 0,
+        "erk_b_only": 0,
+        "exact_parity": true
+      },
+      {
+        "term": "\"vchos\"",
+        "class": "SUBSTRING_REQUIRED",
+        "helper_sql": "search_blob ilike {simple_0_txt:String}",
+        "erk_a_only": 0,
+        "erk_b_only": 0,
+        "exact_parity": true
+      }
+    ],
+    "7": [
+      {
+        "term": "cmd.exe",
+        "class": "SUBSTRING_REQUIRED",
+        "helper_sql": "search_blob ilike {simple_0_txt:String}",
+        "erk_a_only": 0,
+        "erk_b_only": 0,
+        "exact_parity": true
+      },
+      {
+        "term": "10.0.0.1",
+        "class": "SUBSTRING_REQUIRED",
+        "helper_sql": "search_blob ilike {simple_0_txt:String}",
+        "erk_a_only": 0,
+        "erk_b_only": 0,
+        "exact_parity": true
+      },
+      {
+        "term": "host.domain.local",
+        "class": "SUBSTRING_REQUIRED",
+        "helper_sql": "search_blob ilike {simple_0_txt:String}",
+        "erk_a_only": 0,
+        "erk_b_only": 0,
+        "exact_parity": true
+      },
+      {
+        "term": "\\Windows\\System32\\cmd.exe",
+        "class": "SUBSTRING_REQUIRED",
+        "helper_sql": "search_blob ilike {simple_0_txt:String}",
+        "erk_a_only": 0,
+        "erk_b_only": 0,
+        "exact_parity": true
+      },
+      {
+        "term": "\"Windows PowerShell\"",
+        "class": "SUBSTRING_REQUIRED",
+        "helper_sql": "search_blob ilike {simple_0_txt:String}",
+        "erk_a_only": 0,
+        "erk_b_only": 0,
+        "exact_parity": true
+      },
+      {
+        "term": "\"vchos\"",
+        "class": "SUBSTRING_REQUIRED",
+        "helper_sql": "search_blob ilike {simple_0_txt:String}",
+        "erk_a_only": 0,
+        "erk_b_only": 0,
+        "exact_parity": true
+      }
+    ],
+    "32": [
+      {
+        "term": "cmd.exe",
+        "class": "SUBSTRING_REQUIRED",
+        "helper_sql": "search_blob ilike {simple_0_txt:String}",
+        "erk_a_only": 0,
+        "erk_b_only": 0,
+        "exact_parity": true
+      },
+      {
+        "term": "10.0.0.1",
+        "class": "SUBSTRING_REQUIRED",
+        "helper_sql": "search_blob ilike {simple_0_txt:String}",
+        "erk_a_only": 0,
+        "erk_b_only": 0,
+        "exact_parity": true
+      },
+      {
+        "term": "host.domain.local",
+        "class": "SUBSTRING_REQUIRED",
+        "helper_sql": "search_blob ilike {simple_0_txt:String}",
+        "erk_a_only": 0,
+        "erk_b_only": 0,
+        "exact_parity": true
+      },
+      {
+        "term": "\\Windows\\System32\\cmd.exe",
+        "class": "SUBSTRING_REQUIRED",
+        "helper_sql": "search_blob ilike {simple_0_txt:String}",
+        "erk_a_only": 0,
+        "erk_b_only": 0,
+        "exact_parity": true
+      },
+      {
+        "term": "\"Windows PowerShell\"",
+        "class": "SUBSTRING_REQUIRED",
+        "helper_sql": "search_blob ilike {simple_0_txt:String}",
+        "erk_a_only": 0,
+        "erk_b_only": 0,
+        "exact_parity": true
+      },
+      {
+        "term": "\"vchos\"",
+        "class": "SUBSTRING_REQUIRED",
+        "helper_sql": "search_blob ilike {simple_0_txt:String}",
+        "erk_a_only": 0,
+        "erk_b_only": 0,
+        "exact_parity": true
+      }
+    ]
+  },
+  "explain": {
+    "14": {
+      "token_term": "sonicwall",
+      "token_uses_idx_search_blob_text": true,
+      "token_uses_direct_read": true,
+      "token_scan_lower": false,
+      "token_explain_excerpt": "Output: count()\n\nAggregating\n\u2502  Keys:\n\u2502  Aggregates: count()\n\u2502  Skip merging: 0\n\u2514\u2500\u2500ReadFromMergeTree (casescope.events)\n      Read type: Default\n      Parts: 1 | Granules: 1\n      Output: Empty\n      Prewhere filter\n      Prewhere filter column:  case_id = 14 AND __text_index_idx_search_blob_text_hasAllTokens_4968337be4750de62cc3715836e51ab3\n      Indexes:\n        Min-Max\n          Keys:\n            case_id\n          Condition: (case_id in [14, 14])\n          Parts: 1/135\n          Granules: 1/148018\n        Partition\n          Keys:\n            case_id\n          Condition: (case_id in [14, 14])\n          Parts: 1/1\n          Granules: 1/1\n        PrimaryKey\n          Keys:\n            case_id\n          Condition: (case_id in [14, 14])\n          Parts: 1/1\n          Granules: 1/1\n          Search Algorithm: binary search\n        Skip\n          Name: idx_search_blob_text\n          Description: text GRANULARITY 100000000\n          Condition: (mode: All; tokens: [\"sonicwall\"])\n          Parts: 1/1\n          Granules: 1/1\n        Ranges: 1",
+      "substring_explain_excerpt": "Output: count()\n\nAggregating\n\u2502  Keys:\n\u2502  Aggregates: count()\n\u2502  Skip merging: 0\n\u2514\u2500\u2500ReadFromMergeTree (casescope.events)\n      Read type: Default\n      Parts: 1 | Granules: 1\n      Output: Empty\n      Prewhere filter\n      Prewhere filter column:  case_id = 14 AND search_blob ILIKE '%cmd.exe%'\n      Indexes:\n        Min-Max\n          Keys:\n            case_id\n          Condition: (case_id in [14, 14])\n          Parts: 1/135\n          Granules: 1/148018\n        Partition\n          Keys:\n            case_id\n          Condition: (case_id in [14, 14])\n          Parts: 1/1\n          Granules: 1/1"
+    },
+    "10": {
+      "token_term": "powershell",
+      "token_uses_idx_search_blob_text": true,
+      "token_uses_direct_read": true,
+      "token_scan_lower": false,
+      "token_explain_excerpt": "Output: count()\n\nAggregating\n\u2502  Keys:\n\u2502  Aggregates: count()\n\u2502  Skip merging: 0\n\u2514\u2500\u2500ReadFromMergeTree (casescope.events)\n      Read type: Default\n      Parts: 2 | Granules: 274\n      Output: Empty\n      Prewhere filter\n      Prewhere filter column:  case_id = 10 AND __text_index_idx_search_blob_text_hasAllTokens_e54b45757fcbe742caf8a80a5063acc3\n      Indexes:\n        Min-Max\n          Keys:\n            case_id\n          Condition: (case_id in [10, 10])\n          Parts: 3/135\n          Granules: 482/148018\n        Partition\n          Keys:\n            case_id\n          Condition: (case_id in [10, 10])\n          Parts: 3/3\n          Granules: 482/482\n        PrimaryKey\n          Keys:\n            case_id\n          Condition: (case_id in [10, 10])\n          Parts: 3/3\n          Granules: 482/482\n          Search Algorithm: binary search\n        Skip\n          Name: idx_search_blob_text\n          Description: text GRANULARITY 100000000\n          Condition: (mode: All; tokens: [\"powershell\"])\n          Parts: 2/3\n          Granules: 274/482\n        Ranges: 60",
+      "substring_explain_excerpt": "Output: count()\n\nAggregating\n\u2502  Keys:\n\u2502  Aggregates: count()\n\u2502  Skip merging: 0\n\u2514\u2500\u2500ReadFromMergeTree (casescope.events)\n      Read type: Default\n      Parts: 3 | Granules: 482\n      Output: Empty\n      Prewhere filter\n      Prewhere filter column:  case_id = 10 AND search_blob ILIKE '%cmd.exe%'\n      Indexes:\n        Min-Max\n          Keys:\n            case_id\n          Condition: (case_id in [10, 10])\n          Parts: 3/135\n          Granules: 482/148018\n        Partition\n          Keys:\n            case_id\n          Condition: (case_id in [10, 10])\n          Parts: 3/3\n          Granules: 482/482"
+    },
+    "7": {
+      "token_term": "powershell",
+      "token_uses_idx_search_blob_text": true,
+      "token_uses_direct_read": true,
+      "token_scan_lower": false,
+      "token_explain_excerpt": "Output: count()\n\nAggregating\n\u2502  Keys:\n\u2502  Aggregates: count()\n\u2502  Skip merging: 0\n\u2514\u2500\u2500ReadFromMergeTree (casescope.events)\n      Read type: Default\n      Parts: 4 | Granules: 15009\n      Output: Empty\n      Prewhere filter\n      Prewhere filter column:  case_id = 7 AND __text_index_idx_search_blob_text_hasAllTokens_e54b45757fcbe742caf8a80a5063acc3\n      Indexes:\n        Min-Max\n          Keys:\n            case_id\n          Condition: (case_id in [7, 7])\n          Parts: 5/135\n          Granules: 28038/148018\n        Partition\n          Keys:\n            case_id\n          Condition: (case_id in [7, 7])\n          Parts: 5/5\n          Granules: 28038/28038\n        PrimaryKey\n          Keys:\n            case_id\n          Condition: (case_id in [7, 7])\n          Parts: 5/5\n          Granules: 28038/28038\n          Search Algorithm: binary search\n        Skip\n          Name: idx_search_blob_text\n          Description: text GRANULARITY 100000000\n          Condition: (mode: All; tokens: [\"powershell\"])\n          Parts: 4/5\n          Granules: 15009/28038\n        Ranges: 2033",
+      "substring_explain_excerpt": "Output: count()\n\nAggregating\n\u2502  Keys:\n\u2502  Aggregates: count()\n\u2502  Skip merging: 0\n\u2514\u2500\u2500ReadFromMergeTree (casescope.events)\n      Read type: Default\n      Parts: 5 | Granules: 28038\n      Output: Empty\n      Prewhere filter\n      Prewhere filter column:  case_id = 7 AND search_blob ILIKE '%cmd.exe%'\n      Indexes:\n        Min-Max\n          Keys:\n            case_id\n          Condition: (case_id in [7, 7])\n          Parts: 5/135\n          Granules: 28038/148018\n        Partition\n          Keys:\n            case_id\n          Condition: (case_id in [7, 7])\n          Parts: 5/5\n          Granules: 28038/28038"
+    },
+    "32": {
+      "token_term": "powershell",
+      "token_uses_idx_search_blob_text": true,
+      "token_uses_direct_read": true,
+      "token_scan_lower": false,
+      "token_explain_excerpt": "Output: count()\n\nAggregating\n\u2502  Keys:\n\u2502  Aggregates: count()\n\u2502  Skip merging: 0\n\u2514\u2500\u2500ReadFromMergeTree (casescope.events)\n      Read type: Default\n      Parts: 14 | Granules: 21854\n      Output: Empty\n      Prewhere filter\n      Prewhere filter column:  case_id = 32 AND __text_index_idx_search_blob_text_hasAllTokens_e54b45757fcbe742caf8a80a5063acc3\n      Indexes:\n        Min-Max\n          Keys:\n            case_id\n          Condition: (case_id in [32, 32])\n          Parts: 14/135\n          Granules: 35535/148018\n        Partition\n          Keys:\n            case_id\n          Condition: (case_id in [32, 32])\n          Parts: 14/14\n          Granules: 35535/35535\n        PrimaryKey\n          Keys:\n            case_id\n          Condition: (case_id in [32, 32])\n          Parts: 14/14\n          Granules: 35535/35535\n          Search Algorithm: binary search\n        Skip\n          Name: idx_search_blob_text\n          Description: text GRANULARITY 100000000\n          Condition: (mode: All; tokens: [\"powershell\"])\n          Parts: 14/14\n          Granules: 21854/35535\n        Ranges: 3302",
+      "substring_explain_excerpt": "Output: count()\n\nAggregating\n\u2502  Keys:\n\u2502  Aggregates: count()\n\u2502  Skip merging: 0\n\u2514\u2500\u2500ReadFromMergeTree (casescope.events)\n      Read type: Default\n      Parts: 14 | Granules: 35535\n      Output: Empty\n      Prewhere filter\n      Prewhere filter column:  case_id = 32 AND search_blob ILIKE '%cmd.exe%'\n      Indexes:\n        Min-Max\n          Keys:\n            case_id\n          Condition: (case_id in [32, 32])\n          Parts: 14/135\n          Granules: 35535/148018\n        Partition\n          Keys:\n            case_id\n          Condition: (case_id in [32, 32])\n          Parts: 14/14\n          Granules: 35535/35535"
+    }
+  },
+  "performance": {
+    "14": [
+      {
+        "term": "sonicwall",
+        "kind": "TOKEN_SAFE",
+        "old_ilike": {
+          "p50_ms": 9.191812947392464,
+          "p95_ms": 11.019994504749775,
+          "samples": [
+            {
+              "wall_ms": 11.019994504749775,
+              "count": 13,
+              "read_rows": 1341,
+              "read_bytes": 6705,
+              "elapsed_ns": 9260279,
+              "query_id": "8efcedf5-d716-4abd-9703-f7d426daecb4"
+            },
+            {
+              "wall_ms": 9.321204386651516,
+              "count": 13,
+              "read_rows": 1341,
+              "read_bytes": 6705,
+              "elapsed_ns": 7738040,
+              "query_id": "ecb61f6b-9daf-4d12-a399-64618b70ecd9"
+            },
+            {
+              "wall_ms": 9.365458972752094,
+              "count": 13,
+              "read_rows": 1341,
+              "read_bytes": 6705,
+              "elapsed_ns": 7766115,
+              "query_id": "cd8ca9f0-70ad-4ce5-97fd-1a95458be478"
+            },
+            {
+              "wall_ms": 9.191812947392464,
+              "count": 13,
+              "read_rows": 1341,
+              "read_bytes": 6705,
+              "elapsed_ns": 7614971,
+              "query_id": "107b0b12-ceca-448e-a958-35ac5174284c"
+            },
+            {
+              "wall_ms": 9.586023166775703,
+              "count": 13,
+              "read_rows": 1341,
+              "read_bytes": 6705,
+              "elapsed_ns": 8026376,
+              "query_id": "a206200f-e8cd-4868-98fb-23b9ce127409"
+            },
+            {
+              "wall_ms": 9.023626334965229,
+              "count": 13,
+              "read_rows": 1341,
+              "read_bytes": 6705,
+              "elapsed_ns": 7503439,
+              "query_id": "e16edc28-6262-44a3-abcf-0e619238c63a"
+            },
+            {
+              "wall_ms": 8.441933430731297,
+              "count": 13,
+              "read_rows": 1341,
+              "read_bytes": 6705,
+              "elapsed_ns": 7004898,
+              "query_id": "e345e69b-5e63-4cbd-a962-0d19b60d93a6"
+            },
+            {
+              "wall_ms": 8.6455587297678,
+              "count": 13,
+              "read_rows": 1341,
+              "read_bytes": 6705,
+              "elapsed_ns": 7195800,
+              "query_id": "0d0ffff0-b695-4740-bd6f-c27986d8351a"
+            },
+            {
+              "wall_ms": 8.765878155827522,
+              "count": 13,
+              "read_rows": 1341,
+              "read_bytes": 6705,
+              "elapsed_ns": 7294969,
+              "query_id": "717ce5d2-dde1-43ef-93db-4bec9ee19b17"
+            }
+          ],
+          "result_count": 13,
+          "read_rows_p50": 1341,
+          "read_bytes_p50": 6705
+        },
+        "new_token": {
+          "p50_ms": 7.709340192377567,
+          "p95_ms": 8.778810501098633,
+          "samples": [
+            {
+              "wall_ms": 8.096473291516304,
+              "count": 13,
+              "read_rows": 1341,
+              "read_bytes": 6705,
+              "elapsed_ns": 6658807,
+              "query_id": "b70c9af7-122d-47f8-9aa9-5667186fde5e"
+            },
+            {
+              "wall_ms": 8.011938072741032,
+              "count": 13,
+              "read_rows": 1341,
+              "read_bytes": 6705,
+              "elapsed_ns": 6543655,
+              "query_id": "a8668e89-6a2a-4bbc-9d1f-17543ada89a8"
+            },
+            {
+              "wall_ms": 7.709340192377567,
+              "count": 13,
+              "read_rows": 1341,
+              "read_bytes": 6705,
+              "elapsed_ns": 6302628,
+              "query_id": "1d5da5b6-edba-49fe-bc9f-18e493fa829b"
+            },
+            {
+              "wall_ms": 8.778810501098633,
+              "count": 13,
+              "read_rows": 1341,
+              "read_bytes": 6705,
+              "elapsed_ns": 7367404,
+              "query_id": "dd4a9016-06c7-42bf-b993-a2adfff20ec9"
+            },
+            {
+              "wall_ms": 7.8117139637470245,
+              "count": 13,
+              "read_rows": 1341,
+              "read_bytes": 6705,
+              "elapsed_ns": 6416512,
+              "query_id": "9b1b3186-e886-42ea-9222-e716569b8a05"
+            },
+            {
+              "wall_ms": 7.549125701189041,
+              "count": 13,
+              "read_rows": 1341,
+              "read_bytes": 6705,
+              "elapsed_ns": 6205912,
+              "query_id": "de69b2c9-7c4a-41d0-8883-23e831d3b663"
+            },
+            {
+              "wall_ms": 7.495712488889694,
+              "count": 13,
+              "read_rows": 1341,
+              "read_bytes": 6705,
+              "elapsed_ns": 6121639,
+              "query_id": "888665ec-d87a-4534-8cc8-3b4fa0b3254d"
+            },
+            {
+              "wall_ms": 7.464871741831303,
+              "count": 13,
+              "read_rows": 1341,
+              "read_bytes": 6705,
+              "elapsed_ns": 6024240,
+              "query_id": "760cd55a-ef52-449e-b549-bb76adfa3132"
+            },
+            {
+              "wall_ms": 7.670526392757893,
+              "count": 13,
+              "read_rows": 1341,
+              "read_bytes": 6705,
+              "elapsed_ns": 6133940,
+              "query_id": "7293fc35-5236-41e7-9567-6005b7094d54"
+            }
+          ],
+          "result_count": 13,
+          "read_rows_p50": 1341,
+          "read_bytes_p50": 6705
+        }
+      },
+      {
+        "term": "SonicWall",
+        "kind": "TOKEN_SAFE",
+        "old_ilike": {
+          "p50_ms": 8.705911226570606,
+          "p95_ms": 13.81511241197586,
+          "samples": [
+            {
+              "wall_ms": 8.5903974249959,
+              "count": 13,
+              "read_rows": 1341,
+              "read_bytes": 6705,
+              "elapsed_ns": 7135788,
+              "query_id": "d57299fe-b1d7-4292-8760-0bece3888363"
+            },
+            {
+              "wall_ms": 8.537538349628448,
+              "count": 13,
+              "read_rows": 1341,
+              "read_bytes": 6705,
+              "elapsed_ns": 7086270,
+              "query_id": "e1a1dddc-3917-4d66-89bf-c58f673cd338"
+            },
+            {
+              "wall_ms": 8.37426446378231,
+              "count": 13,
+              "read_rows": 1341,
+              "read_bytes": 6705,
+              "elapsed_ns": 7003425,
+              "query_id": "0c252eae-7fe1-4f09-85a5-12544f11a209"
+            },
+            {
+              "wall_ms": 9.466302581131458,
+              "count": 13,
+              "read_rows": 1341,
+              "read_bytes": 6705,
+              "elapsed_ns": 8005052,
+              "query_id": "9fe78000-34ba-4cce-bcbb-b57b9d9dbdd3"
+            },
+            {
+              "wall_ms": 8.812256157398224,
+              "count": 13,
+              "read_rows": 1341,
+              "read_bytes": 6705,
+              "elapsed_ns": 7257143,
+              "query_id": "81fc4e87-e4d5-4667-8ae2-98a2f3ae0d99"
+            },
+            {
+              "wall_ms": 8.622461929917336,
+              "count": 13,
+              "read_rows": 1341,
+              "read_bytes": 6705,
+              "elapsed_ns": 7160753,
+              "query_id": "d2269364-bac2-4594-af46-1531d3c80778"
+            },
+            {
+              "wall_ms": 13.81511241197586,
+              "count": 13,
+              "read_rows": 1341,
+              "read_bytes": 6705,
+              "elapsed_ns": 10747095,
+              "query_id": "794b0bb2-eda4-4c61-b324-6b5fa0fa8d1c"
+            },
+            {
+              "wall_ms": 9.0708676725626,
+              "count": 13,
+              "read_rows": 1341,
+              "read_bytes": 6705,
+              "elapsed_ns": 7483209,
+              "query_id": "aa220a60-6dc1-4ca6-9c1f-ca731a8038c3"
+            },
+            {
+              "wall_ms": 8.705911226570606,
+              "count": 13,
+              "read_rows": 1341,
+              "read_bytes": 6705,
+              "elapsed_ns": 7227321,
+              "query_id": "927b7460-b762-4bb7-8431-c681812fc0be"
+            }
+          ],
+          "result_count": 13,
+          "read_rows_p50": 1341,
+          "read_bytes_p50": 6705
+        },
+        "new_token": {
+          "p50_ms": 6.847020238637924,
+          "p95_ms": 7.892288267612457,
+          "samples": [
+            {
+              "wall_ms": 7.507628761231899,
+              "count": 13,
+              "read_rows": 1341,
+              "read_bytes": 6705,
+              "elapsed_ns": 6127474,
+              "query_id": "b14eb9b9-0837-4f4f-a706-0c01ce90067e"
+            },
+            {
+              "wall_ms": 7.892288267612457,
+              "count": 13,
+              "read_rows": 1341,
+              "read_bytes": 6705,
+              "elapsed_ns": 6360371,
+              "query_id": "98fa457c-48ff-400b-9647-dc194548081b"
+            },
+            {
+              "wall_ms": 7.040150463581085,
+              "count": 13,
+              "read_rows": 1341,
+              "read_bytes": 6705,
+              "elapsed_ns": 5695897,
+              "query_id": "9348ad41-7e51-4e59-9b56-5976dc3ce36b"
+            },
+            {
+              "wall_ms": 6.980937905609608,
+              "count": 13,
+              "read_rows": 1341,
+              "read_bytes": 6705,
+              "elapsed_ns": 5688428,
+              "query_id": "abf6cc95-4680-4d4f-8845-e66cbd47bb83"
+            },
+            {
+              "wall_ms": 6.6943662241101265,
+              "count": 13,
+              "read_rows": 1341,
+              "read_bytes": 6705,
+              "elapsed_ns": 5421279,
+              "query_id": "3dba2467-1ca2-4103-bb62-f995c8682f79"
+            },
+            {
+              "wall_ms": 6.7511508241295815,
+              "count": 13,
+              "read_rows": 1341,
+              "read_bytes": 6705,
+              "elapsed_ns": 5448391,
+              "query_id": "11171c4c-0656-49a4-ba3e-96e4e34bd8d8"
+            },
+            {
+              "wall_ms": 6.683415733277798,
+              "count": 13,
+              "read_rows": 1341,
+              "read_bytes": 6705,
+              "elapsed_ns": 5365647,
+              "query_id": "3ad6c5f9-4e12-4897-a3aa-2c4eec94e5b1"
+            },
+            {
+              "wall_ms": 6.425234489142895,
+              "count": 13,
+              "read_rows": 1341,
+              "read_bytes": 6705,
+              "elapsed_ns": 5182625,
+              "query_id": "65793d49-d3e5-4fb1-b998-0279928fdbab"
+            },
+            {
+              "wall_ms": 6.847020238637924,
+              "count": 13,
+              "read_rows": 1341,
+              "read_bytes": 6705,
+              "elapsed_ns": 5430552,
+              "query_id": "de1be4e8-bd4f-4ab9-8785-bfb398383fd6"
+            }
+          ],
+          "result_count": 13,
+          "read_rows_p50": 1341,
+          "read_bytes_p50": 6705
+        }
+      },
+      {
+        "term": "cmd.exe",
+        "kind": "SUBSTRING_REQUIRED",
+        "old_ilike": {
+          "p50_ms": 5.668574944138527,
+          "p95_ms": 7.210112176835537,
+          "samples": [
+            {
+              "wall_ms": 6.6704461351037025,
+              "count": 0,
+              "read_rows": 0,
+              "read_bytes": 0,
+              "elapsed_ns": 5066527,
+              "query_id": "09483276-7671-4b25-b9e4-3926381c722a"
+            },
+            {
+              "wall_ms": 7.210112176835537,
+              "count": 0,
+              "read_rows": 0,
+              "read_bytes": 0,
+              "elapsed_ns": 4823551,
+              "query_id": "5040082e-6823-4d6d-a425-ac1b9240563e"
+            },
+            {
+              "wall_ms": 6.31317961961031,
+              "count": 0,
+              "read_rows": 0,
+              "read_bytes": 0,
+              "elapsed_ns": 4721717,
+              "query_id": "b396ac9f-35cf-47e0-9a68-da796d8cbf6a"
+            },
+            {
+              "wall_ms": 5.782397463917732,
+              "count": 0,
+              "read_rows": 0,
+              "read_bytes": 0,
+              "elapsed_ns": 4217992,
+              "query_id": "1e29c38b-68cc-4c12-9626-742fd90dadec"
+            },
+            {
+              "wall_ms": 5.668574944138527,
+              "count": 0,
+              "read_rows": 0,
+              "read_bytes": 0,
+              "elapsed_ns": 4134708,
+              "query_id": "2132b8c3-582c-4609-8860-9ea84a32be61"
+            },
+            {
+              "wall_ms": 5.5466219782829285,
+              "count": 0,
+              "read_rows": 0,
+              "read_bytes": 0,
+              "elapsed_ns": 4081110,
+              "query_id": "f81bffa1-4da2-40a8-8f64-5fcdda3efdf3"
+            },
+            {
+              "wall_ms": 5.532115697860718,
+              "count": 0,
+              "read_rows": 0,
+              "read_bytes": 0,
+              "elapsed_ns": 4005200,
+              "query_id": "0cc7f68e-dfc1-4960-93ac-40be119540e2"
+            },
+            {
+              "wall_ms": 5.517859011888504,
+              "count": 0,
+              "read_rows": 0,
+              "read_bytes": 0,
+              "elapsed_ns": 4064924,
+              "query_id": "f8f4d687-9c83-4bcd-9e91-a8a6cf079bb4"
+            },
+            {
+              "wall_ms": 5.522820167243481,
+              "count": 0,
+              "read_rows": 0,
+              "read_bytes": 0,
+              "elapsed_ns": 4044669,
+              "query_id": "5d686fdd-80f6-4d01-994f-ca4bb959de39"
+            }
+          ],
+          "result_count": 0,
+          "read_rows_p50": 0,
+          "read_bytes_p50": 0
+        },
+        "new_helper": {
+          "p50_ms": 5.181102082133293,
+          "p95_ms": 5.439735949039459,
+          "samples": [
+            {
+              "wall_ms": 5.439735949039459,
+              "count": 0,
+              "read_rows": 0,
+              "read_bytes": 0,
+              "elapsed_ns": 3962007,
+              "query_id": "6b5054a9-19c0-4533-8f70-41f56876be41"
+            },
+            {
+              "wall_ms": 5.3191762417554855,
+              "count": 0,
+              "read_rows": 0,
+              "read_bytes": 0,
+              "elapsed_ns": 3893881,
+              "query_id": "c9cc92bf-7ff3-4473-b05b-cdf65e82c171"
+            },
+            {
+              "wall_ms": 5.1924558356404305,
+              "count": 0,
+              "read_rows": 0,
+              "read_bytes": 0,
+              "elapsed_ns": 3738539,
+              "query_id": "c5e7fb8c-7ca1-43de-a638-9e33501db3d5"
+            },
+            {
+              "wall_ms": 5.120326764881611,
+              "count": 0,
+              "read_rows": 0,
+              "read_bytes": 0,
+              "elapsed_ns": 3688559,
+              "query_id": "bcf0f03a-a4ce-4b6f-9a2c-96d487306f0a"
+            },
+            {
+              "wall_ms": 5.080262199044228,
+              "count": 0,
+              "read_rows": 0,
+              "read_bytes": 0,
+              "elapsed_ns": 3662370,
+              "query_id": "b349f31d-583b-479a-98ff-6b39034bc3e6"
+            },
+            {
+              "wall_ms": 5.137170664966106,
+              "count": 0,
+              "read_rows": 0,
+              "read_bytes": 0,
+              "elapsed_ns": 3717336,
+              "query_id": "55552fcc-ee8d-467f-985a-49353f94b453"
+            },
+            {
+              "wall_ms": 5.181102082133293,
+              "count": 0,
+              "read_rows": 0,
+              "read_bytes": 0,
+              "elapsed_ns": 3742355,
+              "query_id": "63e8b3aa-5320-4457-8c89-8f0094e43d54"
+            },
+            {
+              "wall_ms": 5.212685093283653,
+              "count": 0,
+              "read_rows": 0,
+              "read_bytes": 0,
+              "elapsed_ns": 3759955,
+              "query_id": "f6f274eb-5c4c-4a0e-9698-776f77f6ae8e"
+            },
+            {
+              "wall_ms": 5.121614784002304,
+              "count": 0,
+              "read_rows": 0,
+              "read_bytes": 0,
+              "elapsed_ns": 3658914,
+              "query_id": "262c2387-a8d1-41c3-8f6f-5d81beb93d4f"
+            }
+          ],
+          "result_count": 0,
+          "read_rows_p50": 0,
+          "read_bytes_p50": 0
+        }
+      }
+    ],
+    "10": [
+      {
+        "term": "powershell",
+        "kind": "TOKEN_SAFE",
+        "old_ilike": {
+          "p50_ms": 102.27687563747168,
+          "p95_ms": 113.17007802426815,
+          "samples": [
+            {
+              "wall_ms": 100.84671154618263,
+              "count": 19995,
+              "read_rows": 1408843,
+              "read_bytes": 7044215,
+              "elapsed_ns": 98645888,
+              "query_id": "a61f8f04-7641-47ad-bf01-822fbdb89381"
+            },
+            {
+              "wall_ms": 102.27687563747168,
+              "count": 19995,
+              "read_rows": 1408843,
+              "read_bytes": 7044215,
+              "elapsed_ns": 100403178,
+              "query_id": "7488843e-7520-41aa-bb6c-58161899541d"
+            },
+            {
+              "wall_ms": 102.26332396268845,
+              "count": 19995,
+              "read_rows": 1408843,
+              "read_bytes": 7044215,
+              "elapsed_ns": 100422930,
+              "query_id": "b4c8fa13-ead6-4ce0-b965-bc28e58d9583"
+            },
+            {
+              "wall_ms": 104.68714125454426,
+              "count": 19995,
+              "read_rows": 1408843,
+              "read_bytes": 7044215,
+              "elapsed_ns": 102773407,
+              "query_id": "27a26a0a-e55a-44e3-98c4-5acedd543953"
+            },
+            {
+              "wall_ms": 106.71145655214787,
+              "count": 19995,
+              "read_rows": 1408843,
+              "read_bytes": 7044215,
+              "elapsed_ns": 104844639,
+              "query_id": "3d8b30d6-9009-40e4-947d-f80f2dc9ac64"
+            },
+            {
+              "wall_ms": 102.12805215269327,
+              "count": 19995,
+              "read_rows": 1408843,
+              "read_bytes": 7044215,
+              "elapsed_ns": 100298097,
+              "query_id": "a6735e99-306b-4b99-b958-4bff613d5569"
+            },
+            {
+              "wall_ms": 106.31428100168705,
+              "count": 19995,
+              "read_rows": 1408843,
+              "read_bytes": 7044215,
+              "elapsed_ns": 104542154,
+              "query_id": "5a9fbd34-cde9-480f-ac09-61b91f8e3b5d"
+            },
+            {
+              "wall_ms": 113.17007802426815,
+              "count": 19995,
+              "read_rows": 1408843,
+              "read_bytes": 7044215,
+              "elapsed_ns": 111208601,
+              "query_id": "5fa338d2-d82d-4a96-80c1-d17badcd17c9"
+            },
+            {
+              "wall_ms": 99.36538059264421,
+              "count": 19995,
+              "read_rows": 1408843,
+              "read_bytes": 7044215,
+              "elapsed_ns": 97466449,
+              "query_id": "3ed7b993-5b54-4d99-92cc-c86521c39e58"
+            }
+          ],
+          "result_count": 19995,
+          "read_rows_p50": 1408843,
+          "read_bytes_p50": 7044215
+        },
+        "new_token": {
+          "p50_ms": 11.697199195623398,
+          "p95_ms": 343.85325107723475,
+          "samples": [
+            {
+              "wall_ms": 11.262264102697372,
+              "count": 19455,
+              "read_rows": 1391279,
+              "read_bytes": 6956395,
+              "elapsed_ns": 9574465,
+              "query_id": "9ff2b7df-072a-4725-865b-2e9146a7d8f1"
+            },
+            {
+              "wall_ms": 10.834875516593456,
+              "count": 19455,
+              "read_rows": 1391279,
+              "read_bytes": 6956395,
+              "elapsed_ns": 9031916,
+              "query_id": "1f8c1985-bedd-4768-adbb-88610da22360"
+            },
+            {
+              "wall_ms": 14.39402811229229,
+              "count": 19455,
+              "read_rows": 1391279,
+              "read_bytes": 6956395,
+              "elapsed_ns": 12710408,
+              "query_id": "6f4c958a-d5a1-4a18-b081-972100ac7f27"
+            },
+            {
+              "wall_ms": 10.379040613770485,
+              "count": 19455,
+              "read_rows": 1391279,
+              "read_bytes": 6956395,
+              "elapsed_ns": 8691195,
+              "query_id": "42a8a945-702d-49f5-8919-f2b2332f2cf3"
+            },
+            {
+              "wall_ms": 10.140568017959595,
+              "count": 19455,
+              "read_rows": 1391279,
+              "read_bytes": 6956395,
+              "elapsed_ns": 8508622,
+              "query_id": "9893177c-c0b9-4fe2-8772-f8c4dfc4838e"
+            },
+            {
+              "wall_ms": 343.85325107723475,
+              "count": 19455,
+              "read_rows": 1391279,
+              "read_bytes": 6956395,
+              "elapsed_ns": 342079572,
+              "query_id": "a1edf038-f17c-43e5-abd5-4966fafb000c"
+            },
+            {
+              "wall_ms": 12.542997486889362,
+              "count": 19455,
+              "read_rows": 1391279,
+              "read_bytes": 6956395,
+              "elapsed_ns": 9804371,
+              "query_id": "4446c08e-6bab-4ab5-a49a-4fd4901c73ef"
+            },
+            {
+              "wall_ms": 12.7652483060956,
+              "count": 19455,
+              "read_rows": 1391279,
+              "read_bytes": 6956395,
+              "elapsed_ns": 10922215,
+              "query_id": "d3a076f5-814c-428a-a983-f798f1fb25e4"
+            },
+            {
+              "wall_ms": 11.697199195623398,
+              "count": 19455,
+              "read_rows": 1391279,
+              "read_bytes": 6956395,
+              "elapsed_ns": 9954457,
+              "query_id": "dbfbe7a6-6088-44a5-b2b7-d60be5607cbc"
+            }
+          ],
+          "result_count": 19455,
+          "read_rows_p50": 1391279,
+          "read_bytes_p50": 6956395
+        }
+      },
+      {
+        "term": "PowerShell",
+        "kind": "TOKEN_SAFE",
+        "old_ilike": {
+          "p50_ms": 101.85437928885221,
+          "p95_ms": 104.64690066874027,
+          "samples": [
+            {
+              "wall_ms": 100.34131538122892,
+              "count": 19995,
+              "read_rows": 1408843,
+              "read_bytes": 7044215,
+              "elapsed_ns": 98471085,
+              "query_id": "c0f9b8d3-6b26-4936-a909-c00f6ab5395c"
+            },
+            {
+              "wall_ms": 98.28412439674139,
+              "count": 19995,
+              "read_rows": 1408843,
+              "read_bytes": 7044215,
+              "elapsed_ns": 96578593,
+              "query_id": "25c19618-1e61-41c4-a768-6734bb269977"
+            },
+            {
+              "wall_ms": 104.64690066874027,
+              "count": 19995,
+              "read_rows": 1408843,
+              "read_bytes": 7044215,
+              "elapsed_ns": 102811418,
+              "query_id": "3d66d6a1-6ce9-4a02-9dd2-093eece19937"
+            },
+            {
+              "wall_ms": 100.6771819666028,
+              "count": 19995,
+              "read_rows": 1408843,
+              "read_bytes": 7044215,
+              "elapsed_ns": 98830195,
+              "query_id": "e8fe90fb-9dff-458a-8b46-635fb8dd12c9"
+            },
+            {
+              "wall_ms": 101.85437928885221,
+              "count": 19995,
+              "read_rows": 1408843,
+              "read_bytes": 7044215,
+              "elapsed_ns": 100108877,
+              "query_id": "7647b3c4-881f-40de-adeb-50eb9ee1aff2"
+            },
+            {
+              "wall_ms": 102.85722557455301,
+              "count": 19995,
+              "read_rows": 1408843,
+              "read_bytes": 7044215,
+              "elapsed_ns": 101102228,
+              "query_id": "6127607d-764f-423b-acc5-1c28cc0abc6d"
+            },
+            {
+              "wall_ms": 103.21083478629589,
+              "count": 19995,
+              "read_rows": 1408843,
+              "read_bytes": 7044215,
+              "elapsed_ns": 101345924,
+              "query_id": "fc306e94-150c-48d5-a14f-0a767b755f82"
+            },
+            {
+              "wall_ms": 102.36198175698519,
+              "count": 19995,
+              "read_rows": 1408843,
+              "read_bytes": 7044215,
+              "elapsed_ns": 100617903,
+              "query_id": "745c32f0-1e67-4544-a24a-f4754d00962d"
+            },
+            {
+              "wall_ms": 100.55295005440712,
+              "count": 19995,
+              "read_rows": 1408843,
+              "read_bytes": 7044215,
+              "elapsed_ns": 98754454,
+              "query_id": "5d383588-94c4-418b-8a41-35a08af8024f"
+            }
+          ],
+          "result_count": 19995,
+          "read_rows_p50": 1408843,
+          "read_bytes_p50": 7044215
+        },
+        "new_token": {
+          "p50_ms": 11.562026105821133,
+          "p95_ms": 12.419932521879673,
+          "samples": [
+            {
+              "wall_ms": 11.73711009323597,
+              "count": 19455,
+              "read_rows": 1391279,
+              "read_bytes": 6956395,
+              "elapsed_ns": 10026696,
+              "query_id": "23e9704c-e09f-4747-a82c-689a811fec9a"
+            },
+            {
+              "wall_ms": 11.397168971598148,
+              "count": 19455,
+              "read_rows": 1391279,
+              "read_bytes": 6956395,
+              "elapsed_ns": 9659744,
+              "query_id": "6e988cf6-d253-405e-a3c8-53207c2424c2"
+            },
+            {
+              "wall_ms": 11.935713700950146,
+              "count": 19455,
+              "read_rows": 1391279,
+              "read_bytes": 6956395,
+              "elapsed_ns": 10090947,
+              "query_id": "ea7e9c9e-d6b6-4063-8a91-b577d5a6e02c"
+            },
+            {
+              "wall_ms": 11.562026105821133,
+              "count": 19455,
+              "read_rows": 1391279,
+              "read_bytes": 6956395,
+              "elapsed_ns": 9661521,
+              "query_id": "52346f9f-8556-464e-a872-3774b2bfd4e9"
+            },
+            {
+              "wall_ms": 11.324349790811539,
+              "count": 19455,
+              "read_rows": 1391279,
+              "read_bytes": 6956395,
+              "elapsed_ns": 9512269,
+              "query_id": "975b63d7-1ff5-4ecd-b7f8-70ee383cb3ac"
+            },
+            {
+              "wall_ms": 11.011451482772827,
+              "count": 19455,
+              "read_rows": 1391279,
+              "read_bytes": 6956395,
+              "elapsed_ns": 9203188,
+              "query_id": "49bf0160-3a5b-46c1-803c-7250fd150d40"
+            },
+            {
+              "wall_ms": 11.55304815620184,
+              "count": 19455,
+              "read_rows": 1391279,
+              "read_bytes": 6956395,
+              "elapsed_ns": 9686221,
+              "query_id": "4ae2ba98-7ed8-475e-8b4e-598153436fa9"
+            },
+            {
+              "wall_ms": 11.601091362535954,
+              "count": 19455,
+              "read_rows": 1391279,
+              "read_bytes": 6956395,
+              "elapsed_ns": 9661085,
+              "query_id": "4267ce11-023e-4e6f-9b66-e7286adee03f"
+            },
+            {
+              "wall_ms": 12.419932521879673,
+              "count": 19455,
+              "read_rows": 1391279,
+              "read_bytes": 6956395,
+              "elapsed_ns": 10642167,
+              "query_id": "ab8aae5c-58f6-4176-86b5-a8912f7ed2e5"
+            }
+          ],
+          "result_count": 19455,
+          "read_rows_p50": 1391279,
+          "read_bytes_p50": 6956395
+        }
+      },
+      {
+        "term": "cmd.exe",
+        "kind": "SUBSTRING_REQUIRED",
+        "old_ilike": {
+          "p50_ms": 96.0618332028389,
+          "p95_ms": 118.73901635408401,
+          "samples": [
+            {
+              "wall_ms": 118.73901635408401,
+              "count": 3025,
+              "read_rows": 727386,
+              "read_bytes": 224796183,
+              "elapsed_ns": 116880813,
+              "query_id": "0f92079d-82c0-4196-93cb-7acde960d4d0"
+            },
+            {
+              "wall_ms": 107.58249275386333,
+              "count": 3025,
+              "read_rows": 727386,
+              "read_bytes": 224796183,
+              "elapsed_ns": 105739381,
+              "query_id": "2b612597-ede5-4176-8e22-0c94cdd78a43"
+            },
+            {
+              "wall_ms": 91.51034615933895,
+              "count": 3025,
+              "read_rows": 727386,
+              "read_bytes": 224796183,
+              "elapsed_ns": 89649004,
+              "query_id": "1756273b-bb1f-4cde-bb73-b43d2d060e9b"
+            },
+            {
+              "wall_ms": 108.89189410954714,
+              "count": 3025,
+              "read_rows": 727386,
+              "read_bytes": 224796183,
+              "elapsed_ns": 107095728,
+              "query_id": "8508be6a-f853-425a-bf54-96d75c42ae01"
+            },
+            {
+              "wall_ms": 85.02407465130091,
+              "count": 3025,
+              "read_rows": 727386,
+              "read_bytes": 224796183,
+              "elapsed_ns": 83204504,
+              "query_id": "c27ac8cf-881d-4ef2-8d77-01262f46435f"
+            },
+            {
+              "wall_ms": 88.07060867547989,
+              "count": 3025,
+              "read_rows": 727386,
+              "read_bytes": 224796183,
+              "elapsed_ns": 86317062,
+              "query_id": "44dca1ad-6f28-4412-a940-fe751ad7a95e"
+            },
+            {
+              "wall_ms": 96.86318226158619,
+              "count": 3025,
+              "read_rows": 727386,
+              "read_bytes": 224796183,
+              "elapsed_ns": 95075057,
+              "query_id": "1783ed36-4a26-4b3a-adbd-1b25ec1f761e"
+            },
+            {
+              "wall_ms": 86.50434389710426,
+              "count": 3025,
+              "read_rows": 727386,
+              "read_bytes": 224796183,
+              "elapsed_ns": 84744291,
+              "query_id": "781b9228-b412-4537-bc97-2b2295529d12"
+            },
+            {
+              "wall_ms": 96.0618332028389,
+              "count": 3025,
+              "read_rows": 727386,
+              "read_bytes": 224796183,
+              "elapsed_ns": 94219400,
+              "query_id": "82993458-014e-42dd-8809-4f8836d42eec"
+            }
+          ],
+          "result_count": 3025,
+          "read_rows_p50": 727386,
+          "read_bytes_p50": 224796183
+        },
+        "new_helper": {
+          "p50_ms": 91.50754194706678,
+          "p95_ms": 123.97856544703245,
+          "samples": [
+            {
+              "wall_ms": 91.50754194706678,
+              "count": 3025,
+              "read_rows": 727386,
+              "read_bytes": 224796183,
+              "elapsed_ns": 89595044,
+              "query_id": "b956442b-8535-4d4d-a29f-ce4a61d8f3c4"
+            },
+            {
+              "wall_ms": 86.32422145456076,
+              "count": 3025,
+              "read_rows": 727386,
+              "read_bytes": 224796183,
+              "elapsed_ns": 84407094,
+              "query_id": "f039544e-d77a-477c-931f-03b9c1fdcefa"
+            },
+            {
+              "wall_ms": 123.97856544703245,
+              "count": 3025,
+              "read_rows": 727386,
+              "read_bytes": 224796183,
+              "elapsed_ns": 122029123,
+              "query_id": "c643291e-cecc-4a0f-b1cb-250b539db42e"
+            },
+            {
+              "wall_ms": 86.46383695304394,
+              "count": 3025,
+              "read_rows": 727386,
+              "read_bytes": 224796183,
+              "elapsed_ns": 84568569,
+              "query_id": "7d247957-7663-4e1f-825a-059044284e8d"
+            },
+            {
+              "wall_ms": 92.64243394136429,
+              "count": 3025,
+              "read_rows": 727386,
+              "read_bytes": 224796183,
+              "elapsed_ns": 90720594,
+              "query_id": "88765d84-207c-4967-99b3-c82b97edaed4"
+            },
+            {
+              "wall_ms": 120.17877027392387,
+              "count": 3025,
+              "read_rows": 727386,
+              "read_bytes": 224796183,
+              "elapsed_ns": 118065187,
+              "query_id": "8bc0cd2c-2a8e-49e3-bb6e-096c3f369497"
+            },
+            {
+              "wall_ms": 85.64910292625427,
+              "count": 3025,
+              "read_rows": 727386,
+              "read_bytes": 224796183,
+              "elapsed_ns": 83758375,
+              "query_id": "b6bf4bcb-18cb-4693-a1e0-d41387d8bb08"
+            },
+            {
+              "wall_ms": 94.56711914390326,
+              "count": 3025,
+              "read_rows": 727386,
+              "read_bytes": 224796183,
+              "elapsed_ns": 92523557,
+              "query_id": "b044c9da-a591-4836-890c-5505d0ae3c9a"
+            },
+            {
+              "wall_ms": 88.2425969466567,
+              "count": 3025,
+              "read_rows": 727386,
+              "read_bytes": 224796183,
+              "elapsed_ns": 86413847,
+              "query_id": "4aceaa34-530a-4fd4-8a19-97ad13e3b47c"
+            }
+          ],
+          "result_count": 3025,
+          "read_rows_p50": 727386,
+          "read_bytes_p50": 224796183
+        }
+      }
+    ],
+    "7": [
+      {
+        "term": "powershell",
+        "kind": "TOKEN_SAFE",
+        "old_ilike": {
+          "p50_ms": 9144.541559740901,
+          "p95_ms": 9412.247069180012,
+          "samples": [
+            {
+              "wall_ms": 9082.428624853492,
+              "count": 767934,
+              "read_rows": 138998980,
+              "read_bytes": 471304860,
+              "elapsed_ns": 9079354906,
+              "query_id": "3275018e-19b2-45f9-b939-74f87b30ca70"
+            },
+            {
+              "wall_ms": 9270.401075482368,
+              "count": 767934,
+              "read_rows": 138998980,
+              "read_bytes": 471304860,
+              "elapsed_ns": 9268545065,
+              "query_id": "adbb8d35-3b8c-42ac-b4b0-11a35af87424"
+            },
+            {
+              "wall_ms": 9412.247069180012,
+              "count": 767934,
+              "read_rows": 138998980,
+              "read_bytes": 471304860,
+              "elapsed_ns": 9410304152,
+              "query_id": "800c3892-ed57-4391-9c17-c80e9d0912c1"
+            },
+            {
+              "wall_ms": 9173.940087668598,
+              "count": 767934,
+              "read_rows": 138998980,
+              "read_bytes": 471304860,
+              "elapsed_ns": 9171954795,
+              "query_id": "88c64093-dc38-4ebb-ab81-5d0328c33726"
+            },
+            {
+              "wall_ms": 9144.541559740901,
+              "count": 767934,
+              "read_rows": 138998980,
+              "read_bytes": 471304860,
+              "elapsed_ns": 9142690500,
+              "query_id": "2e1ac260-2cfc-42fd-9d9a-7dde1e0e7963"
+            },
+            {
+              "wall_ms": 9211.21717710048,
+              "count": 767934,
+              "read_rows": 138998980,
+              "read_bytes": 471304860,
+              "elapsed_ns": 9209196672,
+              "query_id": "4468927c-4f8d-40d4-962b-59ca2f806ea4"
+            },
+            {
+              "wall_ms": 9110.886137001216,
+              "count": 767934,
+              "read_rows": 138998980,
+              "read_bytes": 471304860,
+              "elapsed_ns": 9108360898,
+              "query_id": "c478ea88-c33a-41b4-a7a3-f1a89701f0ab"
+            },
+            {
+              "wall_ms": 9113.912704400718,
+              "count": 767934,
+              "read_rows": 138998980,
+              "read_bytes": 471304860,
+              "elapsed_ns": 9111997623,
+              "query_id": "5432b432-7856-4ba1-9c5d-335fa6cf19e4"
+            },
+            {
+              "wall_ms": 8886.970836669207,
+              "count": 767934,
+              "read_rows": 138998980,
+              "read_bytes": 471304860,
+              "elapsed_ns": 8885065148,
+              "query_id": "005a68cd-3c2a-4e30-80fb-3e8f252be9f3"
+            }
+          ],
+          "result_count": 767934,
+          "read_rows_p50": 138998980,
+          "read_bytes_p50": 471304860
+        },
+        "new_token": {
+          "p50_ms": 55.34133315086365,
+          "p95_ms": 58.95816721022129,
+          "samples": [
+            {
+              "wall_ms": 58.95816721022129,
+              "count": 705353,
+              "read_rows": 70967069,
+              "read_bytes": 354835345,
+              "elapsed_ns": 57094278,
+              "query_id": "988e65de-669f-4447-891c-3acbc414424e"
+            },
+            {
+              "wall_ms": 57.8356022015214,
+              "count": 705353,
+              "read_rows": 70967069,
+              "read_bytes": 354835345,
+              "elapsed_ns": 55889956,
+              "query_id": "4946ccda-b43c-4b78-bb07-60235ac86276"
+            },
+            {
+              "wall_ms": 55.34133315086365,
+              "count": 705353,
+              "read_rows": 70967069,
+              "read_bytes": 354835345,
+              "elapsed_ns": 53521307,
+              "query_id": "933e40b8-0b92-482b-9a8f-8642204ee8f6"
+            },
+            {
+              "wall_ms": 57.11947847157717,
+              "count": 705353,
+              "read_rows": 70967069,
+              "read_bytes": 354835345,
+              "elapsed_ns": 55166216,
+              "query_id": "5ed2bdb8-e153-406b-b43e-8ed8c6b79c95"
+            },
+            {
+              "wall_ms": 55.966480635106564,
+              "count": 705353,
+              "read_rows": 70967069,
+              "read_bytes": 354835345,
+              "elapsed_ns": 54044362,
+              "query_id": "84fbaa17-e8f5-41cc-aea8-7c2e3542faf5"
+            },
+            {
+              "wall_ms": 52.89082229137421,
+              "count": 705353,
+              "read_rows": 70967069,
+              "read_bytes": 354835345,
+              "elapsed_ns": 51008594,
+              "query_id": "7e64df9d-4613-4ba0-a0a3-4b71688fc12a"
+            },
+            {
+              "wall_ms": 53.26891504228115,
+              "count": 705353,
+              "read_rows": 70967069,
+              "read_bytes": 354835345,
+              "elapsed_ns": 51405661,
+              "query_id": "e6a81da3-ea4d-4172-ba32-c2b6dc655024"
+            },
+            {
+              "wall_ms": 46.242416836321354,
+              "count": 705353,
+              "read_rows": 70967069,
+              "read_bytes": 354835345,
+              "elapsed_ns": 44348252,
+              "query_id": "c6b78c29-b427-4152-8fc6-4a40f301a49d"
+            },
+            {
+              "wall_ms": 43.80177892744541,
+              "count": 705353,
+              "read_rows": 70967069,
+              "read_bytes": 354835345,
+              "elapsed_ns": 42039054,
+              "query_id": "2fdb68ba-1f47-4665-88ec-cc5bc03c8543"
+            }
+          ],
+          "result_count": 705353,
+          "read_rows_p50": 70967069,
+          "read_bytes_p50": 354835345
+        }
+      },
+      {
+        "term": "Administrator",
+        "kind": "TOKEN_SAFE",
+        "old_ilike": {
+          "p50_ms": 3690.6144274398685,
+          "p95_ms": 3769.798420369625,
+          "samples": [
+            {
+              "wall_ms": 3769.798420369625,
+              "count": 86648,
+              "read_rows": 26517641,
+              "read_bytes": 132588205,
+              "elapsed_ns": 3767772704,
+              "query_id": "66f4af2d-8667-478c-a17a-97bd0c2024ce"
+            },
+            {
+              "wall_ms": 3687.8691241145134,
+              "count": 86648,
+              "read_rows": 26517641,
+              "read_bytes": 132588205,
+              "elapsed_ns": 3685811189,
+              "query_id": "c4c5c1c7-2353-46e3-8c85-089ea0b1eaa6"
+            },
+            {
+              "wall_ms": 3667.9513519629836,
+              "count": 86648,
+              "read_rows": 26517641,
+              "read_bytes": 132588205,
+              "elapsed_ns": 3665851184,
+              "query_id": "3a6d8417-c99b-43cb-a572-5fbc1c09fddf"
+            },
+            {
+              "wall_ms": 3684.3062583357096,
+              "count": 86648,
+              "read_rows": 26517641,
+              "read_bytes": 132588205,
+              "elapsed_ns": 3681829868,
+              "query_id": "5699b884-6202-42d1-b1ec-a7fa543f77d5"
+            },
+            {
+              "wall_ms": 3752.01238039881,
+              "count": 86648,
+              "read_rows": 26517641,
+              "read_bytes": 132588205,
+              "elapsed_ns": 3750199343,
+              "query_id": "dac48be0-3ee9-4f7d-aa33-17cbd124e188"
+            },
+            {
+              "wall_ms": 3684.961565770209,
+              "count": 86648,
+              "read_rows": 26517641,
+              "read_bytes": 132588205,
+              "elapsed_ns": 3683102113,
+              "query_id": "7155e9fe-972c-4a6f-8026-39b7aa9431b5"
+            },
+            {
+              "wall_ms": 3700.5492839962244,
+              "count": 86648,
+              "read_rows": 26517641,
+              "read_bytes": 132588205,
+              "elapsed_ns": 3698571891,
+              "query_id": "01679474-b5e1-4d3a-a9dc-b54d03ca322a"
+            },
+            {
+              "wall_ms": 3764.481373131275,
+              "count": 86648,
+              "read_rows": 26517641,
+              "read_bytes": 132588205,
+              "elapsed_ns": 3762679133,
+              "query_id": "eb1d06b3-a12d-43d8-bb01-5a8e4084c9d5"
+            },
+            {
+              "wall_ms": 3690.6144274398685,
+              "count": 86648,
+              "read_rows": 26517641,
+              "read_bytes": 132588205,
+              "elapsed_ns": 3688690923,
+              "query_id": "527a7da8-8f1f-42f4-923b-ab96dee0cc7c"
+            }
+          ],
+          "result_count": 86648,
+          "read_rows_p50": 26517641,
+          "read_bytes_p50": 132588205
+        },
+        "new_token": {
+          "p50_ms": 29.051468707621098,
+          "p95_ms": 31.34821355342865,
+          "samples": [
+            {
+              "wall_ms": 29.295356944203377,
+              "count": 27100,
+              "read_rows": 24271730,
+              "read_bytes": 121358650,
+              "elapsed_ns": 27493102,
+              "query_id": "e03c6ca2-761d-4897-95ba-925c6e3d8904"
+            },
+            {
+              "wall_ms": 29.051468707621098,
+              "count": 27100,
+              "read_rows": 24271730,
+              "read_bytes": 121358650,
+              "elapsed_ns": 27261022,
+              "query_id": "db199648-e744-45eb-82e2-fc87c4014ba3"
+            },
+            {
+              "wall_ms": 28.73295545578003,
+              "count": 27100,
+              "read_rows": 24271730,
+              "read_bytes": 121358650,
+              "elapsed_ns": 26883426,
+              "query_id": "b8d6b16c-8575-42b7-9fef-f99118997265"
+            },
+            {
+              "wall_ms": 28.195109218358994,
+              "count": 27100,
+              "read_rows": 24271730,
+              "read_bytes": 121358650,
+              "elapsed_ns": 26420064,
+              "query_id": "4183583b-6247-444c-888a-abdba28de4cd"
+            },
+            {
+              "wall_ms": 28.31386588513851,
+              "count": 27100,
+              "read_rows": 24271730,
+              "read_bytes": 121358650,
+              "elapsed_ns": 26527464,
+              "query_id": "03555969-83e8-40e2-b113-c1c4bfd20c8d"
+            },
+            {
+              "wall_ms": 28.454740531742573,
+              "count": 27100,
+              "read_rows": 24271730,
+              "read_bytes": 121358650,
+              "elapsed_ns": 26704013,
+              "query_id": "88000830-67f6-486d-87ff-a614d9332afc"
+            },
+            {
+              "wall_ms": 29.283432289958,
+              "count": 27100,
+              "read_rows": 24271730,
+              "read_bytes": 121358650,
+              "elapsed_ns": 27372005,
+              "query_id": "c3bb839e-66f2-4614-bf8d-243ef4b6c565"
+            },
+            {
+              "wall_ms": 29.50766682624817,
+              "count": 27100,
+              "read_rows": 24271730,
+              "read_bytes": 121358650,
+              "elapsed_ns": 27738098,
+              "query_id": "51eafa8b-79e6-4e68-93f5-38607bb4ce84"
+            },
+            {
+              "wall_ms": 31.34821355342865,
+              "count": 27100,
+              "read_rows": 24271730,
+              "read_bytes": 121358650,
+              "elapsed_ns": 29476282,
+              "query_id": "9efe45fc-d419-4dc7-9fb6-266fa336c03d"
+            }
+          ],
+          "result_count": 27100,
+          "read_rows_p50": 24271730,
+          "read_bytes_p50": 121358650
+        }
+      },
+      {
+        "term": "cmd.exe",
+        "kind": "SUBSTRING_REQUIRED",
+        "old_ilike": {
+          "p50_ms": 2870.7498386502266,
+          "p95_ms": 2980.5968534201384,
+          "samples": [
+            {
+              "wall_ms": 2870.7498386502266,
+              "count": 883843,
+              "read_rows": 38353014,
+              "read_bytes": 15130272018,
+              "elapsed_ns": 2868585053,
+              "query_id": "81d2f143-f1cc-482d-9251-05983fc5ca3a"
+            },
+            {
+              "wall_ms": 2975.6058622151613,
+              "count": 883843,
+              "read_rows": 38000897,
+              "read_bytes": 15074627741,
+              "elapsed_ns": 2973113404,
+              "query_id": "41f886ca-1b8d-48a1-8465-1cf112c748b7"
+            },
+            {
+              "wall_ms": 2980.5968534201384,
+              "count": 883843,
+              "read_rows": 37832228,
+              "read_bytes": 15044830933,
+              "elapsed_ns": 2978835379,
+              "query_id": "5ebbd4b4-8778-47be-af4e-421170ef0215"
+            },
+            {
+              "wall_ms": 2925.227837637067,
+              "count": 883843,
+              "read_rows": 37732626,
+              "read_bytes": 15023502227,
+              "elapsed_ns": 2923359000,
+              "query_id": "00121378-39fb-4023-9ae1-ec8f4744a548"
+            },
+            {
+              "wall_ms": 2748.9018831402063,
+              "count": 883843,
+              "read_rows": 37642858,
+              "read_bytes": 15008421679,
+              "elapsed_ns": 2746970078,
+              "query_id": "451b4458-48e6-4387-a2a7-0e98c91fbff7"
+            },
+            {
+              "wall_ms": 2833.415917120874,
+              "count": 883843,
+              "read_rows": 37606847,
+              "read_bytes": 14999317299,
+              "elapsed_ns": 2831547951,
+              "query_id": "637dc135-db4b-4fff-8ac3-3093992109b1"
+            },
+            {
+              "wall_ms": 2883.2092909142375,
+              "count": 883843,
+              "read_rows": 37575729,
+              "read_bytes": 14993405723,
+              "elapsed_ns": 2881300590,
+              "query_id": "c9eea75b-6c77-4ff2-80ae-531a3841118e"
+            },
+            {
+              "wall_ms": 2857.476149685681,
+              "count": 883843,
+              "read_rows": 37523334,
+              "read_bytes": 14980298545,
+              "elapsed_ns": 2855652739,
+              "query_id": "469daaff-84d7-4023-8b5f-490a766087bf"
+            },
+            {
+              "wall_ms": 2857.774361036718,
+              "count": 883843,
+              "read_rows": 37483808,
+              "read_bytes": 14970452431,
+              "elapsed_ns": 2855731047,
+              "query_id": "b9076eab-44e7-4f75-943b-cf2c8f4d11c9"
+            }
+          ],
+          "result_count": 883843,
+          "read_rows_p50": 37642858,
+          "read_bytes_p50": 15008421679
+        },
+        "new_helper": {
+          "p50_ms": 2827.0119912922382,
+          "p95_ms": 3038.044722750783,
+          "samples": [
+            {
+              "wall_ms": 2883.5786348208785,
+              "count": 883843,
+              "read_rows": 37469108,
+              "read_bytes": 14966498087,
+              "elapsed_ns": 2881850688,
+              "query_id": "692eaf8a-1c95-43df-af35-65b0aa49d304"
+            },
+            {
+              "wall_ms": 2832.4106140062213,
+              "count": 883843,
+              "read_rows": 37464702,
+              "read_bytes": 14965850032,
+              "elapsed_ns": 2830545838,
+              "query_id": "71741e5f-9008-4c32-ae52-7a3f124b7df6"
+            },
+            {
+              "wall_ms": 2848.2714472338557,
+              "count": 883843,
+              "read_rows": 37464702,
+              "read_bytes": 14965850032,
+              "elapsed_ns": 2846414591,
+              "query_id": "ad1e46af-f81c-49a9-a4e9-e0784cfcf545"
+            },
+            {
+              "wall_ms": 2788.095314987004,
+              "count": 883843,
+              "read_rows": 37464702,
+              "read_bytes": 14965850032,
+              "elapsed_ns": 2786231246,
+              "query_id": "c0fba7af-1345-4768-8f34-eeae47188725"
+            },
+            {
+              "wall_ms": 3038.044722750783,
+              "count": 883843,
+              "read_rows": 37464702,
+              "read_bytes": 14965850032,
+              "elapsed_ns": 3036117044,
+              "query_id": "0aec441c-6c3d-4cb3-a935-291479b082c5"
+            },
+            {
+              "wall_ms": 2827.0119912922382,
+              "count": 883843,
+              "read_rows": 37464702,
+              "read_bytes": 14965850032,
+              "elapsed_ns": 2825058308,
+              "query_id": "ef896f3d-b0f7-4012-8c2c-e55fa1bbcf46"
+            },
+            {
+              "wall_ms": 2728.8059256970882,
+              "count": 883843,
+              "read_rows": 37464702,
+              "read_bytes": 14965850032,
+              "elapsed_ns": 2726965512,
+              "query_id": "91571ed2-532d-4668-988c-84742225cfda"
+            },
+            {
+              "wall_ms": 2790.5717846006155,
+              "count": 883843,
+              "read_rows": 37464702,
+              "read_bytes": 14965850032,
+              "elapsed_ns": 2788668153,
+              "query_id": "c23aa2cb-be1f-4f8d-8c75-04bda2a43c44"
+            },
+            {
+              "wall_ms": 2806.144166737795,
+              "count": 883843,
+              "read_rows": 37464702,
+              "read_bytes": 14965850032,
+              "elapsed_ns": 2804125373,
+              "query_id": "47813b10-5379-4958-93b7-3496cf65fab7"
+            }
+          ],
+          "result_count": 883843,
+          "read_rows_p50": 37464702,
+          "read_bytes_p50": 14965850032
+        }
+      }
+    ],
+    "32": [
+      {
+        "term": "powershell",
+        "kind": "TOKEN_SAFE",
+        "old_ilike": {
+          "p50_ms": 6118.0993458256125,
+          "p95_ms": 6169.964433647692,
+          "samples": [
+            {
+              "wall_ms": 6116.986294277012,
+              "count": 989441,
+              "read_rows": 145585182,
+              "read_bytes": 619170782,
+              "elapsed_ns": 6114702540,
+              "query_id": "46ae469e-c3d0-40a5-ad40-fa34a5e1b59e"
+            },
+            {
+              "wall_ms": 6034.073268994689,
+              "count": 989441,
+              "read_rows": 145585182,
+              "read_bytes": 619170782,
+              "elapsed_ns": 6031832454,
+              "query_id": "89361729-10cb-4ad8-968c-0e63983b0e5e"
+            },
+            {
+              "wall_ms": 6125.036703422666,
+              "count": 989441,
+              "read_rows": 145585182,
+              "read_bytes": 619170782,
+              "elapsed_ns": 6122736945,
+              "query_id": "df6f932b-62b4-45aa-a581-9afd0c1fc4b9"
+            },
+            {
+              "wall_ms": 6093.08741800487,
+              "count": 989441,
+              "read_rows": 145585182,
+              "read_bytes": 619170782,
+              "elapsed_ns": 6090694910,
+              "query_id": "b4f5673d-468e-42e3-80f8-bb6807324d47"
+            },
+            {
+              "wall_ms": 6121.065925806761,
+              "count": 989441,
+              "read_rows": 145585182,
+              "read_bytes": 619170782,
+              "elapsed_ns": 6118821757,
+              "query_id": "77bde362-2342-4175-ba81-82ef3338faf0"
+            },
+            {
+              "wall_ms": 6169.964433647692,
+              "count": 989441,
+              "read_rows": 145585182,
+              "read_bytes": 619170782,
+              "elapsed_ns": 6167485015,
+              "query_id": "666f0bf4-3d1b-45a3-9bad-8db8a13511ea"
+            },
+            {
+              "wall_ms": 6142.090396955609,
+              "count": 989441,
+              "read_rows": 145585182,
+              "read_bytes": 619170782,
+              "elapsed_ns": 6139622004,
+              "query_id": "4496950c-ae0e-4bf8-8f3a-a88f3a1e034e"
+            },
+            {
+              "wall_ms": 6108.470605686307,
+              "count": 989441,
+              "read_rows": 145585182,
+              "read_bytes": 619170782,
+              "elapsed_ns": 6106117338,
+              "query_id": "204cf8cd-e619-48b3-93d9-d88a457ee67f"
+            },
+            {
+              "wall_ms": 6118.0993458256125,
+              "count": 989441,
+              "read_rows": 145585182,
+              "read_bytes": 619170782,
+              "elapsed_ns": 6115836892,
+              "query_id": "4c105e60-b9ed-4672-9943-07c9864e00d7"
+            }
+          ],
+          "result_count": 989441,
+          "read_rows_p50": 145585182,
+          "read_bytes_p50": 619170782
+        },
+        "new_token": {
+          "p50_ms": 66.51404220610857,
+          "p95_ms": 75.99578984081745,
+          "samples": [
+            {
+              "wall_ms": 59.06767584383488,
+              "count": 940117,
+              "read_rows": 104812410,
+              "read_bytes": 524062050,
+              "elapsed_ns": 57030534,
+              "query_id": "45a409d9-0cb2-4761-b4e5-54416f8354f5"
+            },
+            {
+              "wall_ms": 62.33453191816807,
+              "count": 940117,
+              "read_rows": 104812410,
+              "read_bytes": 524062050,
+              "elapsed_ns": 60437759,
+              "query_id": "61ee701f-1c72-4b8c-84e7-fb4310f84551"
+            },
+            {
+              "wall_ms": 66.51404220610857,
+              "count": 940117,
+              "read_rows": 104812410,
+              "read_bytes": 524062050,
+              "elapsed_ns": 64619317,
+              "query_id": "92400092-176e-4e0d-9f6e-841e0c908370"
+            },
+            {
+              "wall_ms": 73.91751278191805,
+              "count": 940117,
+              "read_rows": 104812410,
+              "read_bytes": 524062050,
+              "elapsed_ns": 72072052,
+              "query_id": "eb70782d-6f96-4c8e-b0ef-4e1a038ab14b"
+            },
+            {
+              "wall_ms": 69.8535731062293,
+              "count": 940117,
+              "read_rows": 104812410,
+              "read_bytes": 524062050,
+              "elapsed_ns": 67880009,
+              "query_id": "e63412cf-d318-450d-8ef2-26b61f3a9154"
+            },
+            {
+              "wall_ms": 68.30854248255491,
+              "count": 940117,
+              "read_rows": 104812410,
+              "read_bytes": 524062050,
+              "elapsed_ns": 66407365,
+              "query_id": "ed7f812a-88b5-46db-a3b4-4137e1719534"
+            },
+            {
+              "wall_ms": 65.07150642573833,
+              "count": 940117,
+              "read_rows": 104812410,
+              "read_bytes": 524062050,
+              "elapsed_ns": 62853328,
+              "query_id": "c37ad5f4-7820-4258-a13f-bda294cc9f0f"
+            },
+            {
+              "wall_ms": 61.166505329310894,
+              "count": 940117,
+              "read_rows": 104812410,
+              "read_bytes": 524062050,
+              "elapsed_ns": 59329082,
+              "query_id": "a6fbfcec-8bf6-4026-9a12-079b0b1146d3"
+            },
+            {
+              "wall_ms": 75.99578984081745,
+              "count": 940117,
+              "read_rows": 104812410,
+              "read_bytes": 524062050,
+              "elapsed_ns": 72004073,
+              "query_id": "25ebd022-a70a-4523-a4ce-ed798e0a37de"
+            }
+          ],
+          "result_count": 940117,
+          "read_rows_p50": 104812410,
+          "read_bytes_p50": 524062050
+        }
+      },
+      {
+        "term": "Administrator",
+        "kind": "TOKEN_SAFE",
+        "old_ilike": {
+          "p50_ms": 2329.9636766314507,
+          "p95_ms": 2389.546638354659,
+          "samples": [
+            {
+              "wall_ms": 2279.3233478441834,
+              "count": 69766,
+              "read_rows": 27026923,
+              "read_bytes": 135134615,
+              "elapsed_ns": 2277300437,
+              "query_id": "eeaeefd4-25c5-429a-a314-32428f27d6b0"
+            },
+            {
+              "wall_ms": 2389.546638354659,
+              "count": 69766,
+              "read_rows": 27026923,
+              "read_bytes": 135134615,
+              "elapsed_ns": 2387686443,
+              "query_id": "6e733b60-9c27-402c-83a1-6947947c2c2c"
+            },
+            {
+              "wall_ms": 2349.811910651624,
+              "count": 69766,
+              "read_rows": 27026923,
+              "read_bytes": 135134615,
+              "elapsed_ns": 2347993547,
+              "query_id": "c6079220-bab0-49fe-ad43-bf3be89ffac9"
+            },
+            {
+              "wall_ms": 2329.9636766314507,
+              "count": 69766,
+              "read_rows": 27026923,
+              "read_bytes": 135134615,
+              "elapsed_ns": 2328118678,
+              "query_id": "0d10f4aa-f952-43b6-ada9-39bff7284a39"
+            },
+            {
+              "wall_ms": 2322.580355219543,
+              "count": 69766,
+              "read_rows": 27026923,
+              "read_bytes": 135134615,
+              "elapsed_ns": 2320621629,
+              "query_id": "cd2ac755-b9b2-4a19-8d65-8467ac2127a1"
+            },
+            {
+              "wall_ms": 2347.6022370159626,
+              "count": 69766,
+              "read_rows": 27026923,
+              "read_bytes": 135134615,
+              "elapsed_ns": 2345707961,
+              "query_id": "06fe27bc-95be-4312-b4ca-0e31ad110d6b"
+            },
+            {
+              "wall_ms": 2324.1505501791835,
+              "count": 69766,
+              "read_rows": 27026923,
+              "read_bytes": 135134615,
+              "elapsed_ns": 2322080306,
+              "query_id": "0764b38f-3df4-4650-8786-0fc0f1d70f83"
+            },
+            {
+              "wall_ms": 2363.306167535484,
+              "count": 69766,
+              "read_rows": 27026923,
+              "read_bytes": 135134615,
+              "elapsed_ns": 2361518563,
+              "query_id": "3f336189-c844-4f08-be87-ba00d987cd36"
+            },
+            {
+              "wall_ms": 2275.305859744549,
+              "count": 69766,
+              "read_rows": 27026923,
+              "read_bytes": 135134615,
+              "elapsed_ns": 2273294241,
+              "query_id": "a21749c4-d834-42d2-82b2-8e35f96ef12c"
+            }
+          ],
+          "result_count": 69766,
+          "read_rows_p50": 27026923,
+          "read_bytes_p50": 135134615
+        },
+        "new_token": {
+          "p50_ms": 32.184881158173084,
+          "p95_ms": 36.30579821765423,
+          "samples": [
+            {
+              "wall_ms": 36.30579821765423,
+              "count": 27958,
+              "read_rows": 23659402,
+              "read_bytes": 118297010,
+              "elapsed_ns": 34410436,
+              "query_id": "e9231b2c-ce6e-4f27-9d24-f52de738e5e6"
+            },
+            {
+              "wall_ms": 32.51321706920862,
+              "count": 27958,
+              "read_rows": 23659402,
+              "read_bytes": 118297010,
+              "elapsed_ns": 30656126,
+              "query_id": "b5368c67-5f11-476a-a193-8dcd2ca9b318"
+            },
+            {
+              "wall_ms": 32.44858141988516,
+              "count": 27958,
+              "read_rows": 23659402,
+              "read_bytes": 118297010,
+              "elapsed_ns": 30632315,
+              "query_id": "3d6a0328-f733-4498-8eaf-07df40e61a2d"
+            },
+            {
+              "wall_ms": 31.809572130441666,
+              "count": 27958,
+              "read_rows": 23659402,
+              "read_bytes": 118297010,
+              "elapsed_ns": 30000127,
+              "query_id": "eb52c9f1-05f2-4320-a539-16a0ef0d12a3"
+            },
+            {
+              "wall_ms": 31.600190326571465,
+              "count": 27958,
+              "read_rows": 23659402,
+              "read_bytes": 118297010,
+              "elapsed_ns": 29851496,
+              "query_id": "40a46d37-7aa0-4c3a-a8e3-ec4f8cf6b651"
+            },
+            {
+              "wall_ms": 30.63843958079815,
+              "count": 27958,
+              "read_rows": 23659402,
+              "read_bytes": 118297010,
+              "elapsed_ns": 28597606,
+              "query_id": "4805f65c-0fea-46a7-a8c5-1c34ad50c40e"
+            },
+            {
+              "wall_ms": 32.184881158173084,
+              "count": 27958,
+              "read_rows": 23659402,
+              "read_bytes": 118297010,
+              "elapsed_ns": 30351165,
+              "query_id": "099e0d54-a891-44d3-952c-9db03815fd6d"
+            },
+            {
+              "wall_ms": 32.608565874397755,
+              "count": 27958,
+              "read_rows": 23659402,
+              "read_bytes": 118297010,
+              "elapsed_ns": 30748891,
+              "query_id": "c3a4be72-8094-44fd-a087-844165098996"
+            },
+            {
+              "wall_ms": 30.951394699513912,
+              "count": 27958,
+              "read_rows": 23659402,
+              "read_bytes": 118297010,
+              "elapsed_ns": 29146602,
+              "query_id": "f8082a69-b1b0-483c-833c-8fba58f1fd6f"
+            }
+          ],
+          "result_count": 27958,
+          "read_rows_p50": 23659402,
+          "read_bytes_p50": 118297010
+        }
+      },
+      {
+        "term": "cmd.exe",
+        "kind": "SUBSTRING_REQUIRED",
+        "old_ilike": {
+          "p50_ms": 2064.443659968674,
+          "p95_ms": 2378.443917259574,
+          "samples": [
+            {
+              "wall_ms": 2064.443659968674,
+              "count": 104646,
+              "read_rows": 40589191,
+              "read_bytes": 9255339812,
+              "elapsed_ns": 2062701879,
+              "query_id": "5b69a264-9913-40da-a434-bafff6a7456d"
+            },
+            {
+              "wall_ms": 2014.2298629507422,
+              "count": 104646,
+              "read_rows": 40057228,
+              "read_bytes": 9159171818,
+              "elapsed_ns": 2012230983,
+              "query_id": "b4c2c350-5d0f-4bc7-9d66-ac79463642c1"
+            },
+            {
+              "wall_ms": 2028.3477576449513,
+              "count": 104646,
+              "read_rows": 39896769,
+              "read_bytes": 9132155565,
+              "elapsed_ns": 2026338580,
+              "query_id": "ffd1df6d-1d9c-496f-b9a4-9f536059e52c"
+            },
+            {
+              "wall_ms": 2028.1271077692509,
+              "count": 104646,
+              "read_rows": 39783708,
+              "read_bytes": 9111898846,
+              "elapsed_ns": 2026207511,
+              "query_id": "a800a8cc-c3cd-4598-9962-b065d644d6b7"
+            },
+            {
+              "wall_ms": 2043.6727795749903,
+              "count": 104646,
+              "read_rows": 39700702,
+              "read_bytes": 9094781616,
+              "elapsed_ns": 2041770242,
+              "query_id": "2cf1e702-3b2a-418f-9302-74c5fada74c3"
+            },
+            {
+              "wall_ms": 2378.443917259574,
+              "count": 104646,
+              "read_rows": 39668192,
+              "read_bytes": 9084048836,
+              "elapsed_ns": 2376155833,
+              "query_id": "79c5ba7e-0ed5-4f74-9eaa-02e41099ca26"
+            },
+            {
+              "wall_ms": 2196.995665319264,
+              "count": 104646,
+              "read_rows": 39650627,
+              "read_bytes": 9077652521,
+              "elapsed_ns": 2195148315,
+              "query_id": "2badff46-31f1-41e6-9639-15077957be40"
+            },
+            {
+              "wall_ms": 2094.7231659665704,
+              "count": 104646,
+              "read_rows": 39638654,
+              "read_bytes": 9071353921,
+              "elapsed_ns": 2092513994,
+              "query_id": "ee3fafd8-84c8-41be-8fe4-14b0d10d3878"
+            },
+            {
+              "wall_ms": 2117.9607436060905,
+              "count": 104646,
+              "read_rows": 39635933,
+              "read_bytes": 9068662005,
+              "elapsed_ns": 2115928197,
+              "query_id": "b825ea58-6c36-4c37-8f0c-0f7577df23f8"
+            }
+          ],
+          "result_count": 104646,
+          "read_rows_p50": 39700702,
+          "read_bytes_p50": 9094781616
+        },
+        "new_helper": {
+          "p50_ms": 2048.581302165985,
+          "p95_ms": 2138.8829331845045,
+          "samples": [
+            {
+              "wall_ms": 2061.0710754990578,
+              "count": 104646,
+              "read_rows": 39629943,
+              "read_bytes": 9063010634,
+              "elapsed_ns": 2059157309,
+              "query_id": "a0fce71a-1129-472e-8b40-6e2c1175e0f2"
+            },
+            {
+              "wall_ms": 2048.581302165985,
+              "count": 104646,
+              "read_rows": 39629943,
+              "read_bytes": 9063010634,
+              "elapsed_ns": 2046679212,
+              "query_id": "fda1bd6c-5b77-4170-bbea-3eefacd13c4e"
+            },
+            {
+              "wall_ms": 2138.8829331845045,
+              "count": 104646,
+              "read_rows": 39629943,
+              "read_bytes": 9063010634,
+              "elapsed_ns": 2136864667,
+              "query_id": "7db562a7-02fa-49f5-9dd2-e44eb3c8269d"
+            },
+            {
+              "wall_ms": 2063.034084625542,
+              "count": 104646,
+              "read_rows": 39629943,
+              "read_bytes": 9063010634,
+              "elapsed_ns": 2061189549,
+              "query_id": "d189e73c-bf5f-48b5-b496-cc78977941ed"
+            },
+            {
+              "wall_ms": 2039.4797660410404,
+              "count": 104646,
+              "read_rows": 39629943,
+              "read_bytes": 9063010634,
+              "elapsed_ns": 2037544437,
+              "query_id": "fe384d44-e5d9-4014-97b5-9dd00575ca68"
+            },
+            {
+              "wall_ms": 1981.436069123447,
+              "count": 104646,
+              "read_rows": 39629943,
+              "read_bytes": 9063010634,
+              "elapsed_ns": 1979510667,
+              "query_id": "9eadc059-e808-4ea8-b232-1e9b823c4a45"
+            },
+            {
+              "wall_ms": 1983.099389821291,
+              "count": 104646,
+              "read_rows": 39629943,
+              "read_bytes": 9063010634,
+              "elapsed_ns": 1981103235,
+              "query_id": "472d30a2-5eb2-4332-b88c-bdb06ab831e5"
+            },
+            {
+              "wall_ms": 2068.062150850892,
+              "count": 104646,
+              "read_rows": 39629943,
+              "read_bytes": 9063010634,
+              "elapsed_ns": 2066179862,
+              "query_id": "cb4f5f4d-b2c5-42a7-ab9e-e749f80834d6"
+            },
+            {
+              "wall_ms": 1958.3334447816014,
+              "count": 104646,
+              "read_rows": 39629943,
+              "read_bytes": 9063010634,
+              "elapsed_ns": 1956371063,
+              "query_id": "d2960d6b-b0fd-4cce-b107-f0791740a2c7"
+            }
+          ],
+          "result_count": 104646,
+          "read_rows_p50": 39629943,
+          "read_bytes_p50": 9063010634
+        }
+      }
+    ]
+  },
+  "product": {
+    "14": {
+      "search": "sonicwall",
+      "grid_count": 13,
+      "page1": 13,
+      "page2": 0,
+      "page_overlap": 0,
+      "export_count_without_publication": 13,
+      "count_equals_export_on_legacy": true,
+      "detail_from_result": true,
+      "clause": " AND hasAllTokens(search_blob, {simple_0_txt:String})"
+    },
+    "10": {
+      "search": "powershell",
+      "grid_count": 19455,
+      "page1": 50,
+      "page2": 50,
+      "page_overlap": 5,
+      "export_count_without_publication": 19455,
+      "count_equals_export_on_legacy": true,
+      "detail_from_result": true,
+      "clause": " AND hasAllTokens(search_blob, {simple_0_txt:String})"
+    },
+    "7": {
+      "search": "powershell",
+      "grid_count": 705353,
+      "page1": 50,
+      "page2": 50,
+      "page_overlap": 0,
+      "export_count_without_publication": 705353,
+      "count_equals_export_on_legacy": true,
+      "detail_from_result": true,
+      "clause": " AND hasAllTokens(search_blob, {simple_0_txt:String})"
+    },
+    "32": {
+      "search": "powershell",
+      "grid_count": 940117,
+      "page1": 50,
+      "page2": 50,
+      "page_overlap": 0,
+      "export_count_without_publication": 940117,
+      "count_equals_export_on_legacy": true,
+      "detail_from_result": true,
+      "clause": " AND hasAllTokens(search_blob, {simple_0_txt:String})"
+    }
+  },
+  "protocol_legacy_shape": [
+    {
+      "case_id": 7,
+      "rows": 139579161,
+      "all_null_protocol": 139579161
+    },
+    {
+      "case_id": 10,
+      "rows": 2447494,
+      "all_null_protocol": 2447494
+    },
+    {
+      "case_id": 14,
+      "rows": 1341,
+      "all_null_protocol": 1341
+    },
+    {
+      "case_id": 32,
+      "rows": 174899397,
+      "all_null_protocol": 174899397
+    }
+  ],
+  "publication_f2": {
+    "database": "phase2_1c_test",
+    "tests": "tests/test_phase1b_tranche_f2_product_search_publication_gate.py",
+    "result": "8 passed",
+    "token_safe_term": "alpha",
+    "readiness_dtos_changed": false
+  },
+  "regression": {
+    "pytest": "207 passed",
+    "py_compile": true,
+    "pyflakes": true,
+    "git_diff_check": true
+  },
+  "no_later_phase": [
+    "no bloom removal",
+    "no command_line index",
+    "no other search_blob consumer migrations",
+    "no Phase 2.2 insert-mode change",
+    "no Phase 2.3 lightweight UPDATE caller",
+    "no Phase 2.4 dedup",
+    "no Phase 3 ERK API",
+    "no LEK",
+    "no events_current",
+    "no event_observations_current",
+    "no IOC/MITRE/noise authority migration",
+    "no Qdrant identity migration",
+    "Phase 1B publication bridge unchanged"
+  ],
+  "token_false_negative": false,
+  "final_verdict": "PHASE2_1C_PASS"
+}

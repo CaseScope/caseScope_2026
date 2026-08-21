@@ -311,11 +311,19 @@ class BlockNumberOffsetMigrationTests(unittest.TestCase):
 
 
 class ReaderAndFenceBoundaryTests(unittest.TestCase):
-    def test_hunt_term_search_still_uses_ilike(self):
-        source = inspect.getsource(hunting_query_helpers.build_hunting_search_clause)
-        self.assertIn("search_blob ilike", source)
+    def test_hunt_token_cutover_keeps_substring_and_exclusions(self):
+        self.assertIn("hasAllTokens", inspect.getsource(hunting_query_helpers))
+        self.assertIn("hasAnyTokens", inspect.getsource(hunting_query_helpers))
+        self.assertIn("search_blob ilike", inspect.getsource(hunting_query_helpers.build_hunting_search_clause))
+        self.assertNotIn("hasAllTokens(lower(search_blob)", inspect.getsource(hunting_query_helpers))
+        self.assertNotIn("hasAllTokens(lower(e.search_blob)", inspect.getsource(hunting_query_helpers))
+
+    def test_event_detail_match_search_blob_remains_position(self):
+        from routes import hunting as hunting_routes
+
+        source = inspect.getsource(hunting_routes.get_hunting_event_detail)
+        self.assertIn("position(e.search_blob", source)
         self.assertNotIn("hasAllTokens", source)
-        self.assertNotIn("hasAnyTokens", source)
 
     def test_run_events_update_still_exclusive_fenced_classic_mutation(self):
         source = inspect.getsource(run_events_update)

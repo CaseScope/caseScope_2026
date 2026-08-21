@@ -802,11 +802,11 @@ class CoverageActivePartTests(unittest.TestCase):
 
 
 class ProductBoundaryTests(unittest.TestCase):
-    def test_hunt_still_uses_ilike_not_tokens(self):
-        source = inspect.getsource(hunting_query_helpers.build_hunting_search_clause)
+    def test_hunt_substring_and_exclusion_paths_still_use_ilike(self):
+        source = inspect.getsource(hunting_query_helpers)
         self.assertIn("search_blob ilike", source)
-        self.assertNotIn("hasAllTokens", source)
-        self.assertNotIn("hasAnyTokens", source)
+        self.assertIn("hasAllTokens", source)
+        self.assertNotIn("hasAllTokens(lower(search_blob)", source)
 
     def test_script_has_no_all_partitions_default(self):
         source = open(SCRIPT_PATH, encoding="utf-8").read()

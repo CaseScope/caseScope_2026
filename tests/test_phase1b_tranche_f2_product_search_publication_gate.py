@@ -356,6 +356,11 @@ class Phase1BF2ProductSearchPublicationGateTestCase(unittest.TestCase):
             "payload": payload,
         }
 
+    def _product_token_search(self, **kwargs):
+        params = {"search": "alpha"}
+        params.update(kwargs)
+        return self._product_search(params)
+
     def _product_detail(self, selector_key, *, counter=None):
         query = f"/api/hunting/event/detail/{self.case.id}?{urlencode({'selector_key': selector_key})}"
         response = self._request(query, counter=counter)
@@ -483,6 +488,9 @@ class Phase1BF2ProductSearchPublicationGateTestCase(unittest.TestCase):
         observations["A_product_total"] = found["total"]
         self.assertFalse(observations["A_staged_visible"], msg=json.dumps(observations, indent=2))
         self.assertEqual(found["total"], 0)
+        token = self._product_token_search()
+        observations["A_token_safe_total"] = token["total"]
+        self.assertEqual(token["total"], 0)
         self._assert_hidden_selector(staged_selector, "STAGED managed row")
 
         generation = db.session.get(EvidenceSourceGeneration, generation.id)
@@ -504,6 +512,12 @@ class Phase1BF2ProductSearchPublicationGateTestCase(unittest.TestCase):
         observations["B_product_total"] = found["total"]
         self.assertTrue(observations["B_durable_building_initial_searchable"], msg=json.dumps(observations, indent=2))
         self.assertEqual(found["total"], 4)
+        token = self._product_token_search()
+        alpha_first = {blob for blob in first_batch_blobs if "alpha" in blob}
+        observations["B_token_safe_blobs"] = sorted(token["search_blobs"])
+        observations["B_token_safe_searchable_before_eof"] = bool(alpha_first) and alpha_first.issubset(set(token["search_blobs"]))
+        self.assertTrue(observations["B_token_safe_searchable_before_eof"], msg=json.dumps(observations, indent=2))
+        self.assertTrue(set(token["search_blobs"]).issubset(first_batch_blobs))
         self._assert_visible_selector(self._selector_for_blob(next(iter(first_batch_blobs))), "DURABLE BUILDING_INITIAL")
 
         self._ingest_slice(generation, slices[1], batch_ordinal=1, durable=True)
@@ -512,6 +526,9 @@ class Phase1BF2ProductSearchPublicationGateTestCase(unittest.TestCase):
         observations["C_product_total"] = found["total"]
         self.assertTrue(observations["C_second_batch_visible"], msg=json.dumps(observations, indent=2))
         self.assertEqual(found["total"], 8)
+        token = self._product_token_search()
+        observations["C_token_safe_hidden_unrelated"] = not bool(set(token["search_blobs"]) - (first_batch_blobs | second_batch_blobs))
+        self.assertTrue(observations["C_token_safe_hidden_unrelated"])
 
         declare_generation_ingest_complete(
             session=db.session,
@@ -556,6 +573,10 @@ class Phase1BF2ProductSearchPublicationGateTestCase(unittest.TestCase):
         self.assertFalse(observations["D_replacement_visible_before_activation"], msg=json.dumps(observations, indent=2))
         self.assertTrue(observations["D_n_blobs_still_visible"], msg=json.dumps(observations, indent=2))
         self.assertEqual(found["total"], 8)
+        token = self._product_token_search()
+        observations["D_token_safe_replacement_visible"] = bool(set(token["event_ids"]) & replacement_ids)
+        self.assertFalse(observations["D_token_safe_replacement_visible"], msg=json.dumps(observations, indent=2))
+        self.assertTrue(set(token["search_blobs"]).issubset(n_blobs))
         self._assert_hidden_selector(replacement_selector, "BUILDING_REPLACEMENT row")
         self._assert_visible_selector(n_selector, "ACTIVE generation N")
 
@@ -594,6 +615,11 @@ class Phase1BF2ProductSearchPublicationGateTestCase(unittest.TestCase):
             msg=json.dumps(observations, indent=2),
         )
         self.assertEqual(found["total"], 8)
+        token = self._product_token_search()
+        observations["E_token_safe_stale_n_visible"] = bool(set(token["search_blobs"]) & n_blobs)
+        observations["E_token_safe_n1_visible"] = bool(set(token["event_ids"]) & replacement_ids)
+        self.assertFalse(observations["E_token_safe_stale_n_visible"], msg=json.dumps(observations, indent=2))
+        self.assertTrue(observations["E_token_safe_n1_visible"], msg=json.dumps(observations, indent=2))
         self._assert_hidden_selector(n_selector, "SUPERSEDED generation N")
         self._assert_visible_selector(replacement_selector, "ACTIVE generation N+1")
 
@@ -628,6 +654,9 @@ class Phase1BF2ProductSearchPublicationGateTestCase(unittest.TestCase):
         observations["F_n1_still_visible"] = replacement_ids.issubset(set(found["event_ids"]))
         self.assertFalse(observations["F_stale_n_visible"], msg=json.dumps(observations, indent=2))
         self.assertTrue(observations["F_n1_still_visible"], msg=json.dumps(observations, indent=2))
+        token = self._product_token_search()
+        observations["F_token_safe_stale_n_visible"] = bool(set(token["search_blobs"]) & n_blobs)
+        self.assertFalse(observations["F_token_safe_stale_n_visible"], msg=json.dumps(observations, indent=2))
         self._assert_hidden_selector(n_selector, "stale-projection resurrected N")
 
         failures = []
@@ -661,6 +690,10 @@ class Phase1BF2ProductSearchPublicationGateTestCase(unittest.TestCase):
         found = self._product_search()
         self.assertEqual(found["total"], 3)
         self.assertTrue(all(blob.startswith("legacy-only ") for blob in found["search_blobs"]))
+        token = self._product_token_search()
+        self.assertGreater(token["total"], 0)
+        self.assertTrue(all("alpha" in blob for blob in token["search_blobs"]))
+        self.assertTrue(all(blob.startswith("legacy-only ") for blob in token["search_blobs"]))
         selector = self._selector_for_event_id("legacy-0")
         self._assert_visible_selector(selector, "legacy-only row")
 
@@ -729,6 +762,9 @@ class Phase1BF2ProductSearchPublicationGateTestCase(unittest.TestCase):
         self.assertFalse(any(blob.startswith("hidden-replacement ") for blob in found["search_blobs"]))
         self.assertFalse(any(blob.startswith("staged-extra ") for blob in found["search_blobs"]))
         self.assertEqual(found["total"], 6)
+        token = self._product_token_search()
+        self.assertFalse(any(blob.startswith("hidden-replacement ") for blob in token["search_blobs"]))
+        self.assertFalse(any(blob.startswith("staged-extra ") for blob in token["search_blobs"]))
 
     def test_malformed_managed_identity_fail_closed(self):
         copied = deepcopy(self.events[0])
@@ -743,6 +779,9 @@ class Phase1BF2ProductSearchPublicationGateTestCase(unittest.TestCase):
         found = self._product_search()
         self.assertNotIn("malformed partial protocol identity", found["search_blobs"])
         self.assertEqual(found["total"], 0)
+        token = self._product_search({"search": "malformed"})
+        self.assertNotIn("malformed partial protocol identity", token["search_blobs"])
+        self.assertEqual(token["total"], 0)
         self._assert_hidden_selector(
             self._selector_for_event_id("malformed-partial"),
             "malformed managed-looking row",

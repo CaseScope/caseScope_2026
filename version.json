@@ -1,6 +1,14 @@
 {
-  "version": "4.24.2",
+  "version": "4.25.0",
   "changelog": [
+    {
+      "version": "4.25.0",
+      "date": "2026-08-21",
+      "changes": [
+        "Cut Hunt Artifacts TOKEN_SAFE free-text search over to parameterized hasAllTokens/hasAnyTokens on the stored search_blob text index, keeping ILIKE for quoted strings, true substrings, punctuation splits, and exclusions",
+        "Did not drop bloom indexes, did not add a command_line text index, and did not migrate other search_blob consumers or later Phase 2/3 surfaces"
+      ]
+    },
     {
       "version": "4.24.2",
       "date": "2026-08-21",

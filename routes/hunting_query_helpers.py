@@ -102,6 +102,145 @@ SEARCH_FIELD_MAP = {
     "hashes": None,
 }
 
+HUNT_ATOM_TOKEN_SAFE = "TOKEN_SAFE"
+HUNT_ATOM_SUBSTRING_REQUIRED = "SUBSTRING_REQUIRED"
+HUNT_ATOM_STRUCTURED = "STRUCTURED"
+HUNT_ATOM_EXCLUSION_PRESERVE = "EXCLUSION_PRESERVE"
+HUNT_ATOM_INVALID = "INVALID"
+
+# Proven on ClickHouse 26.7.3.19: hasAnyTokens accepted 4096 space-joined
+# tokens and 1024 Array(String) values. Chunk well below that so a large OR
+# never silently drops terms.
+HASANY_TOKENS_CHUNK = 256
+
+# LIKE/ILIKE wildcard characters. Underscore is also a splitByNonAlpha
+# separator; the explicit check documents why those atoms stay substring.
+_HUNT_LIKE_WILDCARD_CHARS = frozenset("%_*")
+
+# ClickHouse 26.7.3.19 splitByNonAlpha: ASCII non [A-Za-z0-9] separates tokens;
+# ASCII alphanumerics and every non-ASCII code point remain inside a token.
+_SPLIT_BY_NON_ALPHA = re.compile(r"[\x00-\x2F\x3A-\x40\x5B-\x60\x7B-\x7F]+")
+
+
+def split_search_blob_tokens(text):
+    """Return the ClickHouse 26.7.3.19 ``splitByNonAlpha`` token list."""
+    if not text:
+        return []
+    return [part for part in _SPLIT_BY_NON_ALPHA.split(text) if part]
+
+
+def classify_hunt_free_text_atom(term, *, quoted=False, exclusion=False):
+    """Classify one Hunt free-text atom against the deployed tokenizer.
+
+    TOKEN_SAFE means an ordinary unquoted positive term that the deployed
+    tokenizer treats as exactly one intended token, so ``hasAllTokens`` on the
+    stored ``search_blob`` does not drop punctuation, adjacency, or wildcard
+    meaning. Digit-only terms are STRUCTURED (existing ``event_id =`` path).
+    Quoted strings, wildcards, and tokenizer splits stay SUBSTRING_REQUIRED.
+    Negative terms stay EXCLUSION_PRESERVE (existing ``NOT ILIKE``).
+    """
+    if exclusion:
+        return HUNT_ATOM_EXCLUSION_PRESERVE
+    if term is None:
+        return HUNT_ATOM_INVALID
+    text = str(term)
+    if text == "":
+        return HUNT_ATOM_INVALID
+    if quoted:
+        return HUNT_ATOM_SUBSTRING_REQUIRED
+    if text.isdigit():
+        return HUNT_ATOM_STRUCTURED
+    if any(char in _HUNT_LIKE_WILDCARD_CHARS for char in text):
+        return HUNT_ATOM_SUBSTRING_REQUIRED
+    tokens = split_search_blob_tokens(text)
+    if len(tokens) == 1 and tokens[0].casefold() == text.casefold():
+        return HUNT_ATOM_TOKEN_SAFE
+    return HUNT_ATOM_SUBSTRING_REQUIRED
+
+
+def _emit_search_blob_ilike(term, param_name, params):
+    params[param_name] = f"%{term}%"
+    return f"search_blob ilike {{{param_name}:String}}"
+
+
+def _emit_search_blob_has_all_tokens(term, param_name, params):
+    params[param_name] = term
+    return f"hasAllTokens(search_blob, {{{param_name}:String}})"
+
+
+def _emit_search_blob_has_any_tokens(terms, param_prefix, params):
+    if not terms:
+        return None
+    if len(terms) == 1:
+        return _emit_search_blob_has_all_tokens(terms[0], f"{param_prefix}_txt", params)
+    chunks = []
+    for offset in range(0, len(terms), HASANY_TOKENS_CHUNK):
+        chunk = terms[offset:offset + HASANY_TOKENS_CHUNK]
+        param_name = f"{param_prefix}_any_{offset}"
+        params[param_name] = " ".join(chunk)
+        chunks.append(f"hasAnyTokens(search_blob, {{{param_name}:String}})")
+    if len(chunks) == 1:
+        return chunks[0]
+    return f"({' OR '.join(chunks)})"
+
+
+def _emit_free_text_search_predicate(term, param_name, params, *, quoted=False):
+    kind = classify_hunt_free_text_atom(term, quoted=quoted)
+    if kind == HUNT_ATOM_TOKEN_SAFE:
+        return _emit_search_blob_has_all_tokens(term, param_name, params)
+    return _emit_search_blob_ilike(term, param_name, params)
+
+
+def _compile_free_text_or_group(or_parts, prefix, params, parse_field_value, *, quoted=False):
+    """Compile a Hunt ``a|b|c`` group without dropping members.
+
+    ``hasAnyTokens`` is used only when every member is TOKEN_SAFE. Mixed groups
+    keep per-branch predicates (token OR substring OR structured). Groups larger
+    than ``HASANY_TOKENS_CHUNK`` are OR-chunked rather than truncated.
+    """
+    classified = []
+    for index, part in enumerate(or_parts):
+        fv_match = re.match(r"^([a-zA-Z_][a-zA-Z0-9_]*):(.+)$", part)
+        if fv_match and "://" not in part:
+            classified.append(("field", part, index, fv_match))
+            continue
+        if part.isdigit():
+            classified.append(("structured", part, index, None))
+            continue
+        kind = classify_hunt_free_text_atom(part, quoted=quoted)
+        classified.append((kind, part, index, None))
+
+    token_safe_terms = [part for kind, part, _index, _match in classified if kind == HUNT_ATOM_TOKEN_SAFE]
+    all_token_safe = bool(classified) and all(
+        kind == HUNT_ATOM_TOKEN_SAFE for kind, _part, _index, _match in classified
+    )
+    if all_token_safe:
+        return _emit_search_blob_has_any_tokens(token_safe_terms, prefix, params)
+
+    branch_sqls = []
+    for kind, part, index, fv_match in classified:
+        if kind == "field":
+            cond = parse_field_value(fv_match.group(1), fv_match.group(2), f"{prefix}_or{index}")
+            if cond:
+                branch_sqls.append(cond)
+            continue
+        if kind == "structured":
+            param_name = f"{prefix}_or{index}"
+            params[param_name] = part
+            branch_sqls.append(f"event_id = {{{param_name}:String}}")
+            continue
+        if kind == HUNT_ATOM_TOKEN_SAFE:
+            branch_sqls.append(
+                _emit_search_blob_has_all_tokens(part, f"{prefix}_or{index}", params)
+            )
+            continue
+        branch_sqls.append(
+            _emit_search_blob_ilike(part, f"{prefix}_or{index}", params)
+        )
+    if not branch_sqls:
+        return None
+    return f"({' OR '.join(branch_sqls)})"
+
 
 def _clean_hunting_preview_text(value):
     """Normalize stored text previews that may contain UTF-16 NUL padding."""
@@ -698,7 +837,7 @@ def build_hunting_search_clause(search: str, params: dict) -> str:
     def parse_field_value(field, value, param_prefix):
         return _parse_event_field_value_condition(field, value, param_prefix, params)
 
-    def parse_term(term, prefix):
+    def parse_term(term, prefix, quoted=False):
         conditions = []
 
         if term.startswith("-"):
@@ -745,30 +884,23 @@ def build_hunting_search_clause(search: str, params: dict) -> str:
         if "|" in term:
             or_parts = [part.strip() for part in term.split("|") if part.strip()]
             if or_parts:
-                or_conditions = []
-                for index, part in enumerate(or_parts):
-                    or_param = f"{prefix}_or{index}"
-                    fv_match = re.match(r"^([a-zA-Z_][a-zA-Z0-9_]*):(.+)$", part)
-                    if fv_match and "://" not in part:
-                        cond = parse_field_value(fv_match.group(1), fv_match.group(2), f"{prefix}_or{index}")
-                        if cond:
-                            or_conditions.append(cond)
-                    elif part.isdigit():
-                        params[or_param] = part
-                        or_conditions.append(f"event_id = {{{or_param}:String}}")
-                    else:
-                        params[or_param] = f"%{part}%"
-                        or_conditions.append(f"search_blob ilike {{{or_param}:String}}")
-                if or_conditions:
-                    conditions.append(f"({' OR '.join(or_conditions)})")
+                or_sql = _compile_free_text_or_group(
+                    or_parts,
+                    prefix,
+                    params,
+                    parse_field_value,
+                    quoted=quoted,
+                )
+                if or_sql:
+                    conditions.append(or_sql)
         elif term.isdigit():
             param_name = f"{prefix}_id"
             params[param_name] = term
             conditions.append(f"event_id = {{{param_name}:String}}")
         else:
-            param_name = f"{prefix}_txt"
-            params[param_name] = f"%{term}%"
-            conditions.append(f"search_blob ilike {{{param_name}:String}}")
+            conditions.append(
+                _emit_free_text_search_predicate(term, f"{prefix}_txt", params, quoted=quoted)
+            )
 
         return (conditions, False)
 
@@ -781,10 +913,11 @@ def build_hunting_search_clause(search: str, params: dict) -> str:
         for index, token in enumerate(tokens):
             if token == "|":
                 continue
-            if token.startswith('"') and token.endswith('"'):
+            quoted = len(token) >= 2 and token.startswith('"') and token.endswith('"')
+            if quoted:
                 token = token[1:-1]
 
-            term_conditions, is_exclusion = parse_term(token, f"{prefix}_{index}")
+            term_conditions, is_exclusion = parse_term(token, f"{prefix}_{index}", quoted=quoted)
             if is_exclusion:
                 exclusion_conditions.extend(term_conditions)
             else:
