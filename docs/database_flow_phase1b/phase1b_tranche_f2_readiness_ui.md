@@ -1,6 +1,6 @@
 # Phase 1B Tranche F2 — PostgreSQL-Authoritative Readiness UI
 
-Status: **IMPLEMENTED** for F2 UI completion (readiness DTO/API, Case Files strip, F1-consistent completion/repair, non-blocking Hunt coverage note). Product-search publication gate: **CLOSED** (version 4.21.2). This tranche does not claim Phase 1B EXIT ACCEPTANCE.
+Status: **IMPLEMENTED** for F2 UI completion (readiness DTO/API, Case Files strip, F1-consistent completion/repair, non-blocking Hunt coverage note). Product-search publication gate: **CLOSED** (version 4.21.2). EXIT ACCEPTANCE readiness blockers closed in 4.22.1. This document does not claim independent Phase 1B EXIT ACCEPTANCE.
 
 ## Publication gate CLOSED
 
@@ -80,8 +80,11 @@ Status always includes text; color is optional enhancement.
 If DURABLE batches exist before EOF:
 
 - search is available
-- copy: `Published evidence is searchable; ingest is still expanding.`
-- a factual count such as `3 published batches` is allowed
+- label: `Searchable, still ingesting`
+- EOF alone does not mean Published
+- BUILDING_INITIAL after EOF and before ACTIVE: `Searchable, finalizing ingest`
+- ACTIVE: `Published`
+- a factual DURABLE-batch count is allowed; the generation is not called fully Published until ACTIVE
 
 The final denominator is unknown. The DTO sets `final_percent` to `null` and does not infer a percentage from highest ordinal, known batches, Redis totals, file counts, or row counts.
 
@@ -116,17 +119,19 @@ E2 remains: retrieve/select → freeze exact evidence → verify exact privacy c
 
 Completed `{0, 2}` with batch 1 missing reports safe coverage through batch 0, never through batch 2. Highest-completed semantics are not used.
 
+Source watermarks remain authoritative. A case-level contiguous batch ordinal is shown only when there is exactly one relevant non-zero current source. Multiple current sources use qualitative wording and `contiguous_batch_ordinal = null`. If some current sources have coverage and others do not, the case-level Privacy label is `Partial coverage across current sources` and must not claim another source's ordinal as case-wide proof. All current sources COMPLETE may show Covered; zero-event COMPLETE sources do not get a fake ordinal. Invalidated authority with no remaining current source is withdrawn, not Not started, and never authorizes AI egress.
+
 ### Replacement
 
 Current N privacy is not marked incomplete merely because N+1 replacement privacy is unfinished. Replacement privacy may appear as secondary/background state.
 
 ## Reconciliation
 
-F1 assessments are presented when the latest audit still matches current generation fingerprint and batch counts:
+Only a current F1 audit whose generation fingerprint and batch counts still match PostgreSQL authority may present Current / Reconciled.
 
-`reconciled`, `work_queued`, `in_progress`, `incomplete_ingest`, `blocked`, `deferred`, `failed`
+Inspect-only state never certifies Reconciled. Gap-free inspect-only state is `pending_reconciliation` (`Needs reconciliation`). Inspect may still report proven `failed`, `blocked`, `incomplete_ingest`, `in_progress`, or `work_queued`. A stale prior reconciled audit remains stale until F1 runs again against the current authority.
 
-A prior `reconciled` audit becomes stale when current PG generation/batch authority changes (new BUILDING_INITIAL source, new DURABLE batch, replacement generation, activation, invalidation). The UI does not keep claiming reconciliation is current.
+A prior `reconciled` audit becomes stale when current PG generation/batch authority changes (new BUILDING_INITIAL source, new DURABLE batch, replacement generation, activation, invalidation).
 
 ## Legacy
 
@@ -163,7 +168,8 @@ One informational note on the Events search surface (`static/templates/hunting/t
 
 Search remains fully enabled. Query, filters, pagination, detail, and raw detail are not disabled by readiness.
 
-- BUILDING_INITIAL with published evidence: `Results cover currently published evidence. Ingest is still adding evidence.`
+- BUILDING_INITIAL with DURABLE evidence before EOF: `Results cover currently published evidence. Ingest is still adding evidence.`
+- BUILDING_INITIAL after EOF before ACTIVE: `Results cover currently published evidence. Ingest is finalizing and is not yet fully published.`
 - ACTIVE with no expanding BUILDING_INITIAL: note hidden/quiet
 - N ACTIVE + N+1 BUILDING_REPLACEMENT: not “partial search”; optional `Replacement processing in background.`
 - mixed: qualitative managed + untracked wording
@@ -195,7 +201,7 @@ Search-during-ingest E2E uses the actual Hunt Events route plus the readiness AP
 
 ## Product-search regression
 
-`tests/test_phase1b_tranche_f2_product_search_publication_gate.py` remains the publication-gate proof. The bridge was not modified to make UI implementation easier.
+`tests/test_phase1b_tranche_f2_product_search_publication_gate.py` remains the publication-gate proof. Production Hunt still uses the unscoped control-projection bridge. An optional case-id restriction exists only for Phase 1B exit measurement and is not enabled on Hunt routes.
 
 ## Performance
 

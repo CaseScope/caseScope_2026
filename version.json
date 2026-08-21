@@ -1,6 +1,14 @@
 {
-  "version": "4.22.0",
+  "version": "4.22.1",
   "changelog": [
+    {
+      "version": "4.22.1",
+      "date": "2026-08-21",
+      "changes": [
+        "Closed Phase 1B EXIT ACCEPTANCE readiness blockers: inspect-only state no longer certifies Reconciled, EOF no longer means Published, and multi-source privacy no longer claims a case-wide batch ordinal",
+        "Recorded Phase 1B exit baseline and Hunt publication-bridge scale measurements; did not start Phase 2"
+      ]
+    },
     {
       "version": "4.22.0",
       "date": "2026-08-21",

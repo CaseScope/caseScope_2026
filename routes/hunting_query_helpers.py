@@ -269,7 +269,7 @@ PHASE1B_PROTOCOL_IDENTITY_COLUMNS = (
 )
 
 
-def build_hunting_publication_bridge(alias="e"):
+def build_hunting_publication_bridge(alias="e", *, case_id_param=None):
     """Interim Phase 1B publication filter over the physical ``events`` table.
 
     This is not ``events_current`` and does not change counting basis. Hunt
@@ -277,7 +277,17 @@ def build_hunting_publication_bridge(alias="e"):
     current ReplacingMergeTree control projections prove both DURABLE batch
     publication and a publishable generation. True legacy rows (all protocol
     identity NULL) stay visible. Partial protocol identity fails closed.
+
+    ``case_id_param`` is an optional ClickHouse parameter expression such as
+    ``{case_id:UInt32}``. When set, control-projection subqueries are restricted
+    to that case. Semantics stay identical because Hunt already filters
+    ``events`` by case_id and the joins already require matching case_id.
     """
+    veg_from = "FROM visible_evidence_generations FINAL"
+    dib_from = "FROM durable_ingest_batches FINAL"
+    if case_id_param:
+        veg_from += f"\n                WHERE case_id = {case_id_param}"
+        dib_from += f"\n                WHERE case_id = {case_id_param}"
     join_sql = f"""
             LEFT JOIN (
                 SELECT
@@ -287,7 +297,7 @@ def build_hunting_publication_bridge(alias="e"):
                     source_generation,
                     visibility_state,
                     publishable
-                FROM visible_evidence_generations FINAL
+                {veg_from}
             ) AS veg
                 ON veg.case_id = {alias}.case_id
                AND veg.source_ref_type = {alias}.source_ref_type
@@ -301,7 +311,7 @@ def build_hunting_publication_bridge(alias="e"):
                     source_ref_id,
                     source_generation,
                     state
-                FROM durable_ingest_batches FINAL
+                {dib_from}
             ) AS dib
                 ON dib.ingest_batch_id = {alias}.ingest_batch_id
                AND dib.case_id = {alias}.case_id

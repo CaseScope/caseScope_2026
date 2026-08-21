@@ -23,6 +23,7 @@ from models.case import Case
 from models.case_file import CaseFile, IngestProtocolOrigin
 from models.client import Client
 from models.database import db
+from models.graph import GraphProjectionState
 from models.database_flow import (
     CapabilityName,
     CaseCapabilityBatchCompletion,
@@ -49,6 +50,7 @@ from utils.capability_watermarks import (
 )
 from utils.case_readiness import (
     AUTHORIZES_AI_EGRESS,
+    PENDING_RECONCILIATION,
     READINESS_CLICKHOUSE_CALLS,
     REPLACEMENT_HUNT_NOTE,
     UNAVAILABLE_HUNT_NOTE,
@@ -56,10 +58,12 @@ from utils.case_readiness import (
 )
 from utils.completion_reconciler import (
     CompletionCompositionUnknown,
+    ReconciliationHooks,
     _generation_state_fingerprint,
     _is_default_authority,
     classify_case_ingest_composition,
     default_generation_ids_from_rows,
+    reconcile_case_completion,
     snapshot_case_completion_authority,
 )
 from utils.ingest_fence import install_memory_backend, reset_fence_backend
@@ -177,6 +181,17 @@ class Phase1BF2ReadinessUnitTestCase(unittest.TestCase):
         self.assertNotIn("count_events", source)
         self.assertEqual(READINESS_CLICKHOUSE_CALLS, 0)
         self.assertFalse(AUTHORIZES_AI_EGRESS)
+        inspect_fn = next(
+            node for node in tree.body
+            if isinstance(node, ast.FunctionDef) and node.name == "inspect_reconciliation_from_snapshot"
+        )
+        returns = [
+            ast.unparse(node.value)
+            for node in ast.walk(inspect_fn)
+            if isinstance(node, ast.Return) and node.value is not None
+        ]
+        self.assertTrue(any("PENDING_RECONCILIATION" in value for value in returns))
+        self.assertFalse(any("ReconciliationAssessment.RECONCILED" in value for value in returns))
 
     def test_f2_dto_is_not_an_ai_authorization_gate(self):
         for relative in ("utils/ai/router.py", "utils/ai_privacy_freeze.py"):
@@ -265,6 +280,7 @@ class Phase1BF2ReadinessRealPGTestCase(unittest.TestCase):
             CaseCapabilitySourceState.__table__,
             CaseCapabilityBatchCompletion.__table__,
             CaseCompletionReconciliationAudit.__table__,
+            GraphProjectionState.__table__,
         ):
             table.create(db.engine, checkfirst=True)
         with db.engine.begin() as conn:
@@ -284,6 +300,7 @@ class Phase1BF2ReadinessRealPGTestCase(unittest.TestCase):
         g.pop("_login_user", None)
         db.session.rollback()
         CaseCompletionReconciliationAudit.query.delete()
+        GraphProjectionState.query.delete()
         CaseCapabilityBatchCompletion.query.delete()
         CaseCapabilitySourceState.query.delete()
         IngestBatchReconciliationAudit.query.delete()
@@ -553,6 +570,29 @@ class Phase1BF2ReadinessRealPGTestCase(unittest.TestCase):
         self.assertEqual(dto["dimensions"]["privacy"]["code"], "complete")
         self.assertEqual(dto["dimensions"]["evidence"]["code"], "published")
 
+    def test_zero_event_before_activation_is_not_published(self):
+        generation = self._generation()
+        declare_generation_ingest_complete(
+            session=db.session, generation=generation, expected_rows=0, final_batch_ordinal=None
+        )
+        record_zero_event_capability_completion(
+            session=db.session,
+            generation=generation,
+            capability=CapabilityName.PRIVACY_ALIASES,
+            derivation_version=PRIVACY_ALIASES_V1,
+        )
+        db.session.commit()
+        before = self._dto()
+        self.assertNotEqual(before["dimensions"]["evidence"]["code"], "published")
+        self.assertNotEqual(before["dimensions"]["evidence"]["label"], "Published")
+        self.assertEqual(before["dimensions"]["evidence"]["code"], "finalizing")
+        self.assertNotIn("0/1", json.dumps(before))
+        activate_initial_generation(session=db.session, generation=generation)
+        db.session.commit()
+        after = self._dto()
+        self.assertEqual(after["dimensions"]["evidence"]["code"], "published")
+        self.assertNotIn("0/1", json.dumps(after))
+
     def test_failed_incomplete_source(self):
         generation = self._generation()
         self._durable_batch(generation, [self._event(1), self._event(2)])
@@ -663,6 +703,174 @@ class Phase1BF2ReadinessRealPGTestCase(unittest.TestCase):
         )
         self.assertTrue(after_source["dimensions"]["evidence"]["expanding"])
 
+    def test_active_privacy_complete_without_f1_audit_is_not_reconciled(self):
+        generation = self._generation()
+        batch = self._durable_batch(generation, [self._event(1), self._event(2)])
+        self._complete_privacy(batch)
+        declare_generation_ingest_complete(
+            session=db.session, generation=generation, expected_rows=2, final_batch_ordinal=0
+        )
+        activate_initial_generation(session=db.session, generation=generation)
+        db.session.commit()
+        CaseCompletionReconciliationAudit.query.delete()
+        db.session.commit()
+        before = self._dto()
+        recon = before["dimensions"]["reconciliation"]
+        self.assertNotEqual(recon["code"], ReconciliationAssessment.RECONCILED)
+        self.assertNotEqual(recon["label"], "Current")
+        self.assertEqual(recon["code"], PENDING_RECONCILIATION)
+        self.assertFalse(recon["audit_current"])
+        self.assertTrue(before["completion"]["repair_available"])
+        self.assertEqual(before["completion"]["repair_route"], "f1")
+
+        db.session.add(
+            GraphProjectionState(
+                case_id=self.case.id,
+                case_uuid=self.case.uuid,
+                status="completed",
+                mode="ingest",
+            )
+        )
+        db.session.commit()
+        result = reconcile_case_completion(
+            session=db.session,
+            case_id=self.case.id,
+            case_uuid=self.case.uuid,
+            trigger_reason="exit_blocker_closure",
+            hooks=ReconciliationHooks(),
+        )
+        self.assertEqual(result.assessment, ReconciliationAssessment.RECONCILED)
+        current = self._dto()
+        self.assertTrue(current["dimensions"]["reconciliation"]["audit_current"])
+        self.assertEqual(
+            current["dimensions"]["reconciliation"]["code"],
+            ReconciliationAssessment.RECONCILED,
+        )
+        self.assertEqual(current["dimensions"]["reconciliation"]["label"], "Current")
+
+        extra = CaseFile(
+            case_uuid=self.case.uuid,
+            filename="authority-change.log",
+            original_filename="authority-change.log",
+            file_path="/tmp/authority-change.log",
+            file_size=1,
+            sha256_hash="b" * 64,
+            uploaded_by="tester",
+            ingest_protocol_origin=IngestProtocolOrigin.NOT_STARTED,
+        )
+        db.session.add(extra)
+        db.session.commit()
+        self._generation(extra)
+        stale = self._dto()
+        self.assertFalse(stale["dimensions"]["reconciliation"]["audit_current"])
+        self.assertNotEqual(
+            stale["dimensions"]["reconciliation"]["code"],
+            ReconciliationAssessment.RECONCILED,
+        )
+
+    def test_eof_with_staged_or_missing_ordinal_is_not_published(self):
+        generation = self._generation()
+        staged = self._durable_batch(
+            generation, [self._event(1), self._event(2)], batch_ordinal=0, durable=False
+        )
+        declare_generation_ingest_complete(
+            session=db.session, generation=generation, expected_rows=2, final_batch_ordinal=0
+        )
+        db.session.commit()
+        eof_staged = self._dto()
+        evidence = eof_staged["dimensions"]["evidence"]
+        self.assertEqual(generation.visibility_state, EvidenceGenerationState.BUILDING_INITIAL)
+        self.assertTrue(generation.completed_at)
+        self.assertEqual(staged.state, IngestBatchState.STAGED)
+        self.assertNotEqual(evidence["code"], "published")
+        self.assertNotEqual(evidence["label"], "Published")
+        self.assertEqual(evidence["code"], "finalizing")
+        self.assertTrue(evidence["finalizing"])
+        self.assertTrue(evidence["activation_incomplete"])
+        self.assertTrue(eof_staged["hunt_coverage"]["search_enabled"])
+
+        staged.state = IngestBatchState.DURABLE
+        staged.durable_at = datetime.utcnow()
+        db.session.commit()
+        self._complete_privacy(staged)
+        missing = self._dto()
+        self.assertNotEqual(missing["dimensions"]["evidence"]["code"], "published")
+
+        generation.final_batch_ordinal = 1
+        generation.expected_rows = 4
+        db.session.commit()
+        missing_ordinal = self._dto()
+        self.assertNotEqual(missing_ordinal["dimensions"]["evidence"]["code"], "published")
+        self.assertEqual(missing_ordinal["dimensions"]["evidence"]["code"], "finalizing")
+        self.assertTrue(missing_ordinal["dimensions"]["evidence"]["activation_incomplete"])
+
+        self._durable_batch(generation, [self._event(3), self._event(4)], batch_ordinal=1)
+        batch1 = (
+            db.session.query(IngestBatch)
+            .filter_by(generation_id=generation.id, batch_ordinal=1)
+            .one()
+        )
+        self._complete_privacy(batch1)
+        declare_generation_ingest_complete(
+            session=db.session, generation=generation, expected_rows=4, final_batch_ordinal=1
+        )
+        activate_initial_generation(session=db.session, generation=generation)
+        db.session.commit()
+        after = self._dto()
+        self.assertEqual(after["dimensions"]["evidence"]["code"], "published")
+        self.assertEqual(after["dimensions"]["evidence"]["label"], "Published")
+        self.assertFalse(after["dimensions"]["evidence"]["finalizing"])
+
+    def test_multi_source_privacy_does_not_claim_case_wide_ordinal(self):
+        source_a = self._generation()
+        for ordinal in range(5):
+            rec = ordinal * 2 + 1
+            batch = self._durable_batch(
+                source_a,
+                [self._event(rec), self._event(rec + 1)],
+                batch_ordinal=ordinal,
+            )
+            self._complete_privacy(batch)
+        extra = CaseFile(
+            case_uuid=self.case.uuid,
+            filename="privacy-b.log",
+            original_filename="privacy-b.log",
+            file_path="/tmp/privacy-b.log",
+            file_size=1,
+            sha256_hash="f" * 64,
+            uploaded_by="tester",
+            ingest_protocol_origin=IngestProtocolOrigin.NOT_STARTED,
+        )
+        db.session.add(extra)
+        db.session.commit()
+        source_b = self._generation(extra)
+        self._durable_batch(source_b, [self._event(21), self._event(22)], batch_ordinal=0)
+        dto = self._dto()
+        privacy = dto["dimensions"]["privacy"]
+        self.assertIsNone(privacy["contiguous_batch_ordinal"])
+        self.assertNotIn("through batch 4", privacy["detail"])
+        self.assertIn("Partial coverage across current sources", privacy["detail"])
+        self.assertFalse(privacy["authorizes_ai_egress"])
+        self.assertTrue(privacy["informational_only"])
+
+        b_batch = (
+            db.session.query(IngestBatch).filter_by(generation_id=source_b.id).one()
+        )
+        self._complete_privacy(b_batch)
+        declare_generation_ingest_complete(
+            session=db.session, generation=source_a, expected_rows=10, final_batch_ordinal=4
+        )
+        declare_generation_ingest_complete(
+            session=db.session, generation=source_b, expected_rows=2, final_batch_ordinal=0
+        )
+        activate_initial_generation(session=db.session, generation=source_a)
+        activate_initial_generation(session=db.session, generation=source_b)
+        db.session.commit()
+        covered = self._dto()
+        self.assertEqual(covered["dimensions"]["privacy"]["code"], "complete")
+        self.assertIsNone(covered["dimensions"]["privacy"]["contiguous_batch_ordinal"])
+        self.assertFalse(covered["dimensions"]["privacy"]["authorizes_ai_egress"])
+
     def test_invalidation_withdraws_stale_readiness(self):
         generation = self._generation()
         batch = self._durable_batch(generation, [self._event(1), self._event(2)])
@@ -678,7 +886,9 @@ class Phase1BF2ReadinessRealPGTestCase(unittest.TestCase):
         db.session.commit()
         after = self._dto()
         self.assertEqual(after["dimensions"]["evidence"]["code"], "withdrawn")
-        self.assertNotEqual(after["dimensions"]["privacy"]["code"], "complete")
+        self.assertEqual(after["dimensions"]["privacy"]["code"], "withdrawn")
+        self.assertNotEqual(after["dimensions"]["privacy"]["code"], "not_started")
+        self.assertFalse(after["dimensions"]["privacy"]["authorizes_ai_egress"])
 
     def test_pg_failure_is_unavailable_not_legacy_or_ready(self):
         generation = self._generation()
@@ -914,6 +1124,7 @@ class Phase1BF2SearchDuringIngestE2ETestCase(unittest.TestCase):
             CaseCapabilitySourceState.__table__,
             CaseCapabilityBatchCompletion.__table__,
             CaseCompletionReconciliationAudit.__table__,
+            GraphProjectionState.__table__,
         ):
             table.create(db.engine, checkfirst=True)
         with db.engine.begin() as conn:
@@ -1003,6 +1214,7 @@ class Phase1BF2SearchDuringIngestE2ETestCase(unittest.TestCase):
         self.ch.command("TRUNCATE TABLE visible_evidence_generations")
         self.ch.command("TRUNCATE TABLE durable_ingest_batches")
         CaseCompletionReconciliationAudit.query.delete()
+        GraphProjectionState.query.delete()
         CaseCapabilityBatchCompletion.query.delete()
         CaseCapabilitySourceState.query.delete()
         IngestBatchReconciliationAudit.query.delete()
@@ -1140,6 +1352,16 @@ class Phase1BF2SearchDuringIngestE2ETestCase(unittest.TestCase):
             expected_rows=len(self.events),
             final_batch_ordinal=1,
         )
+        db.session.commit()
+        pre_activation = self._readiness(flask_client)
+        hunt = self._hunt(flask_client)
+        self.assertEqual(hunt["total"], 8)
+        self.assertNotEqual(pre_activation["dimensions"]["evidence"]["code"], "published")
+        self.assertNotEqual(pre_activation["dimensions"]["evidence"]["label"], "Published")
+        self.assertEqual(pre_activation["dimensions"]["evidence"]["code"], "finalizing")
+        self.assertTrue(pre_activation["hunt_coverage"]["search_enabled"])
+        self.assertTrue(pre_activation["hunt_coverage"]["show"])
+
         activate_initial_generation(session=db.session, generation=generation, actor="f2-ui")
         db.session.commit()
         project_generation_control_state(self.ch, db.session, generation)

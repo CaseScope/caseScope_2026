@@ -5086,7 +5086,8 @@ tbody td {
 
 .readiness-item.readiness-unavailable .readiness-value,
 .readiness-item.readiness-failed .readiness-value,
-.readiness-item.readiness-stale .readiness-value {
+.readiness-item.readiness-stale .readiness-value,
+.readiness-item.readiness-withdrawn .readiness-value {
   color: var(--accent-warning);
 }
 

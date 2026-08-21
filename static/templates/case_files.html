@@ -449,10 +449,10 @@ function loadStats() {
 }
 
 function readinessToneClass(code) {
-    if (code === 'unavailable' || code === 'failed' || code === 'stale' || code === 'blocked') {
-        return 'readiness-' + (code === 'blocked' ? 'stale' : code);
+    if (code === 'unavailable' || code === 'failed' || code === 'stale' || code === 'blocked' || code === 'pending_reconciliation' || code === 'withdrawn') {
+        return 'readiness-' + ((code === 'blocked' || code === 'pending_reconciliation') ? 'stale' : code);
     }
-    if (code === 'processing') {
+    if (code === 'processing' || code === 'finalizing' || code === 'expanding' || code === 'ingesting') {
         return 'readiness-processing';
     }
     return '';
