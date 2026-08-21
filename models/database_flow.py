@@ -455,3 +455,79 @@ class CaseCapabilityBatchCompletion(db.Model):
             "batch_ordinal",
         ),
     )
+
+
+class CaseIngestComposition:
+    LEGACY_ONLY = "legacy_only"
+    MANAGED_ONLY = "managed_only"
+    MIXED = "mixed"
+
+    @classmethod
+    def all(cls):
+        return [cls.LEGACY_ONLY, cls.MANAGED_ONLY, cls.MIXED]
+
+
+class ReconciliationAssessment:
+    RECONCILED = "reconciled"
+    WORK_QUEUED = "work_queued"
+    IN_PROGRESS = "in_progress"
+    INCOMPLETE_INGEST = "incomplete_ingest"
+    BLOCKED = "blocked"
+    DEFERRED = "deferred"
+    FAILED = "failed"
+
+    @classmethod
+    def all(cls):
+        return [
+            cls.RECONCILED,
+            cls.WORK_QUEUED,
+            cls.IN_PROGRESS,
+            cls.INCOMPLETE_INGEST,
+            cls.BLOCKED,
+            cls.DEFERRED,
+            cls.FAILED,
+        ]
+
+
+class CaseCompletionReconciliationAudit(db.Model):
+    """Append-only durable audit for one case completion-reconciliation run.
+
+    This is a snapshot/read-model audit, not a scalar readiness authority.
+    """
+
+    __tablename__ = "case_completion_reconciliation_audit"
+
+    id = db.Column(db.Integer, primary_key=True)
+    case_id = db.Column(db.Integer, db.ForeignKey("cases.id", ondelete="CASCADE"), nullable=False, index=True)
+    case_uuid = db.Column(db.String(36), nullable=True, index=True)
+    trigger_reason = db.Column(db.String(80), nullable=False, default="durable_authority")
+    composition = db.Column(db.String(32), nullable=False)
+    assessment = db.Column(db.String(40), nullable=False, index=True)
+    generations_inspected = db.Column(db.JSON, nullable=False, default=list)
+    batch_counts = db.Column(db.JSON, nullable=False, default=dict)
+    d2_gaps = db.Column(db.JSON, nullable=False, default=list)
+    capability_gaps = db.Column(db.JSON, nullable=False, default=list)
+    derivations_checked = db.Column(db.JSON, nullable=False, default=list)
+    work_queued = db.Column(db.JSON, nullable=False, default=list)
+    unresolved_conflicts = db.Column(db.JSON, nullable=False, default=list)
+    deferred = db.Column(db.JSON, nullable=False, default=list)
+    errors = db.Column(db.JSON, nullable=False, default=list)
+    metrics = db.Column(db.JSON, nullable=False, default=dict)
+    authority_changed = db.Column(db.Boolean, nullable=False, default=False)
+    duration_ms = db.Column(db.Float, nullable=False, default=0.0)
+    occurred_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow, index=True)
+
+    case = db.relationship("Case", backref=db.backref("completion_reconciliation_audit", lazy="dynamic"))
+
+    __table_args__ = (
+        db.CheckConstraint(
+            "composition IN ('legacy_only', 'managed_only', 'mixed')",
+            name="ck_case_completion_reconcile_composition",
+        ),
+        db.CheckConstraint(
+            "assessment IN ('reconciled', 'work_queued', 'in_progress', "
+            "'incomplete_ingest', 'blocked', 'deferred', 'failed')",
+            name="ck_case_completion_reconcile_assessment",
+        ),
+        db.Index("idx_case_completion_reconcile_case_occurred", "case_id", "occurred_at"),
+    )

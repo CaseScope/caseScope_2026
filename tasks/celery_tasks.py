@@ -996,6 +996,20 @@ def _build_case_ingest_summary(case_id: int, case_uuid: str) -> Dict[str, Any]:
     except Exception as e:
         logger.warning(f"Could not build event summary for case {case_uuid}: {e}")
 
+    try:
+        from models.database import db
+        from utils.completion_reconciler import build_phase1b_ingest_summary
+
+        app = get_flask_app()
+        with app.app_context():
+            summary['phase1b'] = build_phase1b_ingest_summary(
+                db.session,
+                case_id=case_id,
+                case_uuid=case_uuid,
+            )
+    except Exception as e:
+        logger.warning(f"Could not build Phase 1B ingest summary for case {case_uuid}: {e}")
+
     return summary
 
 # Initialize Celery
@@ -3223,6 +3237,100 @@ def _update_case_file_status(case_file_id: int, status: str = None,
         logger.warning(f"Could not update CaseFile status: {e}")
 
 
+def _run_durable_completion_reconciliation(
+    case_id: int,
+    case_uuid: str,
+    *,
+    trigger_reason: str = 'case_indexing_complete_managed',
+    case_file_ids: Optional[List[int]] = None,
+) -> Dict[str, Any]:
+    """Managed/mixed completion: reconcile from PostgreSQL before any legacy tail."""
+    from models.database import db
+    from utils.completion_reconciler import (
+        CaseIngestComposition,
+        default_production_hooks,
+        reconcile_case_completion,
+        resolve_case_completion_route,
+    )
+    from utils.progress import clear_progress, set_phase
+
+    del case_file_ids
+    set_phase(case_uuid, 'completion_reconciliation')
+    app = get_flask_app()
+    with app.app_context():
+        composition = resolve_case_completion_route(
+            db.session, case_id=case_id, case_uuid=case_uuid
+        )
+        if composition == CaseIngestComposition.LEGACY_ONLY:
+            raise RuntimeError("durable completion route invoked for a legacy-only case")
+        result = reconcile_case_completion(
+            session=db.session,
+            case_id=case_id,
+            case_uuid=case_uuid,
+            trigger_reason=trigger_reason,
+            hooks=default_production_hooks(case_id=case_id, case_uuid=case_uuid),
+        )
+        try:
+            summary = _build_case_ingest_summary(case_id=case_id, case_uuid=case_uuid)
+        except Exception as exc:
+            logger.warning("Managed ingest summary failed for case %s: %s", case_uuid, exc)
+            summary = {}
+    clear_progress(case_uuid)
+    return {
+        'case_uuid': case_uuid,
+        'case_id': case_id,
+        'route': composition,
+        'legacy_destructive_skipped': True,
+        'buffer_flushed': False,
+        'buffer_flush_status': 'not_required_managed',
+        'duplicates_removed': 0,
+        'reconciliation': result.as_dict(),
+        'ingest_summary': summary,
+        'success': result.assessment != 'failed',
+        'errors': list(result.errors),
+    }
+
+
+@celery_app.task(bind=True, name='tasks.reconcile_case_completion')
+def reconcile_case_completion_task(
+    self,
+    case_id: int,
+    case_uuid: str = '',
+    trigger_reason: str = 'durable_authority',
+) -> Dict[str, Any]:
+    """Bounded idempotent F1 completion reconciliation for a managed/mixed case."""
+    from models.database import db
+    from utils.completion_reconciler import (
+        CaseIngestComposition,
+        default_production_hooks,
+        reconcile_case_completion,
+        resolve_case_completion_route,
+    )
+
+    app = get_flask_app()
+    with app.app_context():
+        composition = resolve_case_completion_route(
+            db.session, case_id=case_id, case_uuid=case_uuid or None
+        )
+        if composition == CaseIngestComposition.LEGACY_ONLY:
+            return {
+                'case_id': case_id,
+                'case_uuid': case_uuid,
+                'route': composition,
+                'assessment': 'reconciled',
+                'skipped': True,
+                'reason': 'legacy_only_preserves_existing_completion_tail',
+            }
+        result = reconcile_case_completion(
+            session=db.session,
+            case_id=case_id,
+            case_uuid=case_uuid or None,
+            trigger_reason=trigger_reason,
+            hooks=default_production_hooks(case_id=case_id, case_uuid=case_uuid),
+        )
+        return result.as_dict()
+
+
 @celery_app.task(bind=True, name='tasks.case_indexing_complete')
 def case_indexing_complete_task(
     self,
@@ -3231,32 +3339,54 @@ def case_indexing_complete_task(
     _retry_count: int = 0,
     case_file_ids: Optional[List[int]] = None,
 ) -> Dict[str, Any]:
-    """Run post-indexing completion tasks for a case
-    
-    Triggered automatically when all files finish processing.
-    
-    Steps:
-    0. Verify no files are still processing (defer if needed)
-    1. Flush ClickHouse buffer table to main events table
-    2. Run known systems discovery
-    3. Run known users discovery
-    
-    Args:
-        case_id: PostgreSQL case.id
-        case_uuid: Case UUID
-        _retry_count: Internal counter for deferred retries
-        
-    Returns:
-        Dict with completion results
+    """Run post-indexing completion tasks for a case.
+
+    Routing is decided from PostgreSQL managed-source state, not Redis
+    last-file counters:
+
+    - legacy-only: preserve the existing exclusive-fence completion tail
+    - managed-only or mixed: durable reconciliation first; never run
+      case-wide destructive dedup / Buffer OPTIMIZE over managed evidence
     """
     from utils.clickhouse import get_fresh_client
     from utils.progress import clear_progress, set_phase, clear_completion_trigger
     
     logger.info(f"Running completion tasks for case {case_uuid}")
-    
+
+    app = get_flask_app()
+    with app.app_context():
+        from models.database import db
+        from utils.completion_reconciler import (
+            CaseIngestComposition,
+            resolve_case_completion_route,
+        )
+
+        try:
+            completion_route = resolve_case_completion_route(
+                db.session, case_id=case_id, case_uuid=case_uuid
+            )
+        except Exception:
+            logger.warning(
+                "Could not classify completion route for case %s; preserving legacy tail",
+                case_uuid,
+                exc_info=True,
+            )
+            completion_route = CaseIngestComposition.LEGACY_ONLY
+        if completion_route != CaseIngestComposition.LEGACY_ONLY:
+            logger.info(
+                "Routing case %s completion to durable reconciliation (%s)",
+                case_uuid,
+                completion_route,
+            )
+            return _run_durable_completion_reconciliation(
+                case_id,
+                case_uuid,
+                trigger_reason='case_indexing_complete_managed',
+                case_file_ids=case_file_ids,
+            )
+
     # Step 0: Verify no files are still pending/queued/ingesting
     # This prevents early completion if new files were added during processing
-    app = get_flask_app()
     with app.app_context():
         from models.case_file import CaseFile
         

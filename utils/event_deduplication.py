@@ -18,6 +18,10 @@ from utils.clickhouse import ClickHouseMutationGuardActive, destructive_event_re
 logger = logging.getLogger(__name__)
 
 
+class ManagedEvidenceDedupForbidden(RuntimeError):
+    """Raised when case-wide destructive dedup would touch managed generations."""
+
+
 @dataclass
 class ArtifactDeduplicationConfig:
     """Configuration for deduplicating a specific artifact type"""
@@ -367,6 +371,39 @@ def deduplicate_artifact_type(
         }
 
 
+def case_has_managed_source_generations(case_id: int) -> bool:
+    """Return True when PostgreSQL proves the case has managed generations.
+
+    Probe failures that mean "the control-plane table is absent" are treated as
+    no managed evidence. A positive match always refuses case-wide rewrite.
+    """
+    try:
+        from models.database import db
+        from models.database_flow import EvidenceSourceGeneration
+        from sqlalchemy.exc import OperationalError, ProgrammingError
+
+        return (
+            db.session.query(EvidenceSourceGeneration.id)
+            .filter_by(case_id=int(case_id))
+            .first()
+            is not None
+        )
+    except (ProgrammingError, OperationalError):
+        try:
+            from models.database import db
+            db.session.rollback()
+        except Exception:
+            pass
+        return False
+    except Exception:
+        logger.warning(
+            "Managed-generation probe failed for case %s; treating as unmanaged",
+            case_id,
+            exc_info=True,
+        )
+        return False
+
+
 def deduplicate_case_events(
     case_id: int,
     case_uuid: str = None,
@@ -374,6 +411,7 @@ def deduplicate_case_events(
     *,
     max_eligible_events_per_artifact: Optional[int] = None,
     rewrite_guard_behavior: str = 'error',
+    allow_managed_evidence: bool = False,
 ) -> Dict[str, Any]:
     """Deduplicate all events for a case across all artifact types.
     
@@ -391,6 +429,11 @@ def deduplicate_case_events(
     from utils.clickhouse import get_fresh_client
 
     logger.info(f"Starting event deduplication for case {case_id}")
+
+    if not allow_managed_evidence and case_has_managed_source_generations(case_id):
+        raise ManagedEvidenceDedupForbidden(
+            f"case-wide event dedup refused for case {case_id}: managed source generations exist"
+        )
 
     try:
         with destructive_event_rewrite_guard('case_event_deduplication', case_id=case_id):

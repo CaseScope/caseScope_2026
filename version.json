@@ -1,6 +1,14 @@
 {
-  "version": "4.20.1",
+  "version": "4.21.0",
   "changelog": [
+    {
+      "version": "4.21.0",
+      "date": "2026-08-21",
+      "changes": [
+        "Added Phase 1B Tranche F1 PostgreSQL-authoritative completion reconciliation so managed completion is no longer defined by Redis last-file counters",
+        "Routed managed and mixed cases away from case-wide destructive completion-tail dedup and Buffer OPTIMIZE; preserved the legacy-only tail; did not start Tranche F2 or G"
+      ]
+    },
     {
       "version": "4.20.1",
       "date": "2026-08-20",

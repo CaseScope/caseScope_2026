@@ -90,6 +90,24 @@ def _utcnow() -> datetime:
     return datetime.now(timezone.utc).replace(tzinfo=None)
 
 
+def _schedule_completion_reconciliation(session, generation, *, reason: str) -> None:
+    """Best-effort F1 trigger. Pytest auto-schedule is disabled inside the helper."""
+    if generation is None:
+        return
+    try:
+        from models.case import Case
+        from utils.completion_reconciler import maybe_schedule_case_completion_reconciliation
+
+        case = session.get(Case, int(generation.case_id))
+        maybe_schedule_case_completion_reconciliation(
+            case_id=int(generation.case_id),
+            case_uuid=case.uuid if case is not None else None,
+            reason=reason,
+        )
+    except Exception:
+        return
+
+
 class ManifestEligibilityError(ManifestProtocolError):
     """Raised when a source/parser is not eligible for managed ingest."""
 
@@ -872,6 +890,10 @@ def mark_batch_durable(*, session, batch: IngestBatch, verification: BatchVerifi
     session.flush()
     from utils.row_local_derivations import maybe_queue_row_local_derivations_for_durable_batch
     maybe_queue_row_local_derivations_for_durable_batch(session=session, batch=batch)
+    generation = batch.generation
+    if generation is None:
+        generation = session.query(EvidenceSourceGeneration).filter_by(id=batch.generation_id).one()
+    _schedule_completion_reconciliation(session, generation, reason="batch_durable")
     return batch
 
 
@@ -921,6 +943,7 @@ def declare_generation_ingest_complete(
     session.flush()
     from utils.capability_watermarks import refresh_generation_capability_watermarks
     refresh_generation_capability_watermarks(session=session, generation=generation)
+    _schedule_completion_reconciliation(session, generation, reason="source_eof")
     return generation
 
 
@@ -1050,6 +1073,7 @@ def activate_initial_generation(
         transition="BUILDING_INITIAL_TO_ACTIVE",
     )
     session.flush()
+    _schedule_completion_reconciliation(session, locked, reason="initial_activation")
     return locked
 
 
@@ -1109,6 +1133,7 @@ def activate_replacement_generation(
         transition="BUILDING_REPLACEMENT_TO_ACTIVE",
     )
     session.flush()
+    _schedule_completion_reconciliation(session, replacement_row, reason="replacement_activation")
     return replacement_row
 
 

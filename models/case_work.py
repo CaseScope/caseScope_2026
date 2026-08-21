@@ -27,6 +27,7 @@ class CaseWorkActivityType:
     FILES_UPLOADED = "files_uploaded"
     INGEST_QUEUED = "ingest_queued"
     INGEST_SUMMARY = "ingest_summary"
+    COMPLETION_RECONCILIATION = "completion_reconciliation"
     HUNTING_SEARCH = "hunting_search"
     IOC_ACTION = "ioc_action"
     ANALYSIS_RUN = "analysis_run"
