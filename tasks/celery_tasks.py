@@ -1210,6 +1210,7 @@ def _process_managed_initial_case_file(
                     generation=generation,
                 )
                 db.session.commit()
+                # Incremental ROW_LOCAL queue is feature-gated inside mark_batch_durable.
 
             project_generation_control_state(clickhouse_client, db.session, generation)
             events_count += len(event_buffer)
@@ -1250,6 +1251,11 @@ def _process_managed_initial_case_file(
             expected_rows=events_count,
             final_batch_ordinal=final_batch_ordinal,
         )
+        if events_count == 0:
+            from utils.row_local_derivations import maybe_complete_zero_event_row_local_capabilities
+            from utils.capability_watermarks import incremental_row_local_enabled
+            if incremental_row_local_enabled():
+                maybe_complete_zero_event_row_local_capabilities(session=db.session, generation=generation)
         finish_ingest_attempt(db.session, attempt, status='SUCCEEDED')
         if generation.visibility_state == EvidenceGenerationState.BUILDING_INITIAL:
             activate_initial_generation(
@@ -1551,6 +1557,14 @@ def _process_managed_evtx_directory_group(
                 expected_rows=state['events_count'],
                 final_batch_ordinal=final_batch_ordinal,
             )
+            if state['events_count'] == 0:
+                from utils.row_local_derivations import maybe_complete_zero_event_row_local_capabilities
+                from utils.capability_watermarks import incremental_row_local_enabled
+                if incremental_row_local_enabled():
+                    maybe_complete_zero_event_row_local_capabilities(
+                        session=db.session,
+                        generation=state['generation'],
+                    )
             finish_ingest_attempt(db.session, state['attempt'], status='SUCCEEDED')
             activate_initial_generation(
                 session=db.session,
@@ -2090,6 +2104,44 @@ def recover_staged_ingest_batch_task(self, ingest_batch_id: str, recovery_attemp
                 "artifact_type": artifact_type,
                 "events_count": len(target_events),
             }
+        finally:
+            client.close()
+
+
+@celery_app.task(bind=True, name='tasks.derive_row_local_capability_batch')
+def derive_row_local_capability_batch_task(
+    self,
+    ingest_batch_id: str,
+    capability: str = 'privacy_aliases',
+    derivation_version: Optional[str] = None,
+) -> Dict[str, Any]:
+    """Idempotent incremental ROW_LOCAL derivation for one DURABLE ingest batch."""
+    from models.database import db
+    from utils.clickhouse import get_fresh_client
+    from utils.row_local_derivations import derive_row_local_capability_batch
+
+    app = get_flask_app()
+    with app.app_context():
+        client = get_fresh_client()
+        try:
+            result = derive_row_local_capability_batch(
+                session=db.session,
+                ingest_batch_id=ingest_batch_id,
+                capability=capability,
+                derivation_version=derivation_version,
+                clickhouse_client=client,
+            )
+            db.session.commit()
+            return {"success": True, **result}
+        except Exception as exc:
+            db.session.rollback()
+            logger.warning(
+                "Row-local derivation failed for batch %s capability %s: %s",
+                ingest_batch_id,
+                capability,
+                exc,
+            )
+            raise
         finally:
             client.close()
 

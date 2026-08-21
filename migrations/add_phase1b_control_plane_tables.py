@@ -8,6 +8,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from app import create_app
 from models.database import db
 from models.database_flow import (
+    CaseCapabilityBatchCompletion,
     CaseCapabilitySourceState,
     EvidenceGenerationAudit,
     EvidenceSourceGeneration,
@@ -28,6 +29,7 @@ def migrate():
             IngestBatch.__table__,
             IngestBatchReconciliationAudit.__table__,
             CaseCapabilitySourceState.__table__,
+            CaseCapabilityBatchCompletion.__table__,
         ]
         created = []
         skipped = []

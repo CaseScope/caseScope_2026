@@ -66,6 +66,38 @@ class CapabilityWatermarkStatus:
         ]
 
 
+class CapabilityName:
+    PRIVACY_ALIASES = "privacy_aliases"
+    IOC_MATCHES = "ioc_matches"
+    MITRE_MATCHES = "mitre_matches"
+    GRAPH_EXTRACTION = "graph_extraction"
+    KNOWN_PRINCIPAL_DISCOVERY = "known_principal_discovery"
+    BEHAVIORAL_PROFILE_CONTRIBUTION = "behavioral_profile_contribution"
+    PATTERN_DETECTION = "pattern_detection"
+    EVENT_EMBEDDINGS = "event_embeddings"
+
+    @classmethod
+    def all(cls):
+        return [
+            cls.PRIVACY_ALIASES,
+            cls.IOC_MATCHES,
+            cls.MITRE_MATCHES,
+            cls.GRAPH_EXTRACTION,
+            cls.KNOWN_PRINCIPAL_DISCOVERY,
+            cls.BEHAVIORAL_PROFILE_CONTRIBUTION,
+            cls.PATTERN_DETECTION,
+            cls.EVENT_EMBEDDINGS,
+        ]
+
+
+class CapabilityDerivationClass:
+    ROW_LOCAL = "ROW_LOCAL"
+    ADDITIVE_AGGREGATE = "ADDITIVE_AGGREGATE"
+    WINDOWED_STATEFUL = "WINDOWED_STATEFUL"
+    WHOLE_SOURCE = "WHOLE_SOURCE"
+    WHOLE_CASE = "WHOLE_CASE"
+
+
 class EvidenceSourceGeneration(db.Model):
     """PostgreSQL authority for one source interpretation generation."""
 
@@ -361,4 +393,65 @@ class CaseCapabilitySourceState(db.Model):
         ),
         db.Index("idx_case_capability_source_status", "case_id", "capability", "status"),
         db.Index("idx_case_capability_source_ref", "case_id", "source_ref_type", "source_ref_id", "source_generation"),
+    )
+
+
+class CaseCapabilityBatchCompletion(db.Model):
+    """Normalized per-batch capability completion evidence.
+
+    ``case_capability_source_state`` remains the authoritative current watermark
+    row. This table is the durable completion set used to compute the hole-free
+    contiguous prefix. The inherited ``completed_batch_ordinals`` JSON column is
+    retained for additive compatibility and is not completion authority.
+    """
+
+    __tablename__ = "case_capability_batch_completions"
+
+    id = db.Column(db.Integer, primary_key=True)
+    case_id = db.Column(db.Integer, db.ForeignKey("cases.id", ondelete="CASCADE"), nullable=False, index=True)
+    capability = db.Column(db.String(80), nullable=False, index=True)
+    source_ref_type = db.Column(db.String(40), nullable=False, index=True)
+    source_ref_id = db.Column(db.String(128), nullable=False, index=True)
+    source_generation = db.Column(db.Integer, nullable=False)
+    derivation_version = db.Column(db.String(128), nullable=False)
+    ingest_batch_id = db.Column(db.String(96), nullable=False, index=True)
+    batch_ordinal = db.Column(db.Integer, nullable=False)
+    completed_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
+    created_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
+
+    case = db.relationship("Case", backref=db.backref("case_capability_batch_completions", lazy="dynamic"))
+
+    __table_args__ = (
+        db.UniqueConstraint(
+            "case_id",
+            "capability",
+            "source_ref_type",
+            "source_ref_id",
+            "source_generation",
+            "derivation_version",
+            "ingest_batch_id",
+            name="uq_capability_batch_completion_identity",
+        ),
+        db.UniqueConstraint(
+            "case_id",
+            "capability",
+            "source_ref_type",
+            "source_ref_id",
+            "source_generation",
+            "derivation_version",
+            "batch_ordinal",
+            name="uq_capability_batch_completion_ordinal",
+        ),
+        db.CheckConstraint("source_generation >= 1", name="ck_capability_batch_completion_generation_positive"),
+        db.CheckConstraint("batch_ordinal >= 0", name="ck_capability_batch_completion_ordinal_nonnegative"),
+        db.Index(
+            "idx_capability_batch_completion_prefix",
+            "case_id",
+            "capability",
+            "source_ref_type",
+            "source_ref_id",
+            "source_generation",
+            "derivation_version",
+            "batch_ordinal",
+        ),
     )

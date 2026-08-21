@@ -6,6 +6,7 @@
       "date": "2026-08-15",
       "changes": [
         "Installed the inactive Phase 1B Tranche A database-flow control-plane foundation and Tranche B managed CASE_FILE BUILDING_INITIAL protocol engine",
+        "Added Phase 1B Tranche E1 durable per-source capability watermarks and incremental privacy-aliases:v1 completion authority without enabling AI freeze/send",
         "Added PostgreSQL source-generation, ingest-attempt, ingest-batch, and per-source capability-state schema foundations",
         "Added nullable/default-compatible ClickHouse events protocol columns for future source generation and deterministic batch metadata",
         "Added deterministic ingest batch ID, zero-based ordinal, ingest row hash, batch content hash, source-locator utilities, STAGED/DURABLE batch verification, and retry-safe manifest reservation tests",

@@ -1571,11 +1571,22 @@ def _alias_scope_filter_sql(
     *,
     case_file_id: int | None = None,
     generation: Any = None,
+    ingest_batch_id: str | None = None,
+    source_generation: int | None = None,
 ) -> tuple[str, dict[str, Any]]:
     _validate_generation_scope(generation)
-    if case_file_id is None:
-        return '', {}
-    return ' AND case_file_id = {case_file_id:UInt32}', {'case_file_id': int(case_file_id)}
+    clauses: list[str] = []
+    params: dict[str, Any] = {}
+    if case_file_id is not None:
+        clauses.append(' AND case_file_id = {case_file_id:UInt32}')
+        params['case_file_id'] = int(case_file_id)
+    if ingest_batch_id:
+        clauses.append(' AND ingest_batch_id = {ingest_batch_id:String}')
+        params['ingest_batch_id'] = str(ingest_batch_id)
+    if source_generation is not None:
+        clauses.append(' AND source_generation = {source_generation:UInt32}')
+        params['source_generation'] = int(source_generation)
+    return ''.join(clauses), params
 
 
 def resolve_alias_scan_table(client: Any) -> str:
@@ -1730,6 +1741,8 @@ def scan_clickhouse_case_alias_candidates(
     *,
     case_file_id: int | None = None,
     generation: Any = None,
+    ingest_batch_id: str | None = None,
+    source_generation: int | None = None,
     batch_size: int = 5000,
     privacy_level: str | None = None,
     client: Any = None,
@@ -1762,6 +1775,8 @@ def scan_clickhouse_case_alias_candidates(
     scope_sql, scope_params = _alias_scope_filter_sql(
         case_file_id=case_file_id,
         generation=generation,
+        ingest_batch_id=ingest_batch_id,
+        source_generation=source_generation,
     )
     count_parameters = {'case_id': case_id, **scope_params}
     count_result = client.query(
@@ -1773,8 +1788,9 @@ def scan_clickhouse_case_alias_candidates(
     # File-scoped ingest scans are bounded by one CaseFile; skip the whole-case
     # frequency caps so rare protected values are not dropped versus the former
     # per-event extractor. Whole-case backfill keeps the existing limits.
-    typed_limit = None if case_file_id is not None else TYPED_FIELD_SCAN_LIMIT
-    text_limit = None if case_file_id is not None else TEXT_FIELD_SCAN_LIMIT
+    scoped_scan = case_file_id is not None or bool(ingest_batch_id)
+    typed_limit = None if scoped_scan else TYPED_FIELD_SCAN_LIMIT
+    text_limit = None if scoped_scan else TEXT_FIELD_SCAN_LIMIT
     scan_kwargs = {
         'client': client,
         'case_id': case_id,
@@ -1853,6 +1869,8 @@ def scan_clickhouse_case_alias_candidates(
         'case_id': case_id,
         'case_file_id': case_file_id,
         'generation': generation,
+        'ingest_batch_id': ingest_batch_id,
+        'source_generation': source_generation,
         'event_count': event_count,
         'client_public_ips': sorted(client_public_ips),
         'privacy_level': level,
@@ -1898,6 +1916,8 @@ def populate_case_privacy_aliases(
     *,
     case_file_id: int | None = None,
     generation: Any = None,
+    ingest_batch_id: str | None = None,
+    source_generation: int | None = None,
     batch_size: int = 5000,
     reset_generated: bool = False,
     privacy_level: str | None = None,
@@ -1906,8 +1926,9 @@ def populate_case_privacy_aliases(
 ) -> dict[str, Any]:
     """Populate the alias vault from original ClickHouse event data.
 
-    Scope defaults to the whole case. Pass case_file_id for file-grained ingest.
-    generation must remain None until source_generation storage exists.
+    Scope defaults to the whole case. Pass case_file_id for file-grained ingest
+    or ingest_batch_id for managed row-local incremental derivation.
+    The legacy generation= argument remains None-only.
     """
     from utils.ingest_metrics import timed_stage
 
@@ -1921,11 +1942,14 @@ def populate_case_privacy_aliases(
         "alias_scoped_scan",
         case_id=case_id,
         case_file_id=case_file_id,
+        ingest_batch_id=ingest_batch_id,
     ) as scan_metric:
         scan = scan_clickhouse_case_alias_candidates(
             case_id,
             case_file_id=case_file_id,
             generation=generation,
+            ingest_batch_id=ingest_batch_id,
+            source_generation=source_generation,
             batch_size=batch_size,
             privacy_level=privacy_level,
             client=client,
@@ -1944,7 +1968,7 @@ def populate_case_privacy_aliases(
             case_id,
             scan['candidates'],
             source=source,
-            commit_every=0 if case_file_id is not None else 500,
+            commit_every=0 if (case_file_id is not None or ingest_batch_id) else 500,
         )
     stored = stored_alias_summary(case_id)
     comparison = compare_candidates_to_stored(case_id, scan['candidates'])
@@ -1952,6 +1976,8 @@ def populate_case_privacy_aliases(
         'case_id': case_id,
         'case_file_id': case_file_id,
         'generation': generation,
+        'ingest_batch_id': ingest_batch_id,
+        'source_generation': source_generation,
         'event_count': scan['event_count'],
         'client_public_ips': scan['client_public_ips'],
         'privacy_level': scan.get('privacy_level'),

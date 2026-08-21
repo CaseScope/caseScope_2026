@@ -870,6 +870,8 @@ def mark_batch_durable(*, session, batch: IngestBatch, verification: BatchVerifi
         batch.state_version = int(batch.state_version or 0) + 1
         batch.durable_at = _utcnow()
     session.flush()
+    from utils.row_local_derivations import maybe_queue_row_local_derivations_for_durable_batch
+    maybe_queue_row_local_derivations_for_durable_batch(session=session, batch=batch)
     return batch
 
 
@@ -917,6 +919,8 @@ def declare_generation_ingest_complete(
     generation.completed_at = _utcnow()
     update_generation_ingest_accounting(session=session, generation=generation)
     session.flush()
+    from utils.capability_watermarks import refresh_generation_capability_watermarks
+    refresh_generation_capability_watermarks(session=session, generation=generation)
     return generation
 
 
@@ -973,7 +977,10 @@ def check_generation_activation_completeness(
                 errors.append(f"durable row count {row_sum} does not match expected {expected_rows}")
 
     if required_derivations:
-        errors.append("activation-blocking derivation requirements are not implemented in D1")
+        from utils.capability_watermarks import missing_activation_capability_requirements
+        missing = missing_activation_capability_requirements(session, generation, required_derivations)
+        if missing:
+            errors.append(f"activation-blocking capabilities not complete: {list(missing)}")
 
     return ActivationCompletenessResult(
         complete=not errors,
@@ -1139,6 +1146,52 @@ def fail_generation_terminal(
         reason=reason,
         transition=f"{prior_state}_TO_FAILED",
     )
+    session.flush()
+    return locked
+
+
+def invalidate_source_generation(
+    *,
+    session,
+    generation: EvidenceSourceGeneration,
+    actor: str = "system",
+    reason: str = "source_invalidated",
+) -> EvidenceSourceGeneration:
+    """Transition a generation to INVALIDATED and withdraw capability gates."""
+    locked = (
+        session.query(EvidenceSourceGeneration)
+        .filter_by(id=generation.id)
+        .with_for_update()
+        .one()
+    )
+    if locked.visibility_state == EvidenceGenerationState.INVALIDATED:
+        from utils.capability_watermarks import invalidate_generation_capability_state
+        invalidate_generation_capability_state(session=session, generation=locked)
+        return locked
+    if locked.visibility_state not in {
+        EvidenceGenerationState.BUILDING_INITIAL,
+        EvidenceGenerationState.BUILDING_REPLACEMENT,
+        EvidenceGenerationState.ACTIVE,
+        EvidenceGenerationState.SUPERSEDED,
+        EvidenceGenerationState.FAILED,
+    }:
+        raise ManifestProtocolError(f"cannot invalidate generation in state {locked.visibility_state}")
+    prior_state = locked.visibility_state
+    locked.visibility_state = EvidenceGenerationState.INVALIDATED
+    locked.state_version = int(locked.state_version or 0) + 1
+    _audit_generation_transition(
+        session=session,
+        case_id=locked.case_id,
+        source_ref_type=locked.source_ref_type,
+        source_ref_id=locked.source_ref_id,
+        prior_active_generation=locked.source_generation if prior_state == EvidenceGenerationState.ACTIVE else None,
+        new_active_generation=None,
+        actor=actor,
+        reason=reason,
+        transition=f"{prior_state}_TO_INVALIDATED",
+    )
+    from utils.capability_watermarks import invalidate_generation_capability_state
+    invalidate_generation_capability_state(session=session, generation=locked)
     session.flush()
     return locked
 

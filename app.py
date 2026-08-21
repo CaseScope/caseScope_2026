@@ -726,6 +726,7 @@ def create_app(run_startup_bootstrap: bool = True, register_blueprints: bool = T
             from models.graph import GraphEntity, GraphEntityObservation, GraphRelationship, GraphRelationshipEvidence
             from models.graph_saved_view import GraphSavedView
             from models.database_flow import (
+                CaseCapabilityBatchCompletion,
                 CaseCapabilitySourceState,
                 EvidenceSourceGeneration,
                 IngestAttempt,
