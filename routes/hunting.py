@@ -15,6 +15,7 @@ from models.database import db
 from routes.route_helpers import _remember_task_access, _task_access_allowed, _viewer_write_error
 from routes.hunting_query_helpers import (
     _build_hunting_alert_type_filter,
+    build_hunting_publication_bridge,
     build_hunting_search_clause,
     build_event_description,
     build_hunting_time_filter,
@@ -762,6 +763,7 @@ def get_hunting_events(case_id):
         """
 
         search_clause = build_hunting_search_clause(search, params)
+        publication = build_hunting_publication_bridge(alias="e")
 
         where_clause = (
             f"e.case_id = {{case_id:UInt32}}"
@@ -769,10 +771,11 @@ def get_hunting_events(case_id):
         )
         from_clause = f"""
             FROM events AS e
+            {publication["join_sql"]}
             {analyst_projection["join_sql"]}
             {noise_projection["join_sql"]}
             {ioc_projection["join_sql"]}
-            WHERE {where_clause}
+            WHERE {where_clause}{publication["where_sql"]}
         """
         count_query = f"""
             SELECT count()
@@ -998,6 +1001,7 @@ def get_hunting_event_detail(case_id):
         analyst_projection = build_analyst_projection(alias="e", case_id_filter_sql="{case_id:UInt32}")
         noise_projection = build_noise_projection(alias="e", case_id_filter_sql="{case_id:UInt32}")
         ioc_projection = build_ioc_projection(alias="e", case_id_filter_sql="{case_id:UInt32}")
+        publication = build_hunting_publication_bridge(alias="e")
 
         query = f"""
             SELECT
@@ -1019,6 +1023,7 @@ def get_hunting_event_detail(case_id):
                 {analyst_projection["tags_sql"]} AS analyst_tags,
                 {analyst_projection["notes_sql"]} AS analyst_notes
             FROM events AS e
+            {publication["join_sql"]}
             {analyst_projection["join_sql"]}
             {noise_projection["join_sql"]}
             {ioc_projection["join_sql"]}
@@ -1026,6 +1031,7 @@ def get_hunting_event_detail(case_id):
               AND e.selector_key = {{selector_key:String}}
               {"AND e.command_line = {match_command_line:String}" if match_command_line else ""}
               {"AND position(e.search_blob, {match_search_blob:String}) > 0" if (match_search_blob and not match_command_line) else ""}
+              {publication["where_sql"]}
             LIMIT 1
         """
         detail_params = {"case_id": case.id, "selector_key": selector_key}
@@ -1205,7 +1211,8 @@ def get_raw_event_data(case_id):
         analyst_projection = build_analyst_projection(alias="e", case_id_filter_sql="{case_id:UInt32}")
         noise_projection = build_noise_projection(alias="e", case_id_filter_sql="{case_id:UInt32}")
         ioc_projection = build_ioc_projection(alias="e", case_id_filter_sql="{case_id:UInt32}")
-        conditions = ["case_id = {case_id:UInt32}"]
+        publication = build_hunting_publication_bridge(alias="e")
+        conditions = ["e.case_id = {case_id:UInt32}"]
         params = {"case_id": case.id}
 
         if selector_key:
@@ -1260,10 +1267,12 @@ def get_raw_event_data(case_id):
                    {noise_projection["matched_sql"]} AS noise_matched_effective,
                    {noise_projection["rules_sql"]} AS noise_rules_effective
             FROM events AS e
+            {publication["join_sql"]}
             {analyst_projection["join_sql"]}
             {noise_projection["join_sql"]}
             {ioc_projection["join_sql"]}
             WHERE {' AND '.join(conditions)}
+              {publication["where_sql"]}
             LIMIT 1
         """
         result = client.query(query, parameters=params)

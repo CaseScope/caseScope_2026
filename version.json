@@ -1,6 +1,14 @@
 {
-  "version": "4.21.1",
+  "version": "4.21.2",
   "changelog": [
+    {
+      "version": "4.21.2",
+      "date": "2026-08-21",
+      "changes": [
+        "Closed the Phase 1B Tranche F2 Hunt Artifacts product-search publication gate with an interim ClickHouse control-projection bridge on the existing events table",
+        "Managed Hunt list and event-detail now require a current DURABLE batch plus a publishable generation; true legacy rows stay visible; malformed protocol identity fails closed; F2 readiness UI remains incomplete"
+      ]
+    },
     {
       "version": "4.21.1",
       "date": "2026-08-21",

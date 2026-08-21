@@ -1,8 +1,8 @@
 # Phase 1B Tranche F2 — PostgreSQL-Authoritative Readiness UI
 
-Status: **NOT_READY**. F2 did not implement the 1B.5 readiness strip, Hunt Artifacts coverage note, or Case Files completion-banner cutover.
+Status: **NOT_READY** for F2 UI (readiness strip, Hunt coverage note, Case Files completion-banner cutover). Product-search publication gate: **CLOSED** by an interim Hunt Artifacts bridge (version 4.21.2).
 
-F1 and the F1 fail-closed composition closure remain accepted on live main (`0c1e2173`, version 4.21.1). F2 stopped at the locked product-search publication gate.
+F1 and the F1 fail-closed composition closure remain accepted on live main. The original F2 diagnostic on `4e32237d` recorded the Hunt Artifacts publication failure below. The closure that follows does not implement the remainder of F2 UI and does not start Phase 2, 3, or 4.
 
 This is a Phase 1B exit blocker for independent review. It is not permission to start Phase 2 or Phase 4 in this tranche.
 
@@ -157,3 +157,123 @@ Satisfying the Hunt Artifacts gate requires a product-reader publication filter 
 - MEMORY_JOB / PCAP managed generation protocol: **NO**
 
 Parser certification was not altered. Certified managed inventory remains 84 / 12 / 72 / 0.
+
+---
+
+# Publication-gate closure (interim Hunt Artifacts bridge)
+
+This section records the narrow product-publication fix. It is **not** F2 UI completion and **not** Phase 4 reader migration.
+
+## Original failure
+
+`GET /api/hunting/events/<case_id>` (`routes.hunting.get_hunting_events`) queried `FROM events AS e` with no join to `visible_evidence_generations` or `durable_ingest_batches`. Physical presence was treated as publication.
+
+Observed on real PG/CH with certified managed IIS rows:
+
+- STAGED managed rows were returned
+- DURABLE BUILDING_INITIAL rows were correctly searchable before EOF
+- BUILDING_REPLACEMENT rows were returned before activation
+- after N → SUPERSEDED and N+1 → ACTIVE, both generations remained returned
+
+`get_hunting_event_detail` used the same raw pattern, so a known selector could drill into unpublished rows.
+
+## Bridge architecture
+
+A single helper, `build_hunting_publication_bridge` in `routes/hunting_query_helpers.py`, adds LEFT JOINs onto the current ReplacingMergeTree control projections using `FINAL` (the same current-state reduction already proven by D1 `resolve_projected_visible_generation`).
+
+The helper is applied to:
+
+- `get_hunting_events` (Hunt Artifacts list + count)
+- `get_hunting_event_detail` (selector drill-down)
+- `get_raw_event_data` (Hunt Events raw companion; same selector must not bypass list/detail)
+
+The query still reads the physical `events` table. Overlay joins, search, type/alert/noise/time filters, sort, and pagination are unchanged except that unpublished managed physical rows are excluded.
+
+## Why this is not Phase 4 reader migration
+
+The locked future surface for `get_hunting_events` remains `events_current` in `docs/database_flow_contracts/event_surface_consumers.json` (unchanged). This closure did not create `events_current` or `event_observations_current`, did not implement LEK, did not select canonical representatives, and did not migrate dashboard, reports, detectors, graph, RAG, or Hunt export readers.
+
+## Exact managed visibility predicate
+
+A row is **legacy** only when every Phase 1B protocol identity column is NULL:
+
+`source_ref_type`, `source_ref_id`, `source_generation`, `ingest_batch_id`, `ingest_row_ordinal`, `ingest_row_hash`, `ingest_attempt_id`
+
+A row is **published managed** only when all of the following hold:
+
+- `source_ref_type`, `source_ref_id`, `source_generation`, and `ingest_batch_id` are present
+- the current `visible_evidence_generations FINAL` row for that exact `case_id` / source / generation has `publishable = 1` and `visibility_state IN ('BUILDING_INITIAL', 'ACTIVE')`
+- the current `durable_ingest_batches FINAL` row for that exact `ingest_batch_id` plus the same case/source/generation identity has `state = 'DURABLE'`
+
+Resulting Hunt visibility:
+
+- BUILDING_INITIAL + DURABLE batch → visible (progressive search before EOF)
+- ACTIVE + DURABLE batch → visible
+- STAGED → hidden
+- BUILDING_REPLACEMENT → hidden
+- SUPERSEDED / FAILED / INVALIDATED → hidden
+
+No PostgreSQL visibility query and no Redis publication authority are used on the Hunt path.
+
+## Legacy preservation
+
+Historical and deferred rows with all protocol identity NULL remain searchable exactly as before. This bridge does not restrict Hunt to managed evidence only.
+
+## Malformed managed fail-closed
+
+If any protocol identity exists but the row cannot prove the complete publication relationship, it is not reinterpreted as legacy. UNKNOWN != LEGACY. The row is omitted from list, detail, and raw.
+
+## Stale state-version handling
+
+Control tables are ReplacingMergeTree(`state_version`). The bridge reads `... FINAL` subqueries, matching D1. After activation, inserting a lower `state_version` ACTIVE/publishable projection for old N does not resurrect N.
+
+## ClickHouse control failure
+
+If the control tables or required schema cannot be read, the Hunt query errors and the route returns HTTP 500. It does not fall back to unfiltered raw managed events.
+
+## Real PostgreSQL / ClickHouse results
+
+Proof: disposable PostgreSQL `phase1b_f2_test` and ClickHouse `phase1b_f2_test`, certified managed `IISLogParser` fixture, actual Flask Hunt blueprint.
+
+Test: `tests/test_phase1b_tranche_f2_product_search_publication_gate.py`
+
+| Gate | Required | Result |
+|---|---|---|
+| A. STAGED physical rows on ordinary Hunt search | hidden | hidden |
+| B. DURABLE BUILDING_INITIAL before EOF | visible | visible |
+| C. Second DURABLE batch before EOF | visible | visible |
+| D. BUILDING_REPLACEMENT before activation | hidden; prior ACTIVE visible | hidden; N visible |
+| E. After N SUPERSEDED / N+1 ACTIVE | N hidden; N+1 visible | N hidden; N+1 visible |
+| F. Stale lower-version projection for N | N remains hidden | N remains hidden |
+| G. Event detail / raw selector | unpublished 404; published 200 | unpublished 404; published 200 |
+| H. Legacy-only NULL protocol identity | visible as before | visible |
+| I. Mixed legacy + published + STAGED + hidden replacement | legacy + published only | legacy + published only |
+| J. Partial protocol identity | fail closed | fail closed |
+
+Hunt search text, artifact type filters, alert filters, noise filter, time filter, sort, pagination, count, event detail, and current Hunt overlays (IOC/noise/analyst columns on `events`) remain intact for the publication-safe visible set.
+
+## Performance
+
+Publication is a single-query filter (JOINs inside the existing count query and the existing data query). No extra Hunt SELECT round trip, no per-request PostgreSQL visibility query, no Redis.
+
+Measured on the representative IIS fixture (8 published managed rows) in `test_publication_bridge_query_shape_and_latency`:
+
+- Query shape before: `FROM events AS e WHERE e.case_id = {case_id:UInt32}`
+- Query shape after: same `events` read plus `LEFT JOIN (SELECT ... FROM visible_evidence_generations FINAL)` and `LEFT JOIN (SELECT ... FROM durable_ingest_batches FINAL)` with the legacy-or-published predicate
+- Hunt list `events` SELECT queries per request: **2** (count + data). Extra publication round trips: **0**
+- Total ClickHouse queries during the Flask request: **4** (2 pre-existing `ensure_event_mitre_state_tables` `system.columns` lookups + the 2 Hunt SELECTs)
+- Raw unfiltered count: 4.7 ms; raw unfiltered data: 5.0 ms
+- Full product Hunt request (Flask + case lookup + mitre ensure + publication-filtered count and data): 100.5 ms
+- No PostgreSQL visibility query; no Redis
+
+## Remaining F2 UI work
+
+The publication gate no longer blocks F2 UI. Remaining F2 work is still only:
+
+- PostgreSQL-authoritative readiness DTO/API
+- Case Files readiness strip
+- F1-consistent completion/repair presentation
+- non-blocking Hunt search coverage note
+- final Phase 1B exit acceptance review after F2 itself passes
+
+Hunt export-view/export-tagged, noise stats, MITRE match lists, and other non-Events-list readers were not migrated in this closure. Those remain Phase 4/5 `events_current` assignments.

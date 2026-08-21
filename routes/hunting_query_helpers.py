@@ -258,6 +258,81 @@ LEGACY_ARTIFACT_TYPE_ALIASES = {
     "ntfs_log_tracker_export": ["ntfs_logfile_event"],
 }
 
+PHASE1B_PROTOCOL_IDENTITY_COLUMNS = (
+    "source_ref_type",
+    "source_ref_id",
+    "source_generation",
+    "ingest_batch_id",
+    "ingest_row_ordinal",
+    "ingest_row_hash",
+    "ingest_attempt_id",
+)
+
+
+def build_hunting_publication_bridge(alias="e"):
+    """Interim Phase 1B publication filter over the physical ``events`` table.
+
+    This is not ``events_current`` and does not change counting basis. Hunt
+    readers keep querying ``events``. Managed rows are returned only when the
+    current ReplacingMergeTree control projections prove both DURABLE batch
+    publication and a publishable generation. True legacy rows (all protocol
+    identity NULL) stay visible. Partial protocol identity fails closed.
+    """
+    join_sql = f"""
+            LEFT JOIN (
+                SELECT
+                    case_id,
+                    source_ref_type,
+                    source_ref_id,
+                    source_generation,
+                    visibility_state,
+                    publishable
+                FROM visible_evidence_generations FINAL
+            ) AS veg
+                ON veg.case_id = {alias}.case_id
+               AND veg.source_ref_type = {alias}.source_ref_type
+               AND veg.source_ref_id = {alias}.source_ref_id
+               AND veg.source_generation = {alias}.source_generation
+            LEFT JOIN (
+                SELECT
+                    ingest_batch_id,
+                    case_id,
+                    source_ref_type,
+                    source_ref_id,
+                    source_generation,
+                    state
+                FROM durable_ingest_batches FINAL
+            ) AS dib
+                ON dib.ingest_batch_id = {alias}.ingest_batch_id
+               AND dib.case_id = {alias}.case_id
+               AND dib.source_ref_type = {alias}.source_ref_type
+               AND dib.source_ref_id = {alias}.source_ref_id
+               AND dib.source_generation = {alias}.source_generation
+    """
+    protocol_null_sql = " AND ".join(
+        f"{alias}.{column} IS NULL" for column in PHASE1B_PROTOCOL_IDENTITY_COLUMNS
+    )
+    where_sql = f"""
+            AND (
+                (
+                    {protocol_null_sql}
+                )
+                OR (
+                    {alias}.source_ref_type IS NOT NULL AND {alias}.source_ref_type != ''
+                    AND {alias}.source_ref_id IS NOT NULL AND {alias}.source_ref_id != ''
+                    AND {alias}.source_generation IS NOT NULL
+                    AND {alias}.ingest_batch_id IS NOT NULL AND {alias}.ingest_batch_id != ''
+                    AND veg.publishable = 1
+                    AND veg.visibility_state IN ('BUILDING_INITIAL', 'ACTIVE')
+                    AND dib.state = 'DURABLE'
+                )
+            )
+    """
+    return {
+        "join_sql": join_sql,
+        "where_sql": where_sql,
+    }
+
 
 def build_hunting_type_filter(artifact_types_param: str, params: dict) -> str:
     """Build a parameterized artifact type filter."""

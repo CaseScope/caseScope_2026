@@ -96,6 +96,10 @@ sys.modules["routes.route_helpers"] = types.SimpleNamespace(
 )
 sys.modules["routes.hunting_query_helpers"] = types.SimpleNamespace(
     _build_hunting_alert_type_filter=lambda *_args, **_kwargs: ("", {}),
+    build_hunting_publication_bridge=lambda *_args, **_kwargs: {
+        "join_sql": "",
+        "where_sql": "",
+    },
     build_hunting_search_clause=lambda *_args, **_kwargs: ("", {}),
     build_event_description=lambda *_args, **_kwargs: "",
     build_hunting_time_filter=lambda *_args, **_kwargs: ("", {}),
