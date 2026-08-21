@@ -1,6 +1,14 @@
 {
-  "version": "4.23.2",
+  "version": "4.24.0",
   "changelog": [
+    {
+      "version": "4.24.0",
+      "date": "2026-08-21",
+      "changes": [
+        "Deployed the locked production search_blob text index (idx_search_blob_text) as ADD INDEX metadata only, with exclude_materialize_skip_indexes_on_merge, and added a partition-scoped operator materializer",
+        "Materialized two retained production pilots (case_id 33 and 10) with no Hunt reader cutover, no bloom-index drop, and no full-table MATERIALIZE INDEX"
+      ]
+    },
     {
       "version": "4.23.2",
       "date": "2026-08-21",

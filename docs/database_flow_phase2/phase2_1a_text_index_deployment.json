@@ -1,0 +1,254 @@
+{
+  "tranche": "phase2_1a",
+  "version": "4.24.0",
+  "baseline_version": "4.23.2",
+  "baseline_commit": "5150420c61f8c8e04c3164b6c426b74d4cebd3b9",
+  "clickhouse_version": "26.7.3.19",
+  "production_database": "casescope",
+  "python": "/opt/casescope/venv/bin/python",
+  "locked_index": {
+    "name": "idx_search_blob_text",
+    "expression": "search_blob",
+    "type": "text(tokenizer = 'splitByNonAlpha', preprocessor = lower(search_blob))",
+    "declared_granularity": 1,
+    "stored_granularity": 100000000
+  },
+  "schema_preconditions": {
+    "ok": true,
+    "protocol_columns": [
+      "source_ref_type",
+      "source_ref_id",
+      "source_generation",
+      "ingest_batch_id",
+      "ingest_row_ordinal",
+      "ingest_row_hash",
+      "ingest_attempt_id"
+    ],
+    "enable_block_number_column": 1,
+    "enable_block_offset_column": 1,
+    "visible_evidence_generations": true,
+    "durable_ingest_batches": true
+  },
+  "settings": {
+    "enable_full_text_index": "1",
+    "query_plan_direct_read_from_text_index": "1",
+    "use_skip_indexes": "1",
+    "use_skip_indexes_on_data_read": "1",
+    "materialize_skip_indexes_on_insert": "1",
+    "async_insert_server_default": "1",
+    "wait_for_async_insert": "1",
+    "exclude_materialize_skip_indexes_on_merge_after": "idx_search_blob_text"
+  },
+  "pre_add": {
+    "active_parts": 135,
+    "partitions": 25,
+    "rows": 745463991,
+    "compressed_bytes": 108493801090,
+    "text_index_present": false,
+    "blooms": ["idx_search_ngram", "idx_search_token"],
+    "mutations_active": []
+  },
+  "add_index": {
+    "changed": true,
+    "sql": "ALTER TABLE events ADD INDEX IF NOT EXISTS idx_search_blob_text search_blob TYPE text(tokenizer = 'splitByNonAlpha', preprocessor = lower(search_blob)) GRANULARITY 1",
+    "exclude_from_merge_sql": "ALTER TABLE events MODIFY SETTING exclude_materialize_skip_indexes_on_merge = 'idx_search_blob_text'",
+    "materialize_sql": null,
+    "expr": "search_blob",
+    "type_full": "text(tokenizer = 'splitByNonAlpha', preprocessor = lower(search_blob))",
+    "granularity": 100000000,
+    "search_blob_mutated": false,
+    "parts_delta": {
+      "active_parts": 0,
+      "partitions": 0,
+      "rows": 0,
+      "compressed_bytes": 0
+    },
+    "fingerprints_equal": {"33": true, "10": true, "14": true},
+    "coverage_after_add": {
+      "33": "UNMATERIALIZED",
+      "10": "UNMATERIALIZED",
+      "14": "UNMATERIALIZED"
+    }
+  },
+  "coverage_detector": {
+    "authoritative": "system.parts.path file listing for prefix skp_idx_idx_search_blob_text.",
+    "sentinel": "skp_idx_idx_search_blob_text.idx",
+    "not_used_alone": [
+      "system.data_skipping_indices.data_compressed_bytes",
+      "system.parts.secondary_indices_compressed_bytes",
+      "EXPLAIN indexes = 1 in mixed materialization"
+    ],
+    "explain_limitation": "After any partition is materialized, EXPLAIN can emit __text_index_idx_search_blob_text_* for still-unmaterialized partitions. File presence is required.",
+    "statuses": ["MATERIALIZED", "PARTIAL", "UNMATERIALIZED", "UNKNOWN"],
+    "unknown_fail_closed": true,
+    "materialize_sql_proven": "ALTER TABLE events MATERIALIZE INDEX idx_search_blob_text IN PARTITION <case_id> SETTINGS mutations_sync = 1"
+  },
+  "operator": {
+    "script": "scripts/phase2_1_materialize_search_index.py",
+    "helper": "utils/search_blob_text_index.py",
+    "one_case_id_per_invocation": true,
+    "all_partitions_default": false,
+    "never": ["OPTIMIZE FINAL", "DROP INDEX", "UPDATE events", "full-table MATERIALIZE INDEX"]
+  },
+  "pilots": {
+    "A": {
+      "case_id": 33,
+      "why": "Small but non-trivial (131512 rows, 4 parts, ~24 MB). Not 1k-row. Not largest.",
+      "rows": 131512,
+      "parts": 4,
+      "compressed_bytes_before": 24213803,
+      "compressed_bytes_after": 28604100,
+      "elapsed_seconds": 7.159793138504028,
+      "rows_per_sec": 18368,
+      "mutation_id": "mutation_34667.txt",
+      "command": "(MATERIALIZE INDEX idx_search_blob_text IN PARTITION 33)",
+      "is_done": 1,
+      "coverage_before": "UNMATERIALIZED",
+      "coverage_after": "MATERIALIZED",
+      "rows_unchanged": true,
+      "values_unchanged": true,
+      "protocol_identity_unchanged": true,
+      "other_partitions_unchanged": true,
+      "text_index_bytes_after_a_only": 4378028,
+      "idempotent_rerun_skipped": true,
+      "semantic": {
+        "whole_token_equal": [
+          "Administrator",
+          "PCLAPPVM",
+          "PCL",
+          "local",
+          "VeeamVssSupport",
+          "gupdate",
+          "WinHTTP"
+        ],
+        "a_only_explained_as_substring": {
+          "svchost": "SMSvcHost",
+          "Invoke": "invoked",
+          "4688": "14688 / GUID 8468881C",
+          "7036": "volume GUID / logon id hex",
+          "Hyper": "Hypervisor"
+        },
+        "b_only_count_whole_token": 0,
+        "substring_requires_like": ["vchos", "dminis"],
+        "token_false_negative": false
+      },
+      "explain_direct_read": true,
+      "perf": {
+        "ilike_svchost_p50_ms": 10.05,
+        "token_svchost_p50_ms": 7.69,
+        "ilike_admin_p50_ms": 10.99,
+        "token_admin_p50_ms": 7.62
+      }
+    },
+    "B": {
+      "case_id": 10,
+      "why": "Representative medium Windows-rich partition (2.45M rows, 3 parts, ~397 MB). Not largest (case 32).",
+      "rows": 2447494,
+      "parts": 3,
+      "compressed_bytes_before": 396919390,
+      "compressed_bytes_after": 461845421,
+      "elapsed_seconds": 8.976093769073486,
+      "rows_per_sec": 272548,
+      "mutation_id": "mutation_34668.txt",
+      "command": "(MATERIALIZE INDEX idx_search_blob_text IN PARTITION 10)",
+      "is_done": 1,
+      "coverage_before": "UNMATERIALIZED",
+      "coverage_after": "MATERIALIZED",
+      "rows_unchanged": true,
+      "values_unchanged": true,
+      "protocol_identity_unchanged": true,
+      "other_partitions_unchanged": true,
+      "loadavg_before": [0.22, 0.28, 1.27],
+      "loadavg_after": [0.70, 0.39, 1.27],
+      "semantic": {
+        "hash_sha256_equal": true,
+        "ilike_vs_token_differences": "substring or splitByNonAlpha multi-token ALL (WindowsPowerShell, administrators, cmd+exe without cmd.exe, IP octets without contiguous IP). No unexplained whole-token miss.",
+        "token_false_negative": false
+      },
+      "explain_direct_read": true,
+      "perf": {
+        "ilike_powershell_p50_ms": 102.12,
+        "token_powershell_p50_ms": 9.90,
+        "ilike_powershell_read_bytes_p50": 7044215,
+        "token_powershell_read_bytes_p50": 6956395,
+        "ilike_4688_p50_ms": 117.19,
+        "token_4688_p50_ms": 10.24,
+        "ilike_4688_read_rows_p50": 1346842,
+        "token_4688_read_rows_p50": 180274
+      }
+    }
+  },
+  "mixed_state": {
+    "materialized_case_ids": [33, 10],
+    "unmaterialized_examples": [16, 14, 32],
+    "case_16_unmaterialized_hasAllTokens_equals_lower_scan": true,
+    "case_16_powershell_count": 19644,
+    "case_16_token_p50_ms": 286.62,
+    "case_16_token_read_bytes_p50": 768052563,
+    "false_negative_pruning": false
+  },
+  "index_storage": {
+    "text_index_compressed_bytes_after_pilots": 69117249,
+    "bytes_per_materialized_row": 26.8,
+    "part_byte_growth_pilot_a": 4390297,
+    "part_byte_growth_pilot_b": 64926031,
+    "estimated_remaining_index_bytes": 19910000000,
+    "estimated_remaining_rows": 742884985
+  },
+  "remaining_rollout": {
+    "automatic": false,
+    "order": [13, 15, 5, 36, 9, 16, 37, 38, 8, 34, 11, 1, 23, 3, 2, 35, 12, 21, 4, 6, 7, 32],
+    "batching": "one --case-id per invocation; prefer bounded batches by measured ~272k rows/s and ~27 index bytes/row rather than an arbitrary sort-only plan",
+    "last": 32
+  },
+  "command_line": {
+    "decision": "DEFER",
+    "case_10_nonempty": 5799,
+    "case_10_rows": 2447494,
+    "nonempty_fraction": 0.002369,
+    "production_index_created": false
+  },
+  "blooms": {
+    "idx_search_ngram": "PRESENT",
+    "idx_search_token": "PRESENT"
+  },
+  "product_reader": {
+    "ilike": true,
+    "hasAllTokens_cutover": false,
+    "hasAnyTokens_cutover": false
+  },
+  "services": {
+    "stopped_before_add": ["casescope-web", "casescope-workers", "casescope-beat"],
+    "left_running": ["clickhouse-server", "postgresql", "redis"],
+    "restart_order": ["casescope-web", "casescope-workers", "casescope-beat"],
+    "login_http": 200,
+    "case_files_unauth": 302,
+    "hunt_page_unauth": 302,
+    "hunt_api_14_unauth": 302,
+    "hunt_case_14_ch_total": 1341,
+    "hunt_case_14_ilike_sonicwall": 13
+  },
+  "no_later_phase": {
+    "phase_2_1_reader_cutover": false,
+    "bloom_index_removal": false,
+    "full_table_materialize_index": false,
+    "automatic_all_partitions": false,
+    "production_command_line_index": false,
+    "phase_2_2_insert_mode": false,
+    "phase_2_3_lightweight_update_caller": false,
+    "phase_2_4_dedup": false,
+    "phase_3": false,
+    "phase_4": false,
+    "lek": false,
+    "events_current": false,
+    "event_observations_current": false
+  },
+  "regression": {
+    "pytest": "133 passed, 7 skipped",
+    "f2_skip_reason": "PHASE1B_PG_TEST_DATABASE_URL and PHASE1B_CH_TEST_DATABASE are required",
+    "py_compile": "pass",
+    "pyflakes": "pass",
+    "git_diff_check": "pass",
+    "phase2_1a_operator_tests": "16 passed"
+  },
+}
