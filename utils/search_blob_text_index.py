@@ -634,9 +634,37 @@ def _latest_materialize_mutation(client, case_id, table_name="events"):
 
 
 def capture_resource_sample():
-    sample = {"loadavg": None, "clickhouse_memory_tracking": None}
+    sample = {
+        "loadavg": None,
+        "clickhouse_memory_tracking": None,
+        "memory": None,
+        "disk": None,
+    }
     try:
         sample["loadavg"] = os.getloadavg()
+    except OSError:
+        pass
+    try:
+        mem = {}
+        with open("/proc/meminfo", encoding="utf-8") as handle:
+            for line in handle:
+                if ":" not in line:
+                    continue
+                key, value = line.split(":", 1)
+                parts = value.strip().split()
+                if parts and key in ("MemTotal", "MemFree", "MemAvailable", "Buffers", "Cached"):
+                    mem[key] = int(parts[0]) * 1024
+        sample["memory"] = mem
+    except OSError:
+        pass
+    try:
+        usage = os.statvfs("/var/lib/clickhouse")
+        sample["disk"] = {
+            "path": "/var/lib/clickhouse",
+            "total_bytes": usage.f_frsize * usage.f_blocks,
+            "free_bytes": usage.f_frsize * usage.f_bavail,
+            "used_bytes": usage.f_frsize * (usage.f_blocks - usage.f_bfree),
+        }
     except OSError:
         pass
     return sample

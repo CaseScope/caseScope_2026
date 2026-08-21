@@ -1,0 +1,1962 @@
+{
+  "tranche": "phase2_1b",
+  "version": "4.24.1",
+  "baseline_version": "4.24.0",
+  "baseline_commit": "8e691d303774f332b2f0d9962c67b735493ddf91",
+  "clickhouse_version": "26.7.3.19",
+  "production_database": "casescope",
+  "python": "/opt/casescope/venv/bin/python",
+  "locked_index": {
+    "name": "idx_search_blob_text",
+    "expression": "search_blob",
+    "type": "text(tokenizer = 'splitByNonAlpha', preprocessor = lower(search_blob))",
+    "stored_granularity": 100000000
+  },
+  "operator_hardening": {
+    "defect": "inspect_writers ok used only fence and systemd; Celery None/timeout counted as zero",
+    "fix": "require fence idle AND systemd inactive AND Celery proven empty; inspection errors fail closed",
+    "broker_empty_with_workers_stopped_is_idle": true,
+    "interrupted_tasks_removed_from_broker": [
+      {
+        "task": "tasks.mitre_mapper.map_case_mitre_procedures",
+        "id": "ea0d6185-66e9-4d97-927b-32343571325d",
+        "args": [
+          3,
+          "system"
+        ],
+        "requeued_after_restart": "6ce8b447-4dda-4fb7-92f4-6816d014179a"
+      },
+      {
+        "task": "tasks.materialize_case_graph",
+        "id": "0e0fed2b-6318-48cc-af38-a20dbc66b335",
+        "args": [],
+        "requeued_after_restart": null,
+        "reason": "original inspect args were empty; case_id is required so it was not blindly requeued"
+      }
+    ]
+  },
+  "coverage_before": {
+    "MATERIALIZED": [
+      33,
+      10
+    ],
+    "UNMATERIALIZED": 23,
+    "PARTIAL": 0,
+    "UNKNOWN": 0,
+    "rows": 745463991,
+    "active_parts": 135,
+    "partitions": 25,
+    "compressed_bytes": 108563117418,
+    "text_index_compressed_bytes": 69117249
+  },
+  "coverage_after": {
+    "MATERIALIZED": 25,
+    "UNMATERIALIZED": 0,
+    "PARTIAL": 0,
+    "UNKNOWN": 0,
+    "case_ids": [
+      1,
+      2,
+      3,
+      4,
+      5,
+      6,
+      7,
+      8,
+      9,
+      10,
+      11,
+      12,
+      13,
+      14,
+      15,
+      16,
+      21,
+      23,
+      32,
+      33,
+      34,
+      35,
+      36,
+      37,
+      38
+    ],
+    "sum_partition_rows": 745463991,
+    "events_rows": 745463991,
+    "row_count_match": true,
+    "active_parts": 135,
+    "compressed_bytes": 123153299221,
+    "text_index_compressed_bytes": 14603118274,
+    "inventory": [
+      {
+        "case_id": 1,
+        "coverage": "MATERIALIZED",
+        "rows": 5841552,
+        "part_count": 16,
+        "compressed_bytes": 1685725992
+      },
+      {
+        "case_id": 2,
+        "coverage": "MATERIALIZED",
+        "rows": 13935546,
+        "part_count": 4,
+        "compressed_bytes": 1810135206
+      },
+      {
+        "case_id": 3,
+        "coverage": "MATERIALIZED",
+        "rows": 6326528,
+        "part_count": 5,
+        "compressed_bytes": 970349206
+      },
+      {
+        "case_id": 4,
+        "coverage": "MATERIALIZED",
+        "rows": 96347782,
+        "part_count": 8,
+        "compressed_bytes": 12570164648
+      },
+      {
+        "case_id": 5,
+        "coverage": "MATERIALIZED",
+        "rows": 3141969,
+        "part_count": 2,
+        "compressed_bytes": 591060870
+      },
+      {
+        "case_id": 6,
+        "coverage": "MATERIALIZED",
+        "rows": 121910204,
+        "part_count": 7,
+        "compressed_bytes": 18496184440
+      },
+      {
+        "case_id": 7,
+        "coverage": "MATERIALIZED",
+        "rows": 139579161,
+        "part_count": 5,
+        "compressed_bytes": 25737486520
+      },
+      {
+        "case_id": 8,
+        "coverage": "MATERIALIZED",
+        "rows": 4989232,
+        "part_count": 3,
+        "compressed_bytes": 924477464
+      },
+      {
+        "case_id": 9,
+        "coverage": "MATERIALIZED",
+        "rows": 3278326,
+        "part_count": 2,
+        "compressed_bytes": 608924025
+      },
+      {
+        "case_id": 10,
+        "coverage": "MATERIALIZED",
+        "rows": 2447494,
+        "part_count": 3,
+        "compressed_bytes": 461845421
+      },
+      {
+        "case_id": 11,
+        "coverage": "MATERIALIZED",
+        "rows": 5426810,
+        "part_count": 6,
+        "compressed_bytes": 830119439
+      },
+      {
+        "case_id": 12,
+        "coverage": "MATERIALIZED",
+        "rows": 45969319,
+        "part_count": 11,
+        "compressed_bytes": 8328808363
+      },
+      {
+        "case_id": 13,
+        "coverage": "MATERIALIZED",
+        "rows": 4661,
+        "part_count": 1,
+        "compressed_bytes": 938352
+      },
+      {
+        "case_id": 14,
+        "coverage": "MATERIALIZED",
+        "rows": 1341,
+        "part_count": 1,
+        "compressed_bytes": 387936
+      },
+      {
+        "case_id": 15,
+        "coverage": "MATERIALIZED",
+        "rows": 4385,
+        "part_count": 2,
+        "compressed_bytes": 3023069
+      },
+      {
+        "case_id": 16,
+        "coverage": "MATERIALIZED",
+        "rows": 3401354,
+        "part_count": 5,
+        "compressed_bytes": 640199284
+      },
+      {
+        "case_id": 21,
+        "coverage": "MATERIALIZED",
+        "rows": 68900003,
+        "part_count": 6,
+        "compressed_bytes": 6867220991
+      },
+      {
+        "case_id": 23,
+        "coverage": "MATERIALIZED",
+        "rows": 6051837,
+        "part_count": 7,
+        "compressed_bytes": 736868628
+      },
+      {
+        "case_id": 32,
+        "coverage": "MATERIALIZED",
+        "rows": 174899397,
+        "part_count": 14,
+        "compressed_bytes": 32715419406
+      },
+      {
+        "case_id": 33,
+        "coverage": "MATERIALIZED",
+        "rows": 131512,
+        "part_count": 4,
+        "compressed_bytes": 28604100
+      },
+      {
+        "case_id": 34,
+        "coverage": "MATERIALIZED",
+        "rows": 5124844,
+        "part_count": 2,
+        "compressed_bytes": 1385908126
+      },
+      {
+        "case_id": 35,
+        "coverage": "MATERIALIZED",
+        "rows": 27336757,
+        "part_count": 11,
+        "compressed_bytes": 5642204176
+      },
+      {
+        "case_id": 36,
+        "coverage": "MATERIALIZED",
+        "rows": 3239412,
+        "part_count": 3,
+        "compressed_bytes": 633575884
+      },
+      {
+        "case_id": 37,
+        "coverage": "MATERIALIZED",
+        "rows": 3504740,
+        "part_count": 3,
+        "compressed_bytes": 745059947
+      },
+      {
+        "case_id": 38,
+        "coverage": "MATERIALIZED",
+        "rows": 3669825,
+        "part_count": 4,
+        "compressed_bytes": 738607728
+      }
+    ]
+  },
+  "partitions": [
+    {
+      "case_id": 1,
+      "rows": 5841552,
+      "parts_before": 16,
+      "parts_after": 16,
+      "compressed_bytes_before": 1549347074,
+      "compressed_bytes_after": 1685725992,
+      "coverage_before": "UNMATERIALIZED",
+      "coverage_after": "MATERIALIZED",
+      "mutation_id": "mutation_34784.txt",
+      "executed": true,
+      "skipped": false,
+      "elapsed_seconds": 9.286446809768677,
+      "rows_per_sec": 629040.5921299313,
+      "rows_unchanged": true,
+      "values_unchanged": true,
+      "protocol_identity_unchanged": true,
+      "other_partitions_unchanged": true,
+      "text_index_compressed_before": 988448496,
+      "text_index_compressed_after": 1124380065,
+      "table_compressed_before": 109485201532,
+      "table_compressed_after": 109621580450,
+      "loadavg_before": [
+        1.43212890625,
+        1.27978515625,
+        1.85107421875
+      ],
+      "loadavg_after": [
+        1.75,
+        1.3525390625,
+        1.85546875
+      ],
+      "disk_before": {
+        "total_bytes": 524068962304,
+        "free_bytes": 88529764352,
+        "used_bytes": 412066979840
+      },
+      "disk_after": {
+        "total_bytes": 524068962304,
+        "free_bytes": 88378216448,
+        "used_bytes": 412218527744
+      },
+      "ch_memory_before": {
+        "Query": 1,
+        "Merge": 0,
+        "MemoryTracking": 1144543433
+      },
+      "ch_memory_after": {
+        "Query": 1,
+        "Merge": 0,
+        "MemoryTracking": 1170733233
+      }
+    },
+    {
+      "case_id": 2,
+      "rows": 13935546,
+      "parts_before": 4,
+      "parts_after": 4,
+      "compressed_bytes_before": 1575687776,
+      "compressed_bytes_after": 1810135206,
+      "coverage_before": "UNMATERIALIZED",
+      "coverage_after": "MATERIALIZED",
+      "mutation_id": "mutation_34787.txt",
+      "executed": true,
+      "skipped": false,
+      "elapsed_seconds": 30.190648078918457,
+      "rows_per_sec": 461584.85778683634,
+      "rows_unchanged": true,
+      "values_unchanged": true,
+      "protocol_identity_unchanged": true,
+      "other_partitions_unchanged": true,
+      "text_index_compressed_before": 1358554049,
+      "text_index_compressed_after": 1591939397,
+      "table_compressed_before": 109856217800,
+      "table_compressed_after": 110090665230,
+      "loadavg_before": [
+        1.162109375,
+        1.27197265625,
+        1.791015625
+      ],
+      "loadavg_after": [
+        1.31689453125,
+        1.2958984375,
+        1.7744140625
+      ],
+      "disk_before": {
+        "total_bytes": 524068962304,
+        "free_bytes": 88075542528,
+        "used_bytes": 412521201664
+      },
+      "disk_after": {
+        "total_bytes": 524068962304,
+        "free_bytes": 87807275008,
+        "used_bytes": 412789469184
+      },
+      "ch_memory_before": {
+        "Query": 1,
+        "Merge": 0,
+        "MemoryTracking": 1237110914
+      },
+      "ch_memory_after": {
+        "Query": 1,
+        "Merge": 0,
+        "MemoryTracking": 1236933085
+      }
+    },
+    {
+      "case_id": 3,
+      "rows": 6326528,
+      "parts_before": 5,
+      "parts_after": 5,
+      "compressed_bytes_before": 839963690,
+      "compressed_bytes_after": 970349206,
+      "coverage_before": "UNMATERIALIZED",
+      "coverage_after": "MATERIALIZED",
+      "mutation_id": "mutation_34786.txt",
+      "executed": true,
+      "skipped": false,
+      "elapsed_seconds": 11.974717855453491,
+      "rows_per_sec": 528323.7631456002,
+      "rows_unchanged": true,
+      "values_unchanged": true,
+      "protocol_identity_unchanged": true,
+      "other_partitions_unchanged": true,
+      "text_index_compressed_before": 1228169287,
+      "text_index_compressed_after": 1358554049,
+      "table_compressed_before": 109725832284,
+      "table_compressed_after": 109856217800,
+      "loadavg_before": [
+        1.48681640625,
+        1.34130859375,
+        1.8330078125
+      ],
+      "loadavg_after": [
+        1.263671875,
+        1.29345703125,
+        1.80078125
+      ],
+      "disk_before": {
+        "total_bytes": 524068962304,
+        "free_bytes": 88237625344,
+        "used_bytes": 412359118848
+      },
+      "disk_after": {
+        "total_bytes": 524068962304,
+        "free_bytes": 88076505088,
+        "used_bytes": 412520239104
+      },
+      "ch_memory_before": {
+        "Query": 1,
+        "Merge": 0,
+        "MemoryTracking": 1205734787
+      },
+      "ch_memory_after": {
+        "Query": 1,
+        "Merge": 0,
+        "MemoryTracking": 1235673898
+      }
+    },
+    {
+      "case_id": 4,
+      "rows": 96347782,
+      "parts_before": 8,
+      "parts_after": 8,
+      "compressed_bytes_before": 11498969670,
+      "compressed_bytes_after": 12570164648,
+      "coverage_before": "UNMATERIALIZED",
+      "coverage_after": "MATERIALIZED",
+      "mutation_id": "mutation_34791.txt",
+      "executed": true,
+      "skipped": false,
+      "elapsed_seconds": 151.3474178314209,
+      "rows_per_sec": 636600.1044518478,
+      "rows_unchanged": true,
+      "values_unchanged": true,
+      "protocol_identity_unchanged": true,
+      "other_partitions_unchanged": true,
+      "text_index_compressed_before": 3649384498,
+      "text_index_compressed_after": 4713276023,
+      "table_compressed_before": 112158865815,
+      "table_compressed_after": 113230060793,
+      "loadavg_before": [
+        2.44091796875,
+        1.5986328125,
+        1.72216796875
+      ],
+      "loadavg_after": [
+        2.791015625,
+        2.11474609375,
+        1.91552734375
+      ],
+      "disk_before": {
+        "total_bytes": 524068962304,
+        "free_bytes": 85819052032,
+        "used_bytes": 414777692160
+      },
+      "disk_after": {
+        "total_bytes": 524068962304,
+        "free_bytes": 84799639552,
+        "used_bytes": 415797104640
+      },
+      "ch_memory_before": {
+        "Query": 1,
+        "Merge": 1,
+        "MemoryTracking": 1579905678
+      },
+      "ch_memory_after": {
+        "Query": 1,
+        "Merge": 1,
+        "MemoryTracking": 1265611208
+      }
+    },
+    {
+      "case_id": 5,
+      "rows": 3141969,
+      "parts_before": 2,
+      "parts_after": 2,
+      "compressed_bytes_before": 507621926,
+      "compressed_bytes_after": 591060870,
+      "coverage_before": "UNMATERIALIZED",
+      "coverage_after": "MATERIALIZED",
+      "mutation_id": "mutation_34775.txt",
+      "executed": true,
+      "skipped": false,
+      "elapsed_seconds": 16.604864597320557,
+      "rows_per_sec": 189219.79047676208,
+      "rows_unchanged": true,
+      "values_unchanged": true,
+      "protocol_identity_unchanged": true,
+      "other_partitions_unchanged": true,
+      "text_index_compressed_before": 69821524,
+      "text_index_compressed_after": 153020596,
+      "table_compressed_before": 108563810535,
+      "table_compressed_after": 108647249479,
+      "loadavg_before": [
+        0.99560546875,
+        2.0146484375,
+        2.32568359375
+      ],
+      "loadavg_after": [
+        0.94970703125,
+        1.88623046875,
+        2.26904296875
+      ],
+      "disk_before": {
+        "total_bytes": 524068962304,
+        "free_bytes": 89622990848,
+        "used_bytes": 410973753344
+      },
+      "disk_after": {
+        "total_bytes": 524068962304,
+        "free_bytes": 89574395904,
+        "used_bytes": 411022348288
+      },
+      "ch_memory_before": {
+        "Query": 1,
+        "Merge": 0,
+        "MemoryTracking": 1150854443
+      },
+      "ch_memory_after": {
+        "Query": 1,
+        "Merge": 0,
+        "MemoryTracking": 1089249602
+      }
+    },
+    {
+      "case_id": 6,
+      "rows": 121910204,
+      "parts_before": 7,
+      "parts_after": 7,
+      "compressed_bytes_before": 16085408208,
+      "compressed_bytes_after": 18496184440,
+      "coverage_before": "UNMATERIALIZED",
+      "coverage_after": "MATERIALIZED",
+      "mutation_id": "mutation_34792.txt",
+      "executed": true,
+      "skipped": false,
+      "elapsed_seconds": 302.29261112213135,
+      "rows_per_sec": 403285.4245013161,
+      "rows_unchanged": true,
+      "values_unchanged": true,
+      "protocol_identity_unchanged": true,
+      "other_partitions_unchanged": true,
+      "text_index_compressed_before": 4713276023,
+      "text_index_compressed_after": 7114811733,
+      "table_compressed_before": 113230060793,
+      "table_compressed_after": 115640837025,
+      "loadavg_before": [
+        2.5673828125,
+        2.07958984375,
+        1.90478515625
+      ],
+      "loadavg_after": [
+        3.33740234375,
+        2.208984375,
+        2.0078125
+      ],
+      "disk_before": {
+        "total_bytes": 524068962304,
+        "free_bytes": 84781445120,
+        "used_bytes": 415815299072
+      },
+      "disk_after": {
+        "total_bytes": 524068962304,
+        "free_bytes": 82361352192,
+        "used_bytes": 418235392000
+      },
+      "ch_memory_before": {
+        "Query": 1,
+        "Merge": 0,
+        "MemoryTracking": 984961648
+      },
+      "ch_memory_after": {
+        "Query": 1,
+        "Merge": 0,
+        "MemoryTracking": 1003766154
+      }
+    },
+    {
+      "case_id": 7,
+      "rows": 139579161,
+      "parts_before": 5,
+      "parts_after": 5,
+      "compressed_bytes_before": 22298044143,
+      "compressed_bytes_after": 25737486520,
+      "coverage_before": "UNMATERIALIZED",
+      "coverage_after": "MATERIALIZED",
+      "mutation_id": "mutation_34793.txt",
+      "executed": true,
+      "skipped": false,
+      "elapsed_seconds": 530.2322347164154,
+      "rows_per_sec": 263241.56069962675,
+      "rows_unchanged": true,
+      "values_unchanged": true,
+      "protocol_identity_unchanged": true,
+      "other_partitions_unchanged": true,
+      "text_index_compressed_before": 7114811733,
+      "text_index_compressed_after": 10543531168,
+      "table_compressed_before": 115640837025,
+      "table_compressed_after": 119080279402,
+      "loadavg_before": [
+        3.06982421875,
+        2.171875,
+        1.99658203125
+      ],
+      "loadavg_after": [
+        4.39404296875,
+        2.2578125,
+        2.05517578125
+      ],
+      "disk_before": {
+        "total_bytes": 524068962304,
+        "free_bytes": 82355449856,
+        "used_bytes": 418241294336
+      },
+      "disk_after": {
+        "total_bytes": 524068962304,
+        "free_bytes": 78937063424,
+        "used_bytes": 421659680768
+      },
+      "ch_memory_before": {
+        "Query": 1,
+        "Merge": 0,
+        "MemoryTracking": 1007420738
+      },
+      "ch_memory_after": {
+        "Query": 1,
+        "Merge": 0,
+        "MemoryTracking": 953000076
+      }
+    },
+    {
+      "case_id": 8,
+      "rows": 4989232,
+      "parts_before": 3,
+      "parts_after": 3,
+      "compressed_bytes_before": 797709007,
+      "compressed_bytes_after": 924477464,
+      "coverage_before": "UNMATERIALIZED",
+      "coverage_after": "MATERIALIZED",
+      "mutation_id": "mutation_34781.txt",
+      "executed": true,
+      "skipped": false,
+      "elapsed_seconds": 22.5903742313385,
+      "rows_per_sec": 220856.54486762272,
+      "rows_unchanged": true,
+      "values_unchanged": true,
+      "protocol_identity_unchanged": true,
+      "other_partitions_unchanged": true,
+      "text_index_compressed_before": 580457128,
+      "text_index_compressed_after": 706841120,
+      "table_compressed_before": 109076009122,
+      "table_compressed_after": 109202777579,
+      "loadavg_before": [
+        0.69189453125,
+        1.30224609375,
+        1.9599609375
+      ],
+      "loadavg_after": [
+        0.66552734375,
+        1.21630859375,
+        1.90185546875
+      ],
+      "disk_before": {
+        "total_bytes": 524068962304,
+        "free_bytes": 89033125888,
+        "used_bytes": 411563618304
+      },
+      "disk_after": {
+        "total_bytes": 524068962304,
+        "free_bytes": 88864821248,
+        "used_bytes": 411731922944
+      },
+      "ch_memory_before": {
+        "Query": 1,
+        "Merge": 0,
+        "MemoryTracking": 1059246488
+      },
+      "ch_memory_after": {
+        "Query": 1,
+        "Merge": 0,
+        "MemoryTracking": 1102498278
+      }
+    },
+    {
+      "case_id": 9,
+      "rows": 3278326,
+      "parts_before": 2,
+      "parts_after": 2,
+      "compressed_bytes_before": 531429465,
+      "compressed_bytes_after": 608924025,
+      "coverage_before": "UNMATERIALIZED",
+      "coverage_after": "MATERIALIZED",
+      "mutation_id": "mutation_34777.txt",
+      "executed": true,
+      "skipped": false,
+      "elapsed_seconds": 19.801225185394287,
+      "rows_per_sec": 165561.77556215803,
+      "rows_unchanged": true,
+      "values_unchanged": true,
+      "protocol_identity_unchanged": true,
+      "other_partitions_unchanged": true,
+      "text_index_compressed_before": 234696544,
+      "text_index_compressed_after": 311938172,
+      "table_compressed_before": 108729177043,
+      "table_compressed_after": 108806671603,
+      "loadavg_before": [
+        0.802734375,
+        1.75439453125,
+        2.2119140625
+      ],
+      "loadavg_after": [
+        0.77099609375,
+        1.63818359375,
+        2.15478515625
+      ],
+      "disk_before": {
+        "total_bytes": 524068962304,
+        "free_bytes": 89465745408,
+        "used_bytes": 411130998784
+      },
+      "disk_after": {
+        "total_bytes": 524068962304,
+        "free_bytes": 89354366976,
+        "used_bytes": 411242377216
+      },
+      "ch_memory_before": {
+        "Query": 1,
+        "Merge": 0,
+        "MemoryTracking": 1034940734
+      },
+      "ch_memory_after": {
+        "Query": 1,
+        "Merge": 0,
+        "MemoryTracking": 1042672148
+      }
+    },
+    {
+      "case_id": 11,
+      "rows": 5426810,
+      "parts_before": 6,
+      "parts_after": 6,
+      "compressed_bytes_before": 718377153,
+      "compressed_bytes_after": 830119439,
+      "coverage_before": "UNMATERIALIZED",
+      "coverage_after": "MATERIALIZED",
+      "mutation_id": "mutation_34783.txt",
+      "executed": true,
+      "skipped": false,
+      "elapsed_seconds": 7.341142892837524,
+      "rows_per_sec": 739232.3074510283,
+      "rows_unchanged": true,
+      "values_unchanged": true,
+      "protocol_identity_unchanged": true,
+      "other_partitions_unchanged": true,
+      "text_index_compressed_before": 877121871,
+      "text_index_compressed_after": 988448496,
+      "table_compressed_before": 109373459246,
+      "table_compressed_after": 109485201532,
+      "loadavg_before": [
+        1.20751953125,
+        1.23681640625,
+        1.857421875
+      ],
+      "loadavg_after": [
+        1.38232421875,
+        1.267578125,
+        1.85009765625
+      ],
+      "disk_before": {
+        "total_bytes": 524068962304,
+        "free_bytes": 88684175360,
+        "used_bytes": 411912568832
+      },
+      "disk_after": {
+        "total_bytes": 524068962304,
+        "free_bytes": 88533803008,
+        "used_bytes": 412062941184
+      },
+      "ch_memory_before": {
+        "Query": 1,
+        "Merge": 0,
+        "MemoryTracking": 1112134172
+      },
+      "ch_memory_after": {
+        "Query": 1,
+        "Merge": 0,
+        "MemoryTracking": 1141936729
+      }
+    },
+    {
+      "case_id": 12,
+      "rows": 45969319,
+      "parts_before": 11,
+      "parts_after": 11,
+      "compressed_bytes_before": 8328808363,
+      "compressed_bytes_after": 8328808363,
+      "coverage_before": "MATERIALIZED",
+      "coverage_after": "MATERIALIZED",
+      "mutation_id": "mutation_34789.txt",
+      "executed": false,
+      "skipped": true,
+      "elapsed_seconds": null,
+      "rows_per_sec": null,
+      "rows_unchanged": true,
+      "values_unchanged": true,
+      "protocol_identity_unchanged": true,
+      "other_partitions_unchanged": true,
+      "text_index_compressed_before": 3309732655,
+      "text_index_compressed_after": 3309732655,
+      "table_compressed_before": 111814064752,
+      "table_compressed_after": 111814064752,
+      "loadavg_before": [
+        4.2685546875,
+        2.38720703125,
+        2.07275390625
+      ],
+      "loadavg_after": [
+        3.24267578125,
+        2.279296875,
+        2.04443359375
+      ],
+      "disk_before": {
+        "total_bytes": 524068962304,
+        "free_bytes": 86160961536,
+        "used_bytes": 414435782656
+      },
+      "disk_after": {
+        "total_bytes": 524068962304,
+        "free_bytes": 86134390784,
+        "used_bytes": 414462353408
+      },
+      "ch_memory_before": {
+        "Query": 1,
+        "Merge": 1,
+        "MemoryTracking": 1183219679
+      },
+      "ch_memory_after": {
+        "Query": 1,
+        "Merge": 1,
+        "MemoryTracking": 1385374526
+      }
+    },
+    {
+      "case_id": 13,
+      "rows": 4661,
+      "parts_before": 1,
+      "parts_after": 1,
+      "compressed_bytes_before": 778110,
+      "compressed_bytes_after": 938352,
+      "coverage_before": "UNMATERIALIZED",
+      "coverage_after": "MATERIALIZED",
+      "mutation_id": "mutation_34774.txt",
+      "executed": true,
+      "skipped": false,
+      "elapsed_seconds": 6.296633005142212,
+      "rows_per_sec": 740.2368847276862,
+      "rows_unchanged": true,
+      "values_unchanged": true,
+      "protocol_identity_unchanged": true,
+      "other_partitions_unchanged": true,
+      "text_index_compressed_before": 69662103,
+      "text_index_compressed_after": 69821524,
+      "table_compressed_before": 108563650293,
+      "table_compressed_after": 108563810535,
+      "loadavg_before": [
+        0.99658203125,
+        2.10400390625,
+        2.36181640625
+      ],
+      "loadavg_after": [
+        0.99560546875,
+        2.0146484375,
+        2.32568359375
+      ],
+      "disk_before": {
+        "total_bytes": 524068962304,
+        "free_bytes": 89659555840,
+        "used_bytes": 410937188352
+      },
+      "disk_after": {
+        "total_bytes": 524068962304,
+        "free_bytes": 89623773184,
+        "used_bytes": 410972971008
+      },
+      "ch_memory_before": {
+        "Query": 1,
+        "Merge": 0,
+        "MemoryTracking": 1119706517
+      },
+      "ch_memory_after": {
+        "Query": 1,
+        "Merge": 0,
+        "MemoryTracking": 1149104967
+      }
+    },
+    {
+      "case_id": 14,
+      "rows": 1341,
+      "parts_before": 1,
+      "parts_after": 1,
+      "compressed_bytes_before": 290976,
+      "compressed_bytes_after": 387936,
+      "coverage_before": "UNMATERIALIZED",
+      "coverage_after": "MATERIALIZED",
+      "mutation_id": "mutation_34772.txt",
+      "executed": true,
+      "skipped": false,
+      "elapsed_seconds": 5.872394561767578,
+      "rows_per_sec": 228.3565904666259,
+      "rows_unchanged": true,
+      "values_unchanged": true,
+      "protocol_identity_unchanged": true,
+      "other_partitions_unchanged": true,
+      "text_index_compressed_before": 69117249,
+      "text_index_compressed_after": 69213598,
+      "table_compressed_before": 108563103471,
+      "table_compressed_after": 108563200431,
+      "loadavg_before": [
+        0.28173828125,
+        2.1630859375,
+        2.39404296875
+      ],
+      "loadavg_after": [
+        1.11474609375,
+        2.19921875,
+        2.3984375
+      ],
+      "disk_before": {
+        "total_bytes": 524068962304,
+        "free_bytes": 89644937216,
+        "used_bytes": 410951806976
+      },
+      "disk_after": {
+        "total_bytes": 524068962304,
+        "free_bytes": 89633284096,
+        "used_bytes": 410963460096
+      },
+      "ch_memory_before": {
+        "Query": 1,
+        "Merge": 0,
+        "MemoryTracking": 1324130000
+      },
+      "ch_memory_after": {
+        "Query": 1,
+        "Merge": 0,
+        "MemoryTracking": 1245314393
+      }
+    },
+    {
+      "case_id": 15,
+      "rows": 4385,
+      "parts_before": 2,
+      "parts_after": 2,
+      "compressed_bytes_before": 2573207,
+      "compressed_bytes_after": 3023069,
+      "coverage_before": "UNMATERIALIZED",
+      "coverage_after": "MATERIALIZED",
+      "mutation_id": "mutation_34773.txt",
+      "executed": true,
+      "skipped": false,
+      "elapsed_seconds": 5.444529294967651,
+      "rows_per_sec": 805.3956113438551,
+      "rows_unchanged": true,
+      "values_unchanged": true,
+      "protocol_identity_unchanged": true,
+      "other_partitions_unchanged": true,
+      "text_index_compressed_before": 69213598,
+      "text_index_compressed_after": 69662103,
+      "table_compressed_before": 108563200431,
+      "table_compressed_after": 108563650293,
+      "loadavg_before": [
+        1.11474609375,
+        2.19921875,
+        2.3984375
+      ],
+      "loadavg_after": [
+        0.99658203125,
+        2.10400390625,
+        2.36181640625
+      ],
+      "disk_before": {
+        "total_bytes": 524068962304,
+        "free_bytes": 89633062912,
+        "used_bytes": 410963681280
+      },
+      "disk_after": {
+        "total_bytes": 524068962304,
+        "free_bytes": 89659777024,
+        "used_bytes": 410936967168
+      },
+      "ch_memory_before": {
+        "Query": 1,
+        "Merge": 0,
+        "MemoryTracking": 1245506585
+      },
+      "ch_memory_after": {
+        "Query": 1,
+        "Merge": 0,
+        "MemoryTracking": 1119514261
+      }
+    },
+    {
+      "case_id": 16,
+      "rows": 3401354,
+      "parts_before": 5,
+      "parts_after": 5,
+      "compressed_bytes_before": 554035133,
+      "compressed_bytes_after": 640199284,
+      "coverage_before": "UNMATERIALIZED",
+      "coverage_after": "MATERIALIZED",
+      "mutation_id": "mutation_34778.txt",
+      "executed": true,
+      "skipped": false,
+      "elapsed_seconds": 10.917143106460571,
+      "rows_per_sec": 311560.8146592069,
+      "rows_unchanged": true,
+      "values_unchanged": true,
+      "protocol_identity_unchanged": true,
+      "other_partitions_unchanged": true,
+      "text_index_compressed_before": 311938172,
+      "text_index_compressed_after": 397842156,
+      "table_compressed_before": 108806671603,
+      "table_compressed_after": 108892835754,
+      "loadavg_before": [
+        0.564453125,
+        1.52099609375,
+        2.1015625
+      ],
+      "loadavg_after": [
+        0.73046875,
+        1.4794921875,
+        2.07177734375
+      ],
+      "disk_before": {
+        "total_bytes": 524068962304,
+        "free_bytes": 89350430720,
+        "used_bytes": 411246313472
+      },
+      "disk_after": {
+        "total_bytes": 524068962304,
+        "free_bytes": 89246240768,
+        "used_bytes": 411350503424
+      },
+      "ch_memory_before": {
+        "Query": 1,
+        "Merge": 0,
+        "MemoryTracking": 1054364128
+      },
+      "ch_memory_after": {
+        "Query": 1,
+        "Merge": 0,
+        "MemoryTracking": 1079537011
+      }
+    },
+    {
+      "case_id": 21,
+      "rows": 68900003,
+      "parts_before": 6,
+      "parts_after": 6,
+      "compressed_bytes_before": 6522419928,
+      "compressed_bytes_after": 6867220991,
+      "coverage_before": "UNMATERIALIZED",
+      "coverage_after": "MATERIALIZED",
+      "mutation_id": "mutation_34790.txt",
+      "executed": true,
+      "skipped": false,
+      "elapsed_seconds": 30.789793729782104,
+      "rows_per_sec": 2237754.614554464,
+      "rows_unchanged": true,
+      "values_unchanged": true,
+      "protocol_identity_unchanged": true,
+      "other_partitions_unchanged": true,
+      "text_index_compressed_before": 3309732655,
+      "text_index_compressed_after": 3649384498,
+      "table_compressed_before": 111814064752,
+      "table_compressed_after": 112158865815,
+      "loadavg_before": [
+        0.30322265625,
+        1.05810546875,
+        1.57373046875
+      ],
+      "loadavg_after": [
+        3.107421875,
+        1.658203125,
+        1.74462890625
+      ],
+      "disk_before": {
+        "total_bytes": 524068962304,
+        "free_bytes": 86202208256,
+        "used_bytes": 414394535936
+      },
+      "disk_after": {
+        "total_bytes": 524068962304,
+        "free_bytes": 85816115200,
+        "used_bytes": 414780628992
+      },
+      "ch_memory_before": {
+        "Query": 1,
+        "Merge": 0,
+        "MemoryTracking": 985636628
+      },
+      "ch_memory_after": {
+        "Query": 1,
+        "Merge": 0,
+        "MemoryTracking": 1032771852
+      }
+    },
+    {
+      "case_id": 23,
+      "rows": 6051837,
+      "parts_before": 7,
+      "parts_after": 7,
+      "compressed_bytes_before": 632616794,
+      "compressed_bytes_after": 736868628,
+      "coverage_before": "UNMATERIALIZED",
+      "coverage_after": "MATERIALIZED",
+      "mutation_id": "mutation_34785.txt",
+      "executed": true,
+      "skipped": false,
+      "elapsed_seconds": 8.01743459701538,
+      "rows_per_sec": 754834.5953770416,
+      "rows_unchanged": true,
+      "values_unchanged": true,
+      "protocol_identity_unchanged": true,
+      "other_partitions_unchanged": true,
+      "text_index_compressed_before": 1124380065,
+      "text_index_compressed_after": 1228169287,
+      "table_compressed_before": 109621580450,
+      "table_compressed_after": 109725832284,
+      "loadavg_before": [
+        2.09033203125,
+        1.43017578125,
+        1.8779296875
+      ],
+      "loadavg_after": [
+        1.61669921875,
+        1.3642578125,
+        1.84326171875
+      ],
+      "disk_before": {
+        "total_bytes": 524068962304,
+        "free_bytes": 88349777920,
+        "used_bytes": 412246966272
+      },
+      "disk_after": {
+        "total_bytes": 524068962304,
+        "free_bytes": 88240590848,
+        "used_bytes": 412356153344
+      },
+      "ch_memory_before": {
+        "Query": 1,
+        "Merge": 0,
+        "MemoryTracking": 1176589463
+      },
+      "ch_memory_after": {
+        "Query": 1,
+        "Merge": 0,
+        "MemoryTracking": 1203507987
+      }
+    },
+    {
+      "case_id": 32,
+      "rows": 174899397,
+      "parts_before": 14,
+      "parts_after": 14,
+      "compressed_bytes_before": 28642399587,
+      "compressed_bytes_after": 32715419406,
+      "coverage_before": "UNMATERIALIZED",
+      "coverage_after": "MATERIALIZED",
+      "mutation_id": "mutation_34794.txt",
+      "executed": true,
+      "skipped": false,
+      "elapsed_seconds": 366.92881536483765,
+      "rows_per_sec": 476657.56865155813,
+      "rows_unchanged": true,
+      "values_unchanged": true,
+      "protocol_identity_unchanged": true,
+      "other_partitions_unchanged": true,
+      "text_index_compressed_before": 10543531168,
+      "text_index_compressed_after": 14603118274,
+      "table_compressed_before": 119080279402,
+      "table_compressed_after": 123153299221,
+      "loadavg_before": [
+        3.71826171875,
+        2.18310546875,
+        2.03271484375
+      ],
+      "loadavg_after": [
+        4.5322265625,
+        2.8603515625,
+        2.47216796875
+      ],
+      "disk_before": {
+        "total_bytes": 524068962304,
+        "free_bytes": 78938284032,
+        "used_bytes": 421658460160
+      },
+      "disk_after": {
+        "total_bytes": 524068962304,
+        "free_bytes": 74770743296,
+        "used_bytes": 425826000896
+      },
+      "ch_memory_before": {
+        "Query": 1,
+        "Merge": 0,
+        "MemoryTracking": 956689164
+      },
+      "ch_memory_after": {
+        "Query": 1,
+        "Merge": 0,
+        "MemoryTracking": 991547569
+      }
+    },
+    {
+      "case_id": 34,
+      "rows": 5124844,
+      "parts_before": 2,
+      "parts_after": 2,
+      "compressed_bytes_before": 1215226459,
+      "compressed_bytes_after": 1385908126,
+      "coverage_before": "UNMATERIALIZED",
+      "coverage_after": "MATERIALIZED",
+      "mutation_id": "mutation_34782.txt",
+      "executed": true,
+      "skipped": false,
+      "elapsed_seconds": 40.320159673690796,
+      "rows_per_sec": 127103.76252165486,
+      "rows_unchanged": true,
+      "values_unchanged": true,
+      "protocol_identity_unchanged": true,
+      "other_partitions_unchanged": true,
+      "text_index_compressed_before": 706841120,
+      "text_index_compressed_after": 877121871,
+      "table_compressed_before": 109202777579,
+      "table_compressed_after": 109373459246,
+      "loadavg_before": [
+        0.71728515625,
+        1.20849609375,
+        1.89208984375
+      ],
+      "loadavg_after": [
+        1.20751953125,
+        1.23681640625,
+        1.857421875
+      ],
+      "disk_before": {
+        "total_bytes": 524068962304,
+        "free_bytes": 88869953536,
+        "used_bytes": 411726790656
+      },
+      "disk_after": {
+        "total_bytes": 524068962304,
+        "free_bytes": 88687423488,
+        "used_bytes": 411909320704
+      },
+      "ch_memory_before": {
+        "Query": 1,
+        "Merge": 0,
+        "MemoryTracking": 1070677598
+      },
+      "ch_memory_after": {
+        "Query": 1,
+        "Merge": 0,
+        "MemoryTracking": 1110206380
+      }
+    },
+    {
+      "case_id": 35,
+      "rows": 27336757,
+      "parts_before": 11,
+      "parts_after": 11,
+      "compressed_bytes_before": 4951608484,
+      "compressed_bytes_after": 5642204176,
+      "coverage_before": "UNMATERIALIZED",
+      "coverage_after": "MATERIALIZED",
+      "mutation_id": "mutation_34788.txt",
+      "executed": true,
+      "skipped": false,
+      "elapsed_seconds": 84.77609825134277,
+      "rows_per_sec": 322458.30562940554,
+      "rows_unchanged": true,
+      "values_unchanged": true,
+      "protocol_identity_unchanged": true,
+      "other_partitions_unchanged": true,
+      "text_index_compressed_before": 1591939397,
+      "text_index_compressed_after": 2280418752,
+      "table_compressed_before": 110090665230,
+      "table_compressed_after": 110781260922,
+      "loadavg_before": [
+        0.93310546875,
+        1.203125,
+        1.72705078125
+      ],
+      "loadavg_after": [
+        2.828125,
+        1.7490234375,
+        1.8662109375
+      ],
+      "disk_before": {
+        "total_bytes": 524068962304,
+        "free_bytes": 87993589760,
+        "used_bytes": 412603154432
+      },
+      "disk_after": {
+        "total_bytes": 524068962304,
+        "free_bytes": 87258693632,
+        "used_bytes": 413338050560
+      },
+      "ch_memory_before": {
+        "Query": 1,
+        "Merge": 0,
+        "MemoryTracking": 1084586220
+      },
+      "ch_memory_after": {
+        "Query": 1,
+        "Merge": 0,
+        "MemoryTracking": 1100306995
+      }
+    },
+    {
+      "case_id": 36,
+      "rows": 3239412,
+      "parts_before": 3,
+      "parts_after": 3,
+      "compressed_bytes_before": 551648320,
+      "compressed_bytes_after": 633575884,
+      "coverage_before": "UNMATERIALIZED",
+      "coverage_after": "MATERIALIZED",
+      "mutation_id": "mutation_34776.txt",
+      "executed": true,
+      "skipped": false,
+      "elapsed_seconds": 13.333220958709717,
+      "rows_per_sec": 242957.94767309434,
+      "rows_unchanged": true,
+      "values_unchanged": true,
+      "protocol_identity_unchanged": true,
+      "other_partitions_unchanged": true,
+      "text_index_compressed_before": 153020596,
+      "text_index_compressed_after": 234696544,
+      "table_compressed_before": 108647249479,
+      "table_compressed_after": 108729177043,
+      "loadavg_before": [
+        0.94970703125,
+        1.88623046875,
+        2.26904296875
+      ],
+      "loadavg_after": [
+        0.802734375,
+        1.75439453125,
+        2.2119140625
+      ],
+      "disk_before": {
+        "total_bytes": 524068962304,
+        "free_bytes": 89573433344,
+        "used_bytes": 411023310848
+      },
+      "disk_after": {
+        "total_bytes": 524068962304,
+        "free_bytes": 89465966592,
+        "used_bytes": 411130777600
+      },
+      "ch_memory_before": {
+        "Query": 1,
+        "Merge": 0,
+        "MemoryTracking": 1112367346
+      },
+      "ch_memory_after": {
+        "Query": 1,
+        "Merge": 0,
+        "MemoryTracking": 1034748670
+      }
+    },
+    {
+      "case_id": 37,
+      "rows": 3504740,
+      "parts_before": 3,
+      "parts_after": 3,
+      "compressed_bytes_before": 649466673,
+      "compressed_bytes_after": 745059947,
+      "coverage_before": "UNMATERIALIZED",
+      "coverage_after": "MATERIALIZED",
+      "mutation_id": "mutation_34779.txt",
+      "executed": true,
+      "skipped": false,
+      "elapsed_seconds": 11.401877164840698,
+      "rows_per_sec": 307382.7185936858,
+      "rows_unchanged": true,
+      "values_unchanged": true,
+      "protocol_identity_unchanged": true,
+      "other_partitions_unchanged": true,
+      "text_index_compressed_before": 397842156,
+      "text_index_compressed_after": 493161678,
+      "table_compressed_before": 108892835754,
+      "table_compressed_after": 108988429028,
+      "loadavg_before": [
+        0.75244140625,
+        1.47119140625,
+        2.06591796875
+      ],
+      "loadavg_after": [
+        1.01123046875,
+        1.458984375,
+        2.0419921875
+      ],
+      "disk_before": {
+        "total_bytes": 524068962304,
+        "free_bytes": 89244430336,
+        "used_bytes": 411352313856
+      },
+      "disk_after": {
+        "total_bytes": 524068962304,
+        "free_bytes": 89113825280,
+        "used_bytes": 411482918912
+      },
+      "ch_memory_before": {
+        "Query": 1,
+        "Merge": 0,
+        "MemoryTracking": 1085470267
+      },
+      "ch_memory_after": {
+        "Query": 1,
+        "Merge": 0,
+        "MemoryTracking": 1110984838
+      }
+    },
+    {
+      "case_id": 38,
+      "rows": 3669825,
+      "parts_before": 4,
+      "parts_after": 4,
+      "compressed_bytes_before": 651027634,
+      "compressed_bytes_after": 738607728,
+      "coverage_before": "UNMATERIALIZED",
+      "coverage_after": "MATERIALIZED",
+      "mutation_id": "mutation_34780.txt",
+      "executed": true,
+      "skipped": false,
+      "elapsed_seconds": 15.238593578338623,
+      "rows_per_sec": 240824.38980566998,
+      "rows_unchanged": true,
+      "values_unchanged": true,
+      "protocol_identity_unchanged": true,
+      "other_partitions_unchanged": true,
+      "text_index_compressed_before": 493161678,
+      "text_index_compressed_after": 580457128,
+      "table_compressed_before": 108988429028,
+      "table_compressed_after": 109076009122,
+      "loadavg_before": [
+        0.93017578125,
+        1.4345703125,
+        2.03076171875
+      ],
+      "loadavg_after": [
+        0.72265625,
+        1.330078125,
+        1.97607421875
+      ],
+      "disk_before": {
+        "total_bytes": 524068962304,
+        "free_bytes": 89110458368,
+        "used_bytes": 411486285824
+      },
+      "disk_after": {
+        "total_bytes": 524068962304,
+        "free_bytes": 88985841664,
+        "used_bytes": 411610902528
+      },
+      "ch_memory_before": {
+        "Query": 1,
+        "Merge": 0,
+        "MemoryTracking": 1114419610
+      },
+      "ch_memory_after": {
+        "Query": 1,
+        "Merge": 0,
+        "MemoryTracking": 1147011208
+      }
+    }
+  ],
+  "case_12_note": "Operator skip at 20:17:29 UTC found MATERIALIZED active parts with sentinel files. ClickHouse mutation_34789.txt (MATERIALIZE INDEX idx_search_blob_text IN PARTITION 12, create_time 20:16:29, is_done=1) performed the rewrite during the post-35 checkpoint window. Skip fingerprints were unchanged.",
+  "timings": {
+    "group1_start": "2026-08-21T20:03:47Z",
+    "case32_end": "2026-08-21T20:49:30Z",
+    "wall_clock_seconds": 2743,
+    "sum_mutation_elapsed_seconds_excluding_case_12": 1700.998376607895,
+    "estimate_minutes": "40-50",
+    "actual_wall_minutes": 45.7
+  },
+  "storage": {
+    "pilot_bytes_per_event_estimate": 26.8,
+    "actual_bytes_per_event": 19.589300690984015,
+    "text_index_bytes_after_pilots": 69117249,
+    "text_index_bytes_after_rollout": 14603118274,
+    "text_index_growth_this_tranche": 14534001025,
+    "table_compressed_before_idle": 108563103471,
+    "table_compressed_after": 123153299221,
+    "table_growth_bytes": 14590195750,
+    "remaining_index_estimate_bytes": 19910000000,
+    "free_disk_before_stop_bytes": 89805148160,
+    "free_disk_after_restart_bytes": 74771382272,
+    "disk_used_delta_bytes": 15033765888
+  },
+  "search_proof": {
+    "small": {
+      "case_id": 14,
+      "terms": {
+        "simple_whole_token": {
+          "term": "local",
+          "ilike": 0,
+          "hasAllTokens": 0,
+          "equal": true
+        },
+        "mixed_case": {
+          "term": "PowerShell",
+          "ilike": 0,
+          "hasAllTokens": 0,
+          "equal": true
+        },
+        "hash": {
+          "term": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "ilike": 0,
+          "hasAllTokens": 0,
+          "equal": true
+        },
+        "username": {
+          "term": "Administrator",
+          "ilike": 1,
+          "hasAllTokens": 1,
+          "equal": true
+        },
+        "powershell_token": {
+          "term": "powershell",
+          "ilike": 0,
+          "hasAllTokens": 0,
+          "equal": true
+        },
+        "numeric_event_like": {
+          "term": "4688",
+          "ilike": 0,
+          "hasAllTokens": 0,
+          "equal": true
+        }
+      },
+      "explain": {
+        "powershell": {
+          "direct_read": true,
+          "token_scan": false,
+          "has_skip": true
+        },
+        "4688": {
+          "direct_read": true,
+          "token_scan": false,
+          "has_skip": true
+        },
+        "Administrator": {
+          "direct_read": true,
+          "token_scan": false,
+          "has_skip": true
+        }
+      }
+    },
+    "medium": {
+      "case_id": 10,
+      "terms": {
+        "simple_whole_token": {
+          "term": "local",
+          "ilike": 94047,
+          "hasAllTokens": 43223,
+          "equal": false
+        },
+        "mixed_case": {
+          "term": "PowerShell",
+          "ilike": 19995,
+          "hasAllTokens": 19455,
+          "equal": false
+        },
+        "hash": {
+          "term": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "ilike": 4,
+          "hasAllTokens": 4,
+          "equal": true
+        },
+        "username": {
+          "term": "Administrator",
+          "ilike": 7520,
+          "hasAllTokens": 199,
+          "equal": false
+        },
+        "powershell_token": {
+          "term": "powershell",
+          "ilike": 19995,
+          "hasAllTokens": 19455,
+          "equal": false
+        },
+        "numeric_event_like": {
+          "term": "4688",
+          "ilike": 2218,
+          "hasAllTokens": 113,
+          "equal": false
+        }
+      },
+      "explain": {
+        "powershell": {
+          "direct_read": true,
+          "token_scan": false,
+          "has_skip": true
+        },
+        "4688": {
+          "direct_read": true,
+          "token_scan": false,
+          "has_skip": true
+        },
+        "Administrator": {
+          "direct_read": true,
+          "token_scan": false,
+          "has_skip": true
+        }
+      }
+    },
+    "large": {
+      "case_id": 7,
+      "terms": {
+        "simple_whole_token": {
+          "term": "local",
+          "ilike": 6104713,
+          "hasAllTokens": 4694589,
+          "equal": false
+        },
+        "mixed_case": {
+          "term": "PowerShell",
+          "ilike": 767934,
+          "hasAllTokens": 705353,
+          "equal": false
+        },
+        "hash": {
+          "term": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "ilike": 5,
+          "hasAllTokens": 5,
+          "equal": true
+        },
+        "username": {
+          "term": "Administrator",
+          "ilike": 86648,
+          "hasAllTokens": 27100,
+          "equal": false
+        },
+        "powershell_token": {
+          "term": "powershell",
+          "ilike": 767934,
+          "hasAllTokens": 705353,
+          "equal": false
+        },
+        "numeric_event_like": {
+          "term": "4688",
+          "ilike": 102914,
+          "hasAllTokens": 4474,
+          "equal": false
+        }
+      },
+      "explain": {
+        "powershell": {
+          "direct_read": true,
+          "token_scan": false,
+          "has_skip": true
+        },
+        "4688": {
+          "direct_read": true,
+          "token_scan": false,
+          "has_skip": true
+        },
+        "Administrator": {
+          "direct_read": true,
+          "token_scan": false,
+          "has_skip": true
+        }
+      }
+    },
+    "largest": {
+      "case_id": 32,
+      "terms": {
+        "simple_whole_token": {
+          "term": "local",
+          "ilike": 10832846,
+          "hasAllTokens": 8303790,
+          "equal": false
+        },
+        "mixed_case": {
+          "term": "PowerShell",
+          "ilike": 989441,
+          "hasAllTokens": 940117,
+          "equal": false
+        },
+        "hash": {
+          "term": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "ilike": 3052,
+          "hasAllTokens": 3052,
+          "equal": true
+        },
+        "username": {
+          "term": "Administrator",
+          "ilike": 69766,
+          "hasAllTokens": 27958,
+          "equal": false
+        },
+        "powershell_token": {
+          "term": "powershell",
+          "ilike": 989441,
+          "hasAllTokens": 940117,
+          "equal": false
+        },
+        "numeric_event_like": {
+          "term": "4688",
+          "ilike": 128475,
+          "hasAllTokens": 5888,
+          "equal": false
+        }
+      },
+      "explain": {
+        "powershell": {
+          "direct_read": true,
+          "token_scan": false,
+          "has_skip": true
+        },
+        "4688": {
+          "direct_read": true,
+          "token_scan": false,
+          "has_skip": true
+        },
+        "Administrator": {
+          "direct_read": true,
+          "token_scan": false,
+          "has_skip": true
+        }
+      }
+    }
+  },
+  "exceptions": {
+    "14": {
+      "true_substring": {
+        "term": "vchos",
+        "ilike": 0,
+        "hasAllTokens": 0,
+        "like_required": false
+      },
+      "dotted_ip": {
+        "term": "10.0.0.1",
+        "ilike": 0,
+        "hasAllTokens": 2,
+        "like_required": false
+      },
+      "punctuated_cmd_exe": {
+        "term": "cmd.exe",
+        "ilike": 0,
+        "hasAllTokens": 0,
+        "like_required": false
+      }
+    },
+    "10": {
+      "true_substring": {
+        "term": "vchos",
+        "ilike": 49090,
+        "hasAllTokens": 0,
+        "like_required": true
+      },
+      "dotted_ip": {
+        "term": "10.0.0.1",
+        "ilike": 0,
+        "hasAllTokens": 122693,
+        "like_required": false
+      },
+      "punctuated_cmd_exe": {
+        "term": "cmd.exe",
+        "ilike": 3025,
+        "hasAllTokens": 2380,
+        "like_required": true
+      }
+    },
+    "7": {
+      "true_substring": {
+        "term": "vchos",
+        "ilike": 2237177,
+        "hasAllTokens": 0,
+        "like_required": true
+      },
+      "dotted_ip": {
+        "term": "10.0.0.1",
+        "ilike": 3162,
+        "hasAllTokens": 5207754,
+        "like_required": false
+      },
+      "punctuated_cmd_exe": {
+        "term": "cmd.exe",
+        "ilike": 883843,
+        "hasAllTokens": 862039,
+        "like_required": true
+      }
+    },
+    "32": {
+      "true_substring": {
+        "term": "vchos",
+        "ilike": 2383208,
+        "hasAllTokens": 0,
+        "like_required": true
+      },
+      "dotted_ip": {
+        "term": "10.0.0.1",
+        "ilike": 10704,
+        "hasAllTokens": 5769485,
+        "like_required": false
+      },
+      "punctuated_cmd_exe": {
+        "term": "cmd.exe",
+        "ilike": 104646,
+        "hasAllTokens": 63723,
+        "like_required": true
+      }
+    }
+  },
+  "blooms": {
+    "idx_search_ngram": "PRESENT",
+    "idx_search_token": "PRESENT"
+  },
+  "product_reader": {
+    "ilike": true,
+    "hasAllTokens_cutover": false,
+    "hasAnyTokens_cutover": false
+  },
+  "command_line": {
+    "decision": "DEFER",
+    "production_index_created": false
+  },
+  "services": {
+    "stopped": [
+      "casescope-web",
+      "casescope-workers",
+      "casescope-beat"
+    ],
+    "restart_order": [
+      "casescope-web",
+      "casescope-workers",
+      "casescope-beat"
+    ],
+    "login_http": 200,
+    "case_files_unauth": 302,
+    "hunt_page_unauth": 302,
+    "hunt_api_14_unauth": 302,
+    "hunt_case_14_ch_total": 1341,
+    "hunt_case_14_ilike_sonicwall": 13
+  },
+  "no_later_phase": {
+    "phase_2_1_reader_cutover": false,
+    "bloom_index_removal": false,
+    "full_table_materialize_index": false,
+    "production_command_line_index": false,
+    "phase_2_2_insert_mode": false,
+    "phase_2_3_lightweight_update_caller": false,
+    "phase_2_4_dedup": false,
+    "phase_3": false,
+    "phase_4": false,
+    "lek": false,
+    "events_current": false,
+    "event_observations_current": false
+  },
+  "reader_consumers": [
+    {
+      "path": "routes/hunting_query_helpers.py",
+      "name": "build_hunting_search_clause free-text",
+      "class": "TOKEN_CANDIDATE",
+      "notes": "whole tokens only; quoted/substring stay LIKE"
+    },
+    {
+      "path": "routes/hunting_query_helpers.py",
+      "name": "digit-only term",
+      "class": "STRUCTURED_FIELD_SHOULD_BE_USED",
+      "notes": "event_id ="
+    },
+    {
+      "path": "routes/hunting_query_helpers.py",
+      "name": "mapped field:value",
+      "class": "STRUCTURED_FIELD_SHOULD_BE_USED",
+      "notes": "typed columns"
+    },
+    {
+      "path": "routes/hunting_query_helpers.py",
+      "name": "blob field:value and unknown fields",
+      "class": "SUBSTRING_REQUIRED",
+      "notes": "search_blob ilike %field:value%"
+    },
+    {
+      "path": "routes/hunting_query_helpers.py",
+      "name": "ip / src_ip / dst_ip blob fallback",
+      "class": "SUBSTRING_REQUIRED",
+      "notes": "dotted IP must not use hasAllTokens"
+    },
+    {
+      "path": "routes/hunting.py",
+      "name": "match_search_blob position()",
+      "class": "SUBSTRING_REQUIRED"
+    },
+    {
+      "path": "utils/sigma_converter.py",
+      "name": "wildcard selection",
+      "class": "SUBSTRING_REQUIRED"
+    },
+    {
+      "path": "models/network_log.py",
+      "name": "dotted-IP prefix",
+      "class": "SUBSTRING_REQUIRED"
+    },
+    {
+      "path": "utils/ioc_artifact_tagger.py",
+      "name": "lower(search_blob) LIKE",
+      "class": "SUBSTRING_REQUIRED"
+    },
+    {
+      "path": "utils/noise_keywords.py",
+      "name": "search_blob LIKE",
+      "class": "SUBSTRING_REQUIRED"
+    },
+    {
+      "path": "models/pattern_rules.py",
+      "name": "pattern LIKE predicates",
+      "class": "SUBSTRING_REQUIRED"
+    },
+    {
+      "path": "utils/chat_tools.py",
+      "name": "positionCaseInsensitive mix",
+      "class": "TOKEN_CANDIDATE",
+      "notes": "powershell token-candidate; cmd.exe/paths SUBSTRING_REQUIRED"
+    },
+    {
+      "path": "utils/forensic_chat_sources.py",
+      "name": "positionCaseInsensitive mix",
+      "class": "SUBSTRING_REQUIRED",
+      "notes": "paths/cmd.exe; some whole tokens TOKEN_CANDIDATE"
+    },
+    {
+      "path": "parsers/*",
+      "name": "search_blob writers",
+      "class": "DEFER"
+    },
+    {
+      "path": "utils/graph_query.py",
+      "name": "column projection",
+      "class": "DEFER"
+    },
+    {
+      "path": "routes/hunting.py",
+      "name": "event detail display",
+      "class": "DEFER"
+    }
+  ]
+}

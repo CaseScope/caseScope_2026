@@ -28,10 +28,12 @@ from utils.search_blob_text_index import (
     ConflictingMutationError,
     DeployedSchemaDrift,
     TextIndexOperatorError,
+    active_parts,
     classify_part_files,
     classify_partition_statuses,
     explain_uses_text_index_direct_read,
     explain_uses_token_scan,
+    inspect_partition_coverage,
     inspect_schema_preconditions,
     materialize_case_partition,
     part_has_text_index_files,
@@ -144,6 +146,8 @@ class _FakeClickHouse:
             rows = []
             for item in self.parts:
                 if wanted is not None and str(item.get("partition")) != str(wanted):
+                    continue
+                if not item.get("active", 1):
                     continue
                 rows.append(
                     (
@@ -388,6 +392,278 @@ class OperatorFailClosedTests(unittest.TestCase):
         self.assertTrue(result["already_materialized"])
         self.assertTrue(result["skipped"])
         self.assertEqual(client.commands, [])
+
+
+def _load_operator():
+    import importlib.util
+
+    spec = importlib.util.spec_from_file_location(
+        "phase2_1_materialize_search_index",
+        SCRIPT_PATH,
+    )
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def _clear_fence():
+    return {
+        "ok": True,
+        "shared_writer_count": 0,
+        "exclusive": None,
+        "error": None,
+        "refusal_reason": None,
+    }
+
+
+def _stopped_systemd():
+    return {
+        "ok": True,
+        "states": {
+            "casescope-web": "inactive",
+            "casescope-workers": "inactive",
+            "casescope-beat": "inactive",
+        },
+        "refusal_reason": None,
+    }
+
+
+def _active_systemd():
+    return {
+        "ok": False,
+        "states": {
+            "casescope-web": "inactive",
+            "casescope-workers": "active",
+            "casescope-beat": "inactive",
+        },
+        "refusal_reason": "local service still active: casescope-workers=active",
+    }
+
+
+def _empty_broker():
+    return {
+        "ok": True,
+        "queues": {"celery": 0, "ioc": 0},
+        "queued_count": 0,
+        "unacked_count": 0,
+        "error": None,
+    }
+
+
+_UNSET = object()
+
+
+class OperatorIdleCheckTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.op = _load_operator()
+
+    def _celery(self, active=_UNSET, reserved=_UNSET, scheduled=_UNSET, broker=None, error=None):
+        workers = {"celery@host": []}
+        return self.op.compose_celery_report(
+            workers if active is _UNSET else active,
+            workers if reserved is _UNSET else reserved,
+            workers if scheduled is _UNSET else scheduled,
+            broker if broker is not None else _empty_broker(),
+            error=error,
+        )
+
+    def _inspect(self, *, require_idle, fence=None, systemd=None, celery=None):
+        return self.op.inspect_writers(
+            require_idle=require_idle,
+            fence=fence if fence is not None else _clear_fence(),
+            systemd=systemd if systemd is not None else _stopped_systemd(),
+            celery=celery if celery is not None else self._celery(),
+        )
+
+    def test_fence_clear_services_stopped_celery_empty_passes(self):
+        report = self._inspect(require_idle=True)
+        self.assertTrue(report["ok"])
+        self.assertIsNone(report["refusal_reason"])
+
+    def test_celery_active_refuses(self):
+        celery = self._celery(active={"w": [{"id": "t-active"}]})
+        with self.assertRaises(SystemExit) as raised:
+            self._inspect(require_idle=True, celery=celery)
+        self.assertIn("celery active count=1", str(raised.exception))
+
+    def test_celery_reserved_refuses(self):
+        celery = self._celery(reserved={"w": [{"id": "t-reserved"}]})
+        with self.assertRaises(SystemExit) as raised:
+            self._inspect(require_idle=True, celery=celery)
+        self.assertIn("celery reserved count=1", str(raised.exception))
+
+    def test_celery_scheduled_refuses(self):
+        celery = self._celery(scheduled={"w": [{"id": "t-scheduled"}]})
+        with self.assertRaises(SystemExit) as raised:
+            self._inspect(require_idle=True, celery=celery)
+        self.assertIn("celery scheduled count=1", str(raised.exception))
+
+    def test_celery_inspection_error_refuses(self):
+        celery = self.op.inspect_celery(
+            inspector_factory=lambda: (_ for _ in ()).throw(RuntimeError("broker timeout")),
+            broker_factory=_empty_broker,
+        )
+        with self.assertRaises(SystemExit) as raised:
+            self._inspect(require_idle=True, celery=celery)
+        self.assertIn("celery inspection error", str(raised.exception))
+        self.assertIn("broker timeout", str(raised.exception))
+
+    def test_none_payload_is_not_zero(self):
+        counted = self.op.count_celery_inspect_payload(None, "celery active")
+        self.assertFalse(counted["inspected"])
+        self.assertIsNone(counted["count"])
+        celery = self._celery(active=None, reserved={"w": []}, scheduled={"w": []})
+        self.assertIsNone(celery["active_count"])
+        self.assertFalse(celery["ok"])
+        with self.assertRaises(SystemExit) as raised:
+            self._inspect(require_idle=True, systemd=_active_systemd(), celery=celery)
+        message = str(raised.exception)
+        self.assertIn("celery inspection error", message)
+        self.assertNotIn("celery active count=0", message)
+
+    def test_fence_unavailable_refuses(self):
+        fence = {
+            "ok": False,
+            "shared_writer_count": None,
+            "exclusive": None,
+            "error": "redis down",
+            "refusal_reason": "ingest fence unavailable: redis down",
+        }
+        with self.assertRaises(SystemExit) as raised:
+            self._inspect(require_idle=True, fence=fence)
+        self.assertIn("ingest fence unavailable", str(raised.exception))
+
+    def test_local_service_still_active_refuses(self):
+        with self.assertRaises(SystemExit) as raised:
+            self._inspect(require_idle=True, systemd=_active_systemd())
+        self.assertIn("local service still active", str(raised.exception))
+
+    def test_status_mode_reports_degraded_without_raising(self):
+        report = self._inspect(
+            require_idle=False,
+            systemd=_active_systemd(),
+            celery=self._celery(active={"w": [{"id": "busy"}]}),
+        )
+        self.assertFalse(report["ok"])
+        self.assertIn("celery active count=1", report["refusal_reason"])
+        self.assertIn("local service still active", report["refusal_reason"])
+
+    def test_workers_down_and_broker_empty_passes(self):
+        celery = self._celery(active=None, reserved=None, scheduled=None)
+        report = self._inspect(require_idle=True, celery=celery)
+        self.assertTrue(report["ok"], report)
+
+    def test_workers_down_and_broker_error_refuses(self):
+        celery = self._celery(
+            active=None,
+            reserved=None,
+            scheduled=None,
+            broker={
+                "ok": False,
+                "queues": {},
+                "queued_count": None,
+                "unacked_count": None,
+                "error": "redis connection refused",
+            },
+        )
+        with self.assertRaises(SystemExit) as raised:
+            self._inspect(require_idle=True, celery=celery)
+        self.assertIn("celery inspection error", str(raised.exception))
+
+
+class CoverageActivePartTests(unittest.TestCase):
+    def test_active_parts_sql_ignores_inactive(self):
+        source = inspect.getsource(active_parts)
+        self.assertIn("AND active", source)
+
+    def _client_with_parts(self, parts):
+        return _FakeClickHouse(
+            indices=_compatible_indices(),
+            columns=_protocol_columns(),
+            parts=parts,
+        )
+
+    def test_inactive_unmaterialized_source_part_does_not_influence(self):
+        parts = [
+            {
+                "partition": "7",
+                "partition_id": "7",
+                "name": "7_1_1_0",
+                "rows": 10,
+                "bytes_on_disk": 100,
+                "active": 0,
+                "path": "/var/lib/clickhouse/store/aa/aaaa/7_1_1_0/",
+            },
+            {
+                "partition": "7",
+                "partition_id": "7",
+                "name": "7_1_1_0_9",
+                "rows": 10,
+                "bytes_on_disk": 140,
+                "active": 1,
+                "path": "/var/lib/clickhouse/store/aa/aaaa/7_1_1_0_9/",
+            },
+        ]
+
+        def lister(path):
+            if path.rstrip("/").endswith("7_1_1_0"):
+                return ["data.bin"]
+            return [TEXT_INDEX_SENTINEL_FILE, "skp_idx_idx_search_blob_text.dct.idx"]
+
+        result = inspect_partition_coverage(
+            self._client_with_parts(parts), 7, lister=lister
+        )
+        self.assertEqual(result["coverage"], COVERAGE_MATERIALIZED)
+        self.assertEqual(len(result["parts"]), 1)
+        self.assertEqual(result["parts"][0]["name"], "7_1_1_0_9")
+
+    def test_mixed_active_parts_are_partial(self):
+        parts = [
+            {
+                "partition": "7",
+                "name": "7_1_1_0_9",
+                "rows": 10,
+                "path": "/var/lib/clickhouse/store/aa/aaaa/7_1_1_0_9/",
+                "active": 1,
+            },
+            {
+                "partition": "7",
+                "name": "7_2_2_0",
+                "rows": 4,
+                "path": "/var/lib/clickhouse/store/aa/aaaa/7_2_2_0/",
+                "active": 1,
+            },
+        ]
+
+        def lister(path):
+            if path.rstrip("/").endswith("7_1_1_0_9"):
+                return [TEXT_INDEX_SENTINEL_FILE, "skp_idx_idx_search_blob_text.dct.idx"]
+            return ["data.bin"]
+
+        result = inspect_partition_coverage(
+            self._client_with_parts(parts), 7, lister=lister
+        )
+        self.assertEqual(result["coverage"], COVERAGE_PARTIAL)
+
+    def test_inability_to_inspect_any_active_part_is_unknown(self):
+        parts = [
+            {
+                "partition": "7",
+                "name": "7_1_1_0_9",
+                "rows": 10,
+                "path": "/var/lib/clickhouse/store/aa/aaaa/7_1_1_0_9/",
+                "active": 1,
+            }
+        ]
+
+        def boom(_path):
+            raise TextIndexOperatorError("cannot list")
+
+        result = inspect_partition_coverage(
+            self._client_with_parts(parts), 7, lister=boom
+        )
+        self.assertEqual(result["coverage"], COVERAGE_UNKNOWN)
 
 
 class ProductBoundaryTests(unittest.TestCase):
@@ -668,3 +944,46 @@ class LivePartitionMaterializeTests(unittest.TestCase):
         self._insert_partition(1, 20, "none")
         with self.assertRaises(TextIndexOperatorError):
             materialize_case_partition(self.client, 1)
+
+    def test_mutation_generated_active_part_coverage(self):
+        self._create_control_tables()
+        self._create_events()
+        self._insert_partition(1, 2500, "mut")
+        add_events_search_blob_text_index(self.client, allow_production=True)
+        before = inspect_partition_coverage(self.client, 1)
+        self.assertEqual(before["coverage"], COVERAGE_UNMATERIALIZED)
+        result = materialize_case_partition(self.client, 1)
+        self.assertEqual(result["coverage_after"]["coverage"], COVERAGE_MATERIALIZED)
+
+        all_parts = self.client.query(
+            """
+            SELECT name, active
+            FROM system.parts
+            WHERE database = currentDatabase()
+              AND table = 'events'
+              AND partition = '1'
+            ORDER BY name
+            """
+        ).result_rows
+        inactive_names = [name for name, is_active in all_parts if not int(is_active)]
+        active_names = [name for name, is_active in all_parts if int(is_active)]
+        after = inspect_partition_coverage(self.client, 1)
+        after_names = [item["name"] for item in after["parts"]]
+        self.assertEqual(sorted(after_names), sorted(active_names))
+        self.assertTrue(
+            inactive_names,
+            "expected MATERIALIZE INDEX to leave inactive source parts",
+        )
+        for name in inactive_names:
+            self.assertNotIn(name, after_names)
+        self.assertEqual(after["coverage"], COVERAGE_MATERIALIZED)
+
+        self._insert_partition(1, 400, "mut2")
+        mixed = inspect_partition_coverage(self.client, 1)
+        self.assertEqual(mixed["coverage"], COVERAGE_PARTIAL)
+
+        def boom(_path):
+            raise TextIndexOperatorError("cannot list")
+
+        unknown = inspect_partition_coverage(self.client, 1, lister=boom)
+        self.assertEqual(unknown["coverage"], COVERAGE_UNKNOWN)
