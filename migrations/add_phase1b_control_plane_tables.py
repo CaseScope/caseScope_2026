@@ -13,6 +13,7 @@ from models.database_flow import (
     EvidenceSourceGeneration,
     IngestAttempt,
     IngestBatch,
+    IngestBatchReconciliationAudit,
 )
 
 
@@ -25,6 +26,7 @@ def migrate():
             EvidenceGenerationAudit.__table__,
             IngestAttempt.__table__,
             IngestBatch.__table__,
+            IngestBatchReconciliationAudit.__table__,
             CaseCapabilitySourceState.__table__,
         ]
         created = []

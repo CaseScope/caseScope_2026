@@ -8,7 +8,7 @@ from __future__ import annotations
 import time
 import uuid
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 from sqlalchemy import func
@@ -46,6 +46,8 @@ MANIFEST_PROTOCOL_COLUMNS = (
     "ingest_row_hash",
     "ingest_attempt_id",
 )
+
+DEFAULT_INGEST_ATTEMPT_LEASE_SECONDS = 18_000
 
 INGEST_MODE_LEGACY = "LEGACY"
 INGEST_MODE_MANAGED_INITIAL = "MANAGED_INITIAL"
@@ -509,23 +511,48 @@ def create_ingest_attempt(
     generation: EvidenceSourceGeneration,
     celery_task_id: Optional[str] = None,
     worker_name: Optional[str] = None,
+    lease_seconds: int = DEFAULT_INGEST_ATTEMPT_LEASE_SECONDS,
 ) -> IngestAttempt:
+    now = _utcnow()
     attempt = IngestAttempt(
         ingest_attempt_id=str(uuid.uuid4()),
         generation_id=generation.id,
         status="STARTED",
         celery_task_id=celery_task_id,
         worker_name=worker_name,
-        started_at=_utcnow(),
+        started_at=now,
+        heartbeat_at=now,
+        lease_expires_at=now + timedelta(seconds=max(int(lease_seconds), 1)),
+        updated_at=now,
     )
     session.add(attempt)
     session.flush()
     return attempt
 
 
+def refresh_ingest_attempt_lease(
+    *,
+    session,
+    attempt: IngestAttempt,
+    lease_seconds: int = DEFAULT_INGEST_ATTEMPT_LEASE_SECONDS,
+) -> IngestAttempt:
+    if attempt.status != "STARTED":
+        raise ManifestProtocolError("only STARTED attempts can refresh a writer lease")
+    now = _utcnow()
+    attempt.heartbeat_at = now
+    attempt.lease_expires_at = now + timedelta(seconds=max(int(lease_seconds), 1))
+    attempt.updated_at = now
+    session.flush()
+    return attempt
+
+
 def finish_ingest_attempt(session, attempt: IngestAttempt, *, status: str, error: Optional[str] = None) -> IngestAttempt:
+    now = _utcnow()
     attempt.status = status
-    attempt.finished_at = _utcnow()
+    attempt.finished_at = now
+    attempt.heartbeat_at = now
+    attempt.lease_expires_at = now
+    attempt.updated_at = now
     attempt.error = error
     session.flush()
     return attempt

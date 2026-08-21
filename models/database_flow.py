@@ -200,8 +200,11 @@ class IngestAttempt(db.Model):
     celery_task_id = db.Column(db.String(128), nullable=True, index=True)
     worker_name = db.Column(db.String(255), nullable=True)
     started_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
+    heartbeat_at = db.Column(db.DateTime, nullable=True)
+    lease_expires_at = db.Column(db.DateTime, nullable=True, index=True)
     finished_at = db.Column(db.DateTime, nullable=True)
     error = db.Column(db.Text, nullable=True)
+    updated_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow)
 
     generation = db.relationship("EvidenceSourceGeneration", backref=db.backref("ingest_attempts", lazy="dynamic"))
 
@@ -228,7 +231,14 @@ class IngestBatch(db.Model):
     ingest_attempt_id = db.Column(db.String(36), db.ForeignKey("ingest_attempts.ingest_attempt_id"), nullable=True, index=True)
     state = db.Column(db.String(20), nullable=False, default=IngestBatchState.STAGED, index=True)
     state_version = db.Column(db.BigInteger, nullable=False, default=1)
+    reconcile_owner = db.Column(db.String(64), nullable=True, index=True)
+    reconcile_lease_expires_at = db.Column(db.DateTime, nullable=True, index=True)
+    reconcile_attempt_count = db.Column(db.Integer, nullable=False, default=0)
+    last_reconcile_at = db.Column(db.DateTime, nullable=True)
+    last_reconcile_outcome = db.Column(db.String(80), nullable=True)
+    last_reconcile_error = db.Column(db.Text, nullable=True)
     created_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
+    updated_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow)
     durable_at = db.Column(db.DateTime, nullable=True)
 
     generation = db.relationship("EvidenceSourceGeneration", backref=db.backref("ingest_batches", lazy="dynamic"))
@@ -239,12 +249,61 @@ class IngestBatch(db.Model):
         db.CheckConstraint("batch_ordinal >= 0", name="ck_ingest_batch_ordinal_nonnegative"),
         db.CheckConstraint("row_count >= 0", name="ck_ingest_batch_row_count_nonnegative"),
         db.CheckConstraint("state_version >= 1", name="ck_ingest_batch_state_version_positive"),
+        db.CheckConstraint("reconcile_attempt_count >= 0", name="ck_ingest_batch_reconcile_attempt_count_nonnegative"),
         db.CheckConstraint(
             "length(batch_content_hash) = 64 AND lower(batch_content_hash) = batch_content_hash",
             name="ck_ingest_batch_content_hash_lower_64",
         ),
         db.CheckConstraint("state IN ('STAGED', 'DURABLE')", name="ck_ingest_batch_state"),
         db.Index("idx_ingest_batch_generation_state", "generation_id", "state"),
+        db.Index("idx_ingest_batch_staged_updated", "state", "updated_at", "id"),
+        db.Index("idx_ingest_batch_reconcile_claim", "state", "reconcile_lease_expires_at", "id"),
+    )
+
+
+class IngestBatchReconciliationAudit(db.Model):
+    """Append-only audit for stale STAGED batch reconciliation decisions."""
+
+    __tablename__ = "ingest_batch_reconciliation_audit"
+
+    id = db.Column(db.Integer, primary_key=True)
+    ingest_batch_id = db.Column(db.String(96), nullable=False, index=True)
+    generation_id = db.Column(
+        db.Integer,
+        db.ForeignKey("evidence_source_generations.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    case_id = db.Column(db.Integer, db.ForeignKey("cases.id", ondelete="CASCADE"), nullable=False, index=True)
+    source_ref_type = db.Column(db.String(40), nullable=False, index=True)
+    source_ref_id = db.Column(db.String(128), nullable=False, index=True)
+    source_generation = db.Column(db.Integer, nullable=False)
+    batch_ordinal = db.Column(db.Integer, nullable=False)
+    prior_batch_state = db.Column(db.String(20), nullable=False)
+    classification = db.Column(db.String(80), nullable=False, index=True)
+    physical_row_count = db.Column(db.Integer, nullable=False, default=0)
+    collapsed_row_count = db.Column(db.Integer, nullable=False, default=0)
+    missing_ordinals = db.Column(db.JSON, nullable=False, default=list)
+    extra_ordinals = db.Column(db.JSON, nullable=False, default=list)
+    conflicting_ordinals = db.Column(db.JSON, nullable=False, default=list)
+    hash_mismatch_ordinals = db.Column(db.JSON, nullable=False, default=list)
+    expected_batch_content_hash = db.Column(db.String(64), nullable=True)
+    actual_batch_content_hash = db.Column(db.String(64), nullable=True)
+    action_taken = db.Column(db.String(80), nullable=False)
+    recovery_attempt_id = db.Column(db.String(36), nullable=True, index=True)
+    reason = db.Column(db.Text, nullable=True)
+    reconcile_owner = db.Column(db.String(64), nullable=True)
+    occurred_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow, index=True)
+
+    generation = db.relationship("EvidenceSourceGeneration", backref=db.backref("batch_reconciliation_audit", lazy="dynamic"))
+    case = db.relationship("Case", backref=db.backref("ingest_batch_reconciliation_audit", lazy="dynamic"))
+
+    __table_args__ = (
+        db.CheckConstraint("physical_row_count >= 0", name="ck_ingest_batch_reconcile_physical_nonnegative"),
+        db.CheckConstraint("collapsed_row_count >= 0", name="ck_ingest_batch_reconcile_collapsed_nonnegative"),
+        db.CheckConstraint("source_generation >= 1", name="ck_ingest_batch_reconcile_generation_positive"),
+        db.CheckConstraint("batch_ordinal >= 0", name="ck_ingest_batch_reconcile_batch_ordinal_nonnegative"),
+        db.Index("idx_ingest_batch_reconcile_audit_source", "case_id", "source_ref_type", "source_ref_id", "source_generation"),
     )
 
 

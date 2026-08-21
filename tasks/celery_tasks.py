@@ -1087,6 +1087,7 @@ def _process_managed_initial_case_file(
         mark_batch_durable,
         project_generation_authority_swap,
         project_generation_control_state,
+        refresh_ingest_attempt_lease,
         reserve_staged_batch,
         select_case_file_ingest_mode,
         update_generation_ingest_accounting,
@@ -1166,6 +1167,8 @@ def _process_managed_initial_case_file(
                 events=tuple(event_buffer),
                 batch_ordinal=next_batch_ordinal,
             )
+            refresh_ingest_attempt_lease(session=db.session, attempt=attempt)
+            db.session.commit()
             with timed_stage(
                 "phase1b_staged_reservation",
                 case_id=case_id,
@@ -1199,6 +1202,7 @@ def _process_managed_initial_case_file(
                 case_file_id=case_file_id,
                 ingest_batch_id=manifest.ingest_batch_id,
             ):
+                refresh_ingest_attempt_lease(session=db.session, attempt=attempt)
                 batch_row = db.session.get(IngestBatch, batch_row.id)
                 mark_batch_durable(session=db.session, batch=batch_row, verification=verification)
                 update_generation_ingest_accounting(
@@ -1344,6 +1348,7 @@ def _process_managed_evtx_directory_group(
         insert_managed_batch,
         mark_batch_durable,
         project_generation_control_state,
+        refresh_ingest_attempt_lease,
         reserve_staged_batch,
         update_generation_ingest_accounting,
         verify_ingest_batch,
@@ -1417,6 +1422,8 @@ def _process_managed_evtx_directory_group(
                 events=tuple(events),
                 batch_ordinal=state['next_batch_ordinal'],
             )
+            refresh_ingest_attempt_lease(session=db.session, attempt=state['attempt'])
+            db.session.commit()
             with timed_stage(
                 "phase1b_evtx_directory_staged_reservation",
                 case_id=case_id,
@@ -1444,6 +1451,7 @@ def _process_managed_evtx_directory_group(
                 db.session.commit()
                 raise RuntimeError(f"Managed EVTX directory batch verification failed: {verification.outcome}")
 
+            refresh_ingest_attempt_lease(session=db.session, attempt=state['attempt'])
             batch_row = db.session.get(IngestBatch, batch_row.id)
             mark_batch_durable(session=db.session, batch=batch_row, verification=verification)
             state['events_count'] += len(events)
@@ -1885,6 +1893,205 @@ def parse_file_task(self, file_path: str, case_id: int, source_host: str = '',
             error_type=e.__class__.__name__,
         )
         raise
+
+
+def _schedule_staged_batch_recovery(ingest_batch_id: str, recovery_attempt_id: str) -> Optional[str]:
+    task = recover_staged_ingest_batch_task.delay(
+        ingest_batch_id=ingest_batch_id,
+        recovery_attempt_id=recovery_attempt_id,
+    )
+    return task.id
+
+
+@celery_app.task(bind=True, name='tasks.reconcile_stale_staged_ingest_batches')
+def reconcile_stale_staged_ingest_batches_task(self, batch_size: int = 100) -> Dict[str, Any]:
+    """Bounded operational entry for Phase 1B stale STAGED batch reconciliation."""
+    from models.database import db
+    from utils.clickhouse import get_fresh_client
+    from utils.staged_batch_reconciler import discover_stale_staged_batch_ids, reconcile_staged_batch
+
+    started = time.perf_counter()
+    app = get_flask_app()
+    with app.app_context():
+        client = get_fresh_client()
+        batch_ids = discover_stale_staged_batch_ids(session=db.session, limit=batch_size)
+        results = []
+        for ingest_batch_id in batch_ids:
+            result = reconcile_staged_batch(
+                session=db.session,
+                clickhouse_client=client,
+                ingest_batch_id=ingest_batch_id,
+                owner=f"celery:{getattr(self.request, 'id', None) or 'manual'}",
+                retry_scheduler=_schedule_staged_batch_recovery,
+            )
+            results.append({
+                "ingest_batch_id": result.ingest_batch_id,
+                "action_taken": result.action_taken,
+                "classification": result.classification,
+                "recovery_attempt_id": result.recovery_attempt_id,
+                "retry_task_id": result.retry_task_id,
+                "reason": result.reason,
+            })
+        client.close()
+        return {
+            "success": True,
+            "scanned": len(batch_ids),
+            "results": results,
+            "duration_seconds": time.perf_counter() - started,
+        }
+
+
+@celery_app.task(bind=True, name='tasks.recover_staged_ingest_batch')
+def recover_staged_ingest_batch_task(self, ingest_batch_id: str, recovery_attempt_id: str) -> Dict[str, Any]:
+    """Replay exactly one deterministic managed CASE_FILE batch under a recovery attempt."""
+    from models.case import Case
+    from models.case_file import CaseFile
+    from models.database import db
+    from models.database_flow import EvidenceGenerationState, IngestAttempt, IngestBatch, IngestBatchState
+    from parsers import get_registry
+    from utils.clickhouse import get_fresh_client
+    from utils.manifest_protocol import (
+        _assert_frozen_contract_matches,
+        construct_managed_batch,
+        contract_from_parser,
+        finish_ingest_attempt,
+        insert_managed_batch,
+        mark_batch_durable,
+        project_generation_control_state,
+        refresh_ingest_attempt_lease,
+        reserve_staged_batch,
+        update_generation_ingest_accounting,
+        verify_ingest_batch,
+    )
+
+    app = get_flask_app()
+    client = None
+    with app.app_context():
+        batch = (
+            db.session.query(IngestBatch)
+            .filter_by(ingest_batch_id=ingest_batch_id)
+            .with_for_update()
+            .one()
+        )
+        generation = batch.generation
+        attempt = (
+            db.session.query(IngestAttempt)
+            .filter_by(ingest_attempt_id=recovery_attempt_id, generation_id=generation.id)
+            .with_for_update()
+            .one()
+        )
+        if batch.state != IngestBatchState.STAGED:
+            finish_ingest_attempt(db.session, attempt, status='SUCCEEDED', error='Batch already durable before recovery replay')
+            db.session.commit()
+            return {"success": True, "ingest_batch_id": ingest_batch_id, "status": "already_reconciled"}
+        if batch.ingest_attempt_id != recovery_attempt_id:
+            finish_ingest_attempt(db.session, attempt, status='FAILED', error='Recovery attempt no longer owns batch')
+            db.session.commit()
+            raise RuntimeError("Recovery attempt no longer owns batch")
+        if generation.visibility_state not in {EvidenceGenerationState.BUILDING_INITIAL, EvidenceGenerationState.BUILDING_REPLACEMENT}:
+            finish_ingest_attempt(db.session, attempt, status='FAILED', error='Generation state is not recoverable')
+            db.session.commit()
+            raise RuntimeError("Generation state is not recoverable")
+
+        case_file = db.session.get(CaseFile, int(generation.source_ref_id))
+        case = db.session.get(Case, int(generation.case_id))
+        file_path = (case_file.file_path or case_file.source_path) if case_file else None
+        if not case_file or not file_path or not os.path.exists(file_path):
+            finish_ingest_attempt(db.session, attempt, status='FAILED', error='Source file unavailable for batch recovery')
+            batch.last_reconcile_error = 'Source file unavailable for batch recovery'
+            db.session.commit()
+            raise RuntimeError("Source file unavailable for batch recovery")
+
+        case_tz = case.timezone if case and case.timezone else 'UTC'
+        registry = get_registry()
+        artifact_type, parser = registry.resolve_parser_for_file(
+            file_path=file_path,
+            case_id=generation.case_id,
+            source_host=case_file.hostname or '',
+            case_file_id=case_file.id,
+            case_tz=case_tz,
+        )
+        if parser is None:
+            finish_ingest_attempt(db.session, attempt, status='FAILED', error='No parser available for batch recovery')
+            db.session.commit()
+            raise RuntimeError("No parser available for batch recovery")
+        contract = contract_from_parser(
+            parser,
+            configured_batch_size=generation.configured_batch_size,
+            normalization_version=generation.normalization_version,
+            producer_version=generation.producer_version,
+            config=Config,
+            require_global_flag=False,
+        )
+        _assert_frozen_contract_matches(generation, contract)
+        refresh_ingest_attempt_lease(session=db.session, attempt=attempt)
+        db.session.commit()
+
+        target_events = []
+        current_batch_ordinal = 0
+        current_buffer = []
+        previous_managed_mode = getattr(parser, 'managed_manifest_mode', False)
+        setattr(parser, 'managed_manifest_mode', True)
+        try:
+            for event in parser.parse(file_path):
+                current_buffer.append(event)
+                if len(current_buffer) >= int(generation.configured_batch_size):
+                    if current_batch_ordinal == int(batch.batch_ordinal):
+                        target_events = list(current_buffer)
+                        break
+                    current_buffer = []
+                    current_batch_ordinal += 1
+            else:
+                if current_buffer and current_batch_ordinal == int(batch.batch_ordinal):
+                    target_events = list(current_buffer)
+        finally:
+            setattr(parser, 'managed_manifest_mode', previous_managed_mode)
+
+        if not target_events:
+            finish_ingest_attempt(db.session, attempt, status='FAILED', error='Target batch ordinal was not reproduced')
+            db.session.commit()
+            raise RuntimeError("Target batch ordinal was not reproduced")
+
+        manifest = construct_managed_batch(
+            generation=generation,
+            attempt=attempt,
+            events=tuple(target_events),
+            batch_ordinal=batch.batch_ordinal,
+        )
+        batch_row = reserve_staged_batch(session=db.session, manifest=manifest)
+        refresh_ingest_attempt_lease(session=db.session, attempt=attempt)
+        db.session.commit()
+
+        client = get_fresh_client()
+        try:
+            insert_managed_batch(client, manifest)
+            verification = verify_ingest_batch(client, manifest)
+            if not verification.success:
+                finish_ingest_attempt(
+                    db.session,
+                    attempt,
+                    status='FAILED',
+                    error=f'Recovery batch verification failed: {verification.outcome}',
+                )
+                batch_row.last_reconcile_error = f'Recovery batch verification failed: {verification.outcome}'
+                db.session.commit()
+                raise RuntimeError(f"Recovery batch verification failed: {verification.outcome}")
+
+            batch_row = db.session.get(IngestBatch, batch_row.id)
+            mark_batch_durable(session=db.session, batch=batch_row, verification=verification)
+            update_generation_ingest_accounting(session=db.session, generation=generation)
+            finish_ingest_attempt(db.session, attempt, status='SUCCEEDED')
+            db.session.commit()
+            project_generation_control_state(client, db.session, generation)
+            return {
+                "success": True,
+                "ingest_batch_id": ingest_batch_id,
+                "recovery_attempt_id": recovery_attempt_id,
+                "artifact_type": artifact_type,
+                "events_count": len(target_events),
+            }
+        finally:
+            client.close()
 
 
 @celery_app.task(bind=True, name='tasks.parse_evtx_group')
