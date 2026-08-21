@@ -286,7 +286,7 @@ class GraphRouteAuthorizationIntegrationTestCase(unittest.TestCase):
 
         with patch.object(graph_routes, "get_fresh_client", return_value=object()), \
                 patch.object(graph_routes, "graph_eligible_probe", return_value=True), \
-                patch("tasks.celery_tasks.materialize_case_graph_task.apply_async", return_value=queued):
+                patch("tasks.celery_tasks.materialize_case_graph_task.apply_async", return_value=queued) as apply_async:
             response = self._client_as_analyst().post("/api/graph/case-a/build")
 
         self.assertEqual(response.status_code, 202)
@@ -296,6 +296,12 @@ class GraphRouteAuthorizationIntegrationTestCase(unittest.TestCase):
         state = GraphProjectionState.query.filter_by(case_id=self.case_a.id).one()
         self.assertEqual(state.status, "pending")
         self.assertEqual(state.mode, "manual_build")
+        queued_kwargs = apply_async.call_args.kwargs["kwargs"]
+        self.assertEqual(queued_kwargs["case_id"], self.case_a.id)
+        self.assertEqual(queued_kwargs["case_uuid"], self.case_a.uuid)
+        self.assertEqual(queued_kwargs["mode"], "manual_build")
+        self.assertEqual(queued_kwargs["projection_state_id"], state.id)
+        self.assertNotIn("args", apply_async.call_args.kwargs)
 
     def test_repeated_build_while_running_is_rejected(self):
         GraphRelationshipEvidence.query.delete()
@@ -353,6 +359,10 @@ class GraphRouteAuthorizationIntegrationTestCase(unittest.TestCase):
         self.assertEqual(response.status_code, 202)
         kwargs = apply_async.call_args.kwargs["kwargs"]
         self.assertTrue(kwargs["resume"])
+        self.assertEqual(kwargs["case_id"], self.case_a.id)
+        self.assertEqual(kwargs["case_uuid"], self.case_a.uuid)
+        self.assertEqual(kwargs["mode"], "manual_build")
+        self.assertEqual(kwargs["projection_state_id"], GraphProjectionState.query.filter_by(case_id=self.case_a.id).one().id)
 
     def test_no_eligible_evidence_build_records_explanatory_state(self):
         GraphRelationshipEvidence.query.delete()
@@ -369,6 +379,42 @@ class GraphRouteAuthorizationIntegrationTestCase(unittest.TestCase):
         self.assertEqual(payload["empty_state"], "no_eligible_evidence")
         state = GraphProjectionState.query.filter_by(case_id=self.case_a.id).one()
         self.assertEqual(state.status, "no_eligible_evidence")
+
+
+class GraphProducerKwargsAuditTests(unittest.TestCase):
+    def test_current_materialize_case_graph_call_sites_supply_kwargs_case_id(self):
+        import ast
+        from pathlib import Path
+
+        files = [
+            Path("/opt/casescope/routes/graph.py"),
+            Path("/opt/casescope/utils/completion_reconciler.py"),
+            Path("/opt/casescope/tasks/celery_tasks.py"),
+        ]
+        found = 0
+        for path in files:
+            source = path.read_text(encoding="utf-8")
+            self.assertNotIn('send_task("tasks.materialize_case_graph")', source)
+            self.assertNotIn("send_task('tasks.materialize_case_graph')", source)
+            tree = ast.parse(source, filename=str(path))
+            for node in ast.walk(tree):
+                if not isinstance(node, ast.Call) or not isinstance(node.func, ast.Attribute):
+                    continue
+                target = ast.unparse(node.func.value) if hasattr(ast, "unparse") else ""
+                if "materialize_case_graph" not in target and "materialize_case_graph" not in ast.dump(node.func.value):
+                    continue
+                if node.func.attr == "delay":
+                    self.fail(f"{path} queues materialize_case_graph via delay(); use apply_async(kwargs=...)")
+                if node.func.attr != "apply_async":
+                    continue
+                found += 1
+                kw_names = {keyword.arg for keyword in node.keywords}
+                self.assertIn("kwargs", kw_names, f"{path} apply_async missing kwargs=")
+                kwargs_node = next(keyword.value for keyword in node.keywords if keyword.arg == "kwargs")
+                self.assertIsInstance(kwargs_node, ast.Dict)
+                keys = [key.value for key in kwargs_node.keys if isinstance(key, ast.Constant)]
+                self.assertIn("case_id", keys, f"{path} kwargs dict does not include case_id")
+        self.assertGreaterEqual(found, 3)
 
 
 if __name__ == "__main__":

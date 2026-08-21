@@ -1,6 +1,14 @@
 {
-  "version": "4.24.1",
+  "version": "4.24.2",
   "changelog": [
+    {
+      "version": "4.24.2",
+      "date": "2026-08-21",
+      "changes": [
+        "Recovered the Phase 2.1B discarded materialize_case_graph task from retained kwargs, not empty positional args, and resumed the stranded case 3 projection",
+        "Documented and tested a producer-first Celery drain so maintenance no longer deletes broker messages to force idle"
+      ]
+    },
     {
       "version": "4.24.1",
       "date": "2026-08-21",

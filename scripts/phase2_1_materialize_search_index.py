@@ -7,6 +7,7 @@
 Examples:
 
   /opt/casescope/venv/bin/python scripts/phase2_1_materialize_search_index.py --status
+  /opt/casescope/venv/bin/python scripts/phase2_1_materialize_search_index.py --drain-status
   /opt/casescope/venv/bin/python scripts/phase2_1_materialize_search_index.py \\
       --dry-run --case-id 33 --apply-production
   /opt/casescope/venv/bin/python scripts/phase2_1_materialize_search_index.py \\
@@ -61,8 +62,55 @@ def connect(database, timeout=86400):
 
 
 WRITER_UNITS = ("casescope-web", "casescope-workers", "casescope-beat")
+PRODUCER_UNITS = ("casescope-web", "casescope-beat")
 CELERY_INSPECT_TIMEOUT_SECONDS = 5
 REDIS_UNACKED_KEYS = ("unacked",)
+BROKER_MESSAGE_DELETION_ALLOWED = False
+BROKER_DELETION_REFUSAL_HINT = (
+    "do not delete broker or unacked messages to force idle; "
+    "stop casescope-web and casescope-beat first, keep casescope-workers "
+    "running until active=reserved=scheduled=queued=unacked=0, then stop workers"
+)
+SAFE_QUIESCE_STEPS = (
+    {
+        "step": 1,
+        "action": "stop_new_producers",
+        "units": ["casescope-web", "casescope-beat"],
+    },
+    {
+        "step": 2,
+        "action": "leave_workers_alive",
+        "units": ["casescope-workers"],
+    },
+    {
+        "step": 3,
+        "action": "wait_for_celery_drain",
+        "require": [
+            "active=0",
+            "reserved=0",
+            "scheduled=0",
+            "queued=0 or accounted",
+            "unacked=0",
+        ],
+    },
+    {
+        "step": 4,
+        "action": "stop_workers",
+        "units": ["casescope-workers"],
+        "only_after": "celery drain complete",
+    },
+    {
+        "step": 5,
+        "action": "recheck_idle",
+        "require": [
+            "shared_writer_count=0",
+            "no exclusive fence owner",
+            "local writer services inactive",
+            "queued=0",
+            "unacked=0",
+        ],
+    },
+)
 
 
 def inspect_fence():
@@ -285,9 +333,129 @@ def inspect_celery(*, inspector_factory=None, broker_factory=None):
             "unacked_count": None,
             "queues": {},
             "broker_error": None,
+            "task_summaries": [],
             "error": str(exc),
             "empty": False,
         }
+
+
+def celery_task_payload_summary(task):
+    """Decode BOTH args and kwargs. Empty args does not prove missing case_id."""
+    task = task or {}
+    args = list(task.get("args") or [])
+    raw_kwargs = task.get("kwargs")
+    kwargs = dict(raw_kwargs) if isinstance(raw_kwargs, dict) else {}
+    case_id = kwargs.get("case_id")
+    case_id_source = "kwargs" if case_id is not None else None
+    return {
+        "id": task.get("id"),
+        "name": task.get("name") or task.get("type"),
+        "args": args,
+        "kwargs": kwargs,
+        "case_id": case_id,
+        "case_id_source": case_id_source,
+        "has_case_id": case_id is not None,
+        "missing_case_id_proven": case_id is None and not args,
+    }
+
+
+def collect_celery_task_summaries(active_payload, reserved_payload, scheduled_payload):
+    summaries = []
+    for bucket, payload in (
+        ("active", active_payload),
+        ("reserved", reserved_payload),
+        ("scheduled", scheduled_payload),
+    ):
+        if not isinstance(payload, dict):
+            continue
+        for host, tasks in payload.items():
+            if not isinstance(tasks, list):
+                continue
+            for task in tasks:
+                if not isinstance(task, dict):
+                    continue
+                summary = celery_task_payload_summary(task)
+                summary["bucket"] = bucket
+                summary["hostname"] = host
+                summaries.append(summary)
+    return summaries
+
+
+def celery_work_drained(celery):
+    """True when live workers report no work and the broker is empty.
+
+    Workers may still be systemd-active. That is the drain checkpoint
+    *before* stopping casescope-workers.
+    """
+    celery = celery or {}
+    if celery.get("error"):
+        return False
+    if not celery.get("inspected"):
+        return False
+    if not celery.get("broker_inspected"):
+        return False
+    counts = (
+        celery.get("active_count"),
+        celery.get("reserved_count"),
+        celery.get("scheduled_count"),
+        celery.get("queued_count"),
+        celery.get("unacked_count"),
+    )
+    return all(count == 0 for count in counts)
+
+
+def producer_units_stopped(systemd):
+    states = (systemd or {}).get("states") or {}
+    return all(states.get(unit) == "inactive" for unit in PRODUCER_UNITS)
+
+
+def drain_status_payload(*, fence=None, systemd=None, celery=None):
+    """Safe quiesce checkpoint: producers stopped, workers still draining."""
+    fence = inspect_fence() if fence is None else fence
+    systemd = inspect_systemd() if systemd is None else systemd
+    celery = inspect_celery() if celery is None else celery
+    drained = celery_work_drained(celery)
+    producers_stopped = producer_units_stopped(systemd)
+    worker_state = ((systemd or {}).get("states") or {}).get("casescope-workers")
+    long_running = []
+    if not drained:
+        summaries = celery.get("task_summaries")
+        if summaries is None:
+            summaries = collect_celery_task_summaries(
+                celery.get("active"),
+                celery.get("reserved"),
+                celery.get("scheduled"),
+            )
+        for summary in summaries:
+            if summary.get("id"):
+                long_running.append(
+                    {
+                        "id": summary.get("id"),
+                        "name": summary.get("name"),
+                        "case_id": summary.get("case_id"),
+                        "bucket": summary.get("bucket"),
+                    }
+                )
+    fence_idle = bool(fence.get("ok")) and fence.get("shared_writer_count") == 0
+    return {
+        "ok": bool(producers_stopped and drained and fence_idle),
+        "safe_to_stop_workers": bool(producers_stopped and drained and fence_idle),
+        "producers_stopped": producers_stopped,
+        "workers_still_active": worker_state == "active",
+        "celery_drained": drained,
+        "fence_idle": fence_idle,
+        "broker_message_deletion_allowed": BROKER_MESSAGE_DELETION_ALLOWED,
+        "quiesce_steps": list(SAFE_QUIESCE_STEPS),
+        "long_running_tasks": long_running,
+        "guidance": (
+            BROKER_DELETION_REFUSAL_HINT
+            if not drained
+            else "celery drain complete; stop casescope-workers then recheck idle"
+        ),
+        "fence": fence,
+        "systemd": systemd,
+        "celery": celery,
+    }
 
 
 def compose_celery_report(
@@ -313,6 +481,11 @@ def compose_celery_report(
     combined_error = error or broker_error or (worker_errors[0] if worker_errors else None)
     queued_count = broker.get("queued_count")
     unacked_count = broker.get("unacked_count")
+    task_summaries = collect_celery_task_summaries(
+        active_payload if isinstance(active_payload, dict) else None,
+        reserved_payload if isinstance(reserved_payload, dict) else None,
+        scheduled_payload if isinstance(scheduled_payload, dict) else None,
+    )
     empty = bool(
         inspected
         and active["count"] == 0
@@ -329,6 +502,7 @@ def compose_celery_report(
         "active": active_payload if isinstance(active_payload, dict) else None,
         "reserved": reserved_payload if isinstance(reserved_payload, dict) else None,
         "scheduled": scheduled_payload if isinstance(scheduled_payload, dict) else None,
+        "task_summaries": task_summaries,
         "active_count": active["count"],
         "reserved_count": reserved["count"],
         "scheduled_count": scheduled["count"],
@@ -379,6 +553,8 @@ def celery_refusal_reasons(celery, *, systemd_stopped):
         reasons.append(f"celery queued count={queued}")
     if unacked > 0:
         reasons.append(f"celery unacked count={unacked}")
+    if queued > 0 or unacked > 0:
+        reasons.append(BROKER_DELETION_REFUSAL_HINT)
 
     worker_unknown = any(
         celery.get(key) is None
@@ -508,7 +684,19 @@ def main(argv=None):
             "Celery are all proven idle. Inspection errors refuse."
         ),
     )
+    parser.add_argument(
+        "--drain-status",
+        action="store_true",
+        help=(
+            "Report whether Celery work has drained while workers may still be "
+            "alive. Does not delete broker messages and does not mutate."
+        ),
+    )
     args = parser.parse_args(argv)
+
+    if args.drain_status:
+        print(json.dumps(drain_status_payload(), indent=2, default=str))
+        return 0
 
     if not args.status and args.case_id is None:
         parser.error("--case-id is required unless --status is used; there is no all-partitions default")

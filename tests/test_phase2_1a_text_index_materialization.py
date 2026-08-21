@@ -572,6 +572,141 @@ class OperatorIdleCheckTests(unittest.TestCase):
         self.assertIn("celery inspection error", str(raised.exception))
 
 
+class OperatorQueueSafetyTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.op = _load_operator()
+
+    def test_empty_args_with_kwargs_case_id_is_not_malformed(self):
+        summary = self.op.celery_task_payload_summary(
+            {
+                "id": "0e0fed2b-6318-48cc-af38-a20dbc66b335",
+                "name": "tasks.materialize_case_graph",
+                "args": [],
+                "kwargs": {
+                    "case_id": 3,
+                    "case_uuid": "case-uuid",
+                    "case_file_ids": None,
+                },
+            }
+        )
+        self.assertEqual(summary["case_id"], 3)
+        self.assertEqual(summary["case_id_source"], "kwargs")
+        self.assertTrue(summary["has_case_id"])
+        self.assertFalse(summary["missing_case_id_proven"])
+        self.assertEqual(summary["args"], [])
+
+    def test_empty_args_and_empty_kwargs_proves_missing_case_id(self):
+        summary = self.op.celery_task_payload_summary(
+            {"id": "dead", "name": "tasks.materialize_case_graph", "args": [], "kwargs": {}}
+        )
+        self.assertIsNone(summary["case_id"])
+        self.assertFalse(summary["has_case_id"])
+        self.assertTrue(summary["missing_case_id_proven"])
+
+    def test_positional_args_alone_are_not_inferred_as_kwargs_case_id(self):
+        summary = self.op.celery_task_payload_summary(
+            {
+                "id": "mitre",
+                "name": "tasks.mitre_mapper.map_case_mitre_procedures",
+                "args": [3, "system"],
+                "kwargs": {},
+            }
+        )
+        self.assertIsNone(summary["case_id"])
+        self.assertFalse(summary["has_case_id"])
+        self.assertFalse(summary["missing_case_id_proven"])
+
+    def test_quiesce_steps_do_not_delete_broker_messages(self):
+        self.assertFalse(self.op.BROKER_MESSAGE_DELETION_ALLOWED)
+        actions = [step["action"] for step in self.op.SAFE_QUIESCE_STEPS]
+        self.assertEqual(
+            actions,
+            [
+                "stop_new_producers",
+                "leave_workers_alive",
+                "wait_for_celery_drain",
+                "stop_workers",
+                "recheck_idle",
+            ],
+        )
+        self.assertNotIn("delete_broker_messages", actions)
+        self.assertNotIn("purge", " ".join(actions))
+
+    def test_drain_complete_while_workers_still_active(self):
+        celery = self.op.compose_celery_report(
+            {"celery@host": []},
+            {"celery@host": []},
+            {"celery@host": []},
+            _empty_broker(),
+        )
+        systemd = {
+            "ok": False,
+            "states": {
+                "casescope-web": "inactive",
+                "casescope-workers": "active",
+                "casescope-beat": "inactive",
+            },
+            "refusal_reason": "local service still active: casescope-workers=active",
+        }
+        fence = _clear_fence()
+        self.assertTrue(self.op.celery_work_drained(celery))
+        drain = self.op.drain_status_payload(fence=fence, systemd=systemd, celery=celery)
+        self.assertTrue(drain["safe_to_stop_workers"])
+        self.assertTrue(drain["workers_still_active"])
+        with self.assertRaises(SystemExit) as raised:
+            self.op.inspect_writers(
+                require_idle=True, fence=fence, systemd=systemd, celery=celery
+            )
+        self.assertIn("casescope-workers=active", str(raised.exception))
+
+    def test_unacked_work_refuses_idle_without_recommending_deletion(self):
+        celery = self.op.compose_celery_report(
+            None,
+            {"celery@host": []},
+            {"celery@host": []},
+            {
+                "ok": True,
+                "queues": {"celery": 0, "ioc": 0},
+                "queued_count": 0,
+                "unacked_count": 2,
+                "error": None,
+            },
+        )
+        with self.assertRaises(SystemExit) as raised:
+            self.op.inspect_writers(
+                require_idle=True,
+                fence=_clear_fence(),
+                systemd=_stopped_systemd(),
+                celery=celery,
+            )
+        message = str(raised.exception)
+        self.assertIn("celery unacked count=2", message)
+        self.assertIn("do not delete broker or unacked messages", message)
+
+    def test_compose_report_keeps_kwargs_in_task_summaries(self):
+        celery = self.op.compose_celery_report(
+            {
+                "celery@host": [
+                    {
+                        "id": "0e0fed2b-6318-48cc-af38-a20dbc66b335",
+                        "name": "tasks.materialize_case_graph",
+                        "args": [],
+                        "kwargs": {"case_id": 3, "case_uuid": "a580e5ce-4bb2-4912-b34b-8b63b4cf80cd"},
+                    }
+                ]
+            },
+            {"celery@host": []},
+            {"celery@host": []},
+            _empty_broker(),
+        )
+        self.assertEqual(len(celery["task_summaries"]), 1)
+        summary = celery["task_summaries"][0]
+        self.assertEqual(summary["args"], [])
+        self.assertEqual(summary["kwargs"]["case_id"], 3)
+        self.assertTrue(summary["has_case_id"])
+
+
 class CoverageActivePartTests(unittest.TestCase):
     def test_active_parts_sql_ignores_inactive(self):
         source = inspect.getsource(active_parts)

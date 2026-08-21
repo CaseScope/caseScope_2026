@@ -1,0 +1,234 @@
+{
+  "tranche": "phase2_1b_task_recovery",
+  "closure_version": "4.24.2",
+  "baseline_version": "4.24.1",
+  "baseline_commit": "4a5950c2cd4d749e696d76751c78672bf1635c5d",
+  "python": "/opt/casescope/venv/bin/python",
+  "no_later_phase": [
+    "no Hunt token-reader cutover",
+    "no hasAllTokens/hasAnyTokens product change",
+    "no bloom removal",
+    "no command_line index",
+    "no Phase 2.2/2.3/2.4",
+    "no Phase 3/4",
+    "no LEK",
+    "no events_current",
+    "no event_observations_current",
+    "no search_blob rematerialization"
+  ],
+  "target_deleted_task_uuid": "0e0fed2b-6318-48cc-af38-a20dbc66b335",
+  "task_name": "tasks.materialize_case_graph",
+  "sources_searched": [
+    "PostgreSQL graph_projection_state.task_id",
+    "Celery Redis result backend celery-task-meta-* (GET only)",
+    "journalctl -u casescope-workers / casescope-web / casescope-beat",
+    "audit_log graph_projection_started rows",
+    "/tmp/phase21b_status_before.json operator inspect dump",
+    "routes/graph.py, utils/completion_reconciler.py, tasks/celery_tasks.py producers"
+  ],
+  "original_kwargs_recovered": true,
+  "original_payload": {
+    "source": "/tmp/phase21b_status_before.json",
+    "args": [],
+    "kwargs": {
+      "case_id": 3,
+      "case_uuid": "case-uuid",
+      "case_file_ids": null
+    },
+    "hostname": "celery@casescope2026",
+    "acknowledged": false,
+    "note": "empty positional args do not prove missing case_id; live producers use kwargs"
+  },
+  "task_result_backend": {
+    "deleted_task": {
+      "id": "0e0fed2b-6318-48cc-af38-a20dbc66b335",
+      "state": "STARTED",
+      "result": {
+        "pid": 210803,
+        "hostname": "celery@casescope2026"
+      },
+      "mutated": false,
+      "left_to_expire": true
+    },
+    "recovery_task": {
+      "id": "a0f38aa7-c290-4a0a-bce2-1c5e29c83dea",
+      "state": "SUCCESS",
+      "events_seen": 18319,
+      "relationships_materialized": 70284,
+      "errors": 0,
+      "cumulative_events_seen": 812291,
+      "cumulative_relationships_materialized": 3095934,
+      "windows_completed_this_run": 911,
+      "runtime_seconds": 230.48783395439386
+    }
+  },
+  "task_classification": "VALID_TASK_IDENTIFIED",
+  "affected_case_projection": {
+    "projection_state_id": 2,
+    "case_id": 3,
+    "case_uuid": "a580e5ce-4bb2-4912-b34b-8b63b4cf80cd",
+    "case_name": "2026-05-06 - Unknown compromise - possibly social engineering",
+    "mode": "ingest",
+    "original_requested_by": null,
+    "recovery_requested_by": "system",
+    "payload_case_uuid_was_literal_case_uuid": true,
+    "durable_case_uuid_source": "graph_projection_state.case_uuid"
+  },
+  "pre_recovery_graph_state": {
+    "status": "running",
+    "task_id": "0e0fed2b-6318-48cc-af38-a20dbc66b335",
+    "started_at": "2026-08-13T15:25:34.462156",
+    "updated_at": "2026-08-21T19:57:35",
+    "last_completed_window_end_utc": "2025-10-03T00:56:52.754000",
+    "windows_completed": 52922,
+    "events_seen": 793972,
+    "relationships_materialized": 3025650,
+    "errors": 0,
+    "eligible_total": 18872,
+    "eligible_remaining_after_checkpoint": 18319,
+    "advisory_lock_4183000003": "free",
+    "active_ingest_files": 0,
+    "counts": {
+      "graph_entities": 5139,
+      "graph_entity_observations": 106142,
+      "graph_relationships": 4639,
+      "graph_relationship_evidence": 71943
+    }
+  },
+  "recovery_action": {
+    "type": "canonical_resume",
+    "destructive_rebuild": false,
+    "graph_rows_synthesized": false,
+    "mode_preserved": "ingest",
+    "steps": [
+      "mark_projection_state(status=failed, mode=ingest) so existing resume semantics apply",
+      "materialize_case_graph_task.apply_async(kwargs=case_id, case_uuid, mode=ingest, projection_state_id=2, requested_by=system, resume=true, case_file_ids=null)",
+      "record the new task id on graph_projection_state"
+    ],
+    "new_task_uuid": "a0f38aa7-c290-4a0a-bce2-1c5e29c83dea",
+    "queued_at_utc": "2026-08-21T21:16:25Z"
+  },
+  "terminal_state": {
+    "graph_projection_state_status": "completed",
+    "task_id": "a0f38aa7-c290-4a0a-bce2-1c5e29c83dea",
+    "completed_at": "2026-08-21T21:20:16.164960",
+    "last_completed_window_end_utc": "2026-05-07T11:36:13.652000",
+    "windows_completed": 53833,
+    "events_seen": 812291,
+    "relationships_materialized": 3095934,
+    "errors": 0,
+    "last_error": null,
+    "celery_state": "SUCCESS",
+    "eligible_total": 18872,
+    "eligible_remaining_after_checkpoint": 0
+  },
+  "graph_counts": {
+    "pre_recovery": {
+      "graph_entities": 5139,
+      "graph_entity_observations": 106142,
+      "graph_relationships": 4639,
+      "graph_relationship_evidence": 71943
+    },
+    "post_recovery": {
+      "graph_entities": 5139,
+      "graph_entity_observations": 106142,
+      "graph_relationships": 4639,
+      "graph_relationship_evidence": 71943
+    },
+    "duplicate_graph_support_introduced": false
+  },
+  "idempotence_replay_result": {
+    "resume_from_checkpoint": true,
+    "did_not_replay_from_1970": true,
+    "events_read_this_run": 18319,
+    "candidate_relationships_this_run": 70284,
+    "unique_entities_staged_this_run": 17986,
+    "unique_relationships_staged_this_run": 14248,
+    "support_rows_staged_this_run": 70284,
+    "durable_graph_counts_unchanged": true,
+    "contract": "windowed resume merged into existing graph facts; unique row counts did not grow"
+  },
+  "current_graph_projection_inventory": {
+    "rows": 13,
+    "status_counts": {
+      "completed": 13,
+      "pending": 0,
+      "running": 0,
+      "failed": 0,
+      "no_eligible_evidence": 0
+    },
+    "stranded_active_from_deleted_task": false,
+    "case_3_projection_ids": [2]
+  },
+  "current_producer_audit": {
+    "call_sites": [
+      {
+        "file": "routes/graph.py",
+        "kwargs": ["case_id", "case_uuid", "mode", "projection_state_id", "requested_by", "resume"]
+      },
+      {
+        "file": "utils/completion_reconciler.py",
+        "kwargs": ["case_id", "case_uuid", "mode"]
+      },
+      {
+        "file": "tasks/celery_tasks.py",
+        "kwargs": ["case_id", "case_uuid", "case_file_ids"]
+      }
+    ],
+    "delay_call_sites": 0,
+    "send_task_call_sites": 0,
+    "every_current_producer_supplies_case_id": true,
+    "producer_code_change_required": false
+  },
+  "maintenance_queue_safety": {
+    "broker_message_deletion_allowed": false,
+    "generic_celery_purge_command": false,
+    "operator_flag": "--drain-status",
+    "quiesce_steps": [
+      "stop_new_producers: casescope-web, casescope-beat",
+      "leave_workers_alive: casescope-workers",
+      "wait_for_celery_drain: active=reserved=scheduled=0, queued=0 or accounted, unacked=0",
+      "long-running task: stop maintenance or use supported cancel/resume; do not delete broker messages",
+      "stop_workers: casescope-workers",
+      "recheck_idle: shared_writer_count=0, no exclusive fence owner, writer services inactive, queued=0, unacked=0"
+    ],
+    "payload_rule": "decode both args and kwargs; empty args does not prove missing case_id"
+  },
+  "case_12_process_origin": {
+    "mutation_id": "mutation_34789.txt",
+    "command": "(MATERIALIZE INDEX idx_search_blob_text IN PARTITION 12)",
+    "create_time": "2026-08-21T20:16:29",
+    "is_done": 1,
+    "query_log": {
+      "event_time": "2026-08-21T20:17:21",
+      "user": "default",
+      "http_user_agent": "clickhouse-connect/0.15.1 (lv:py/3.12.3; mode:sync; os:linux; os_user:jdube)",
+      "query": "ALTER TABLE events MATERIALIZE INDEX idx_search_blob_text IN PARTITION 12 SETTINGS mutations_sync = 1"
+    },
+    "sequential_operator_dump": "/tmp/phase21b_case_12.json",
+    "sequential_operator_ts_utc": "2026-08-21T20:17:29.466211",
+    "already_materialized": true,
+    "executed_by_sequential_slot": false,
+    "stray_materialize_process_now": false,
+    "rematerialized": false,
+    "conclusion": "PROCESS_ORIGIN_UNRESOLVED_NON_DATA_BLOCKING"
+  },
+  "final_text_index_coverage": {
+    "idx_search_blob_text": {
+      "expr": "search_blob",
+      "type_full": "text(tokenizer = 'splitByNonAlpha', preprocessor = lower(search_blob))",
+      "granularity": 100000000
+    },
+    "MATERIALIZED": 25,
+    "PARTIAL": 0,
+    "UNMATERIALIZED": 0,
+    "UNKNOWN": 0,
+    "rows": 745463991,
+    "active_parts": 135,
+    "partitions": 25,
+    "blooms": ["idx_search_ngram", "idx_search_token"],
+    "hunt_predicate": "search_blob ilike",
+    "hasAllTokens_product_change": false
+  },
+  "final_verdict": "PHASE2_1B_CLOSURE_PASS"
+}

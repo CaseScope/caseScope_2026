@@ -1445,3 +1445,19 @@ class Phase1BF1ClosureUnitTestCase(unittest.TestCase):
 
     def test_generation_probe_generic_failure_blocks_dedup(self):
         self._assert_probe_failure_blocks_dedup(RuntimeError("unexpected query failure"))
+
+
+class Phase1BF1GraphSchedulerKwargsTest(unittest.TestCase):
+    def test_production_graph_scheduler_supplies_case_id_in_kwargs(self):
+        from utils.completion_reconciler import default_production_hooks
+
+        with patch("tasks.celery_tasks.materialize_case_graph_task") as graph_task:
+            hooks = default_production_hooks(case_id=3, case_uuid="a580e5ce-4bb2-4912-b34b-8b63b4cf80cd")
+            hooks.graph_scheduler()
+
+        graph_task.apply_async.assert_called_once()
+        kwargs = graph_task.apply_async.call_args.kwargs["kwargs"]
+        self.assertEqual(kwargs["case_id"], 3)
+        self.assertEqual(kwargs["case_uuid"], "a580e5ce-4bb2-4912-b34b-8b63b4cf80cd")
+        self.assertEqual(kwargs["mode"], "ingest")
+        self.assertNotIn("args", graph_task.apply_async.call_args.kwargs)

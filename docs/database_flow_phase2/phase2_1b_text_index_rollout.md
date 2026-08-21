@@ -201,3 +201,85 @@ No Hunt token cutover, no bloom drop, no `command_line` index, no Phase 2.2
 insert-mode change, no 2.3 UPDATE bridge, no 2.4 dedup, no Phase 3/4, no LEK,
 no `events_current` / `event_observations_current`. Phase 1B publication
 bridge unchanged.
+
+## Independent-review closure — discarded graph task / queue safety
+
+Corrective closure only. Text-index coverage is unchanged and was not
+repaired. Hunt still emits `search_blob ilike`. Blooms remain. No later
+phase work.
+
+Measurement artifact:
+`docs/database_flow_phase2/phase2_1b_task_recovery.json`.
+
+### Deleted Celery task
+
+UUID `0e0fed2b-6318-48cc-af38-a20dbc66b335` (`tasks.materialize_case_graph`)
+was removed from the broker during Phase 2.1B idle. The rollout treated
+positional `args = []` as unsafe to requeue. That is incomplete.
+
+Live producers queue this task with keyword arguments. The retained operator
+dump `/tmp/phase21b_status_before.json` had:
+
+```
+args = []
+kwargs = {"case_id": 3, "case_uuid": "case-uuid", "case_file_ids": null}
+```
+
+PostgreSQL `graph_projection_state` id 2 stored the same task id for case 3
+(`a580e5ce-4bb2-4912-b34b-8b63b4cf80cd`), mode `ingest`, status `running`.
+Classification: `VALID_TASK_IDENTIFIED`. Empty args does not prove missing
+`case_id`.
+
+The discarded worker left the projection stranded in `running` with no live
+task and no advisory lock. Completion reconciliation noops on `running`, so
+the row could not self-heal until marked failed through the existing
+transition.
+
+### Recovery
+
+Canonical resume, not a destructive rebuild and not UI `manual_build`:
+
+1. `mark_projection_state(status='failed', mode='ingest')`
+2. `materialize_case_graph_task.apply_async(kwargs={case_id, case_uuid, mode: ingest, projection_state_id: 2, requested_by: system, resume: true, case_file_ids: null})`
+
+New task `a0f38aa7-c290-4a0a-bce2-1c5e29c83dea` reached Celery `SUCCESS` and
+projection `completed` at 2026-08-21T21:20:16Z. Resume processed the remaining
+18,319 eligible events. Durable graph counts stayed
+5139 / 106142 / 4639 / 71943. Remaining eligible after checkpoint is 0.
+The stale Redis `STARTED` meta for `0e0fed2b-...` was left to expire.
+
+### Maintenance queue safety
+
+Deleting broker or unacked messages is not the quiesce procedure.
+
+1. Stop new producers: `casescope-web`, `casescope-beat`
+2. Leave `casescope-workers` running
+3. Wait until active = reserved = scheduled = 0, queued is 0 or accounted
+   for, and unacked = 0. Decode both args and kwargs. Do not infer missing
+   `case_id` from empty positional args.
+4. If a long-running task remains, stop maintenance or recover that exact
+   task through its supported cancellation/resume path.
+5. Only then stop `casescope-workers`
+6. Recheck fence shared writers = 0, no exclusive owner, local writer
+   services inactive, queued = 0, unacked = 0
+
+Operator: `scripts/phase2_1_materialize_search_index.py --drain-status`
+(read-only). `BROKER_MESSAGE_DELETION_ALLOWED = False`. There is no generic
+Celery purge command.
+
+### Case 12 mutation origin
+
+`mutation_34789.txt` (`MATERIALIZE INDEX idx_search_blob_text IN PARTITION 12`)
+created 2026-08-21 20:16:29, `is_done=1`. Sequential operator dump
+`/tmp/phase21b_case_12.json` at 20:17:29 recorded `already_materialized: true`
+and did not execute. `system.query_log` QueryFinish 20:17:21 used
+`clickhouse-connect/0.15.1` with `os_user=jdube` and the operator SQL
+including `mutations_sync = 1`. Exact PID was not reconstructed.
+Conclusion: `PROCESS_ORIGIN_UNRESOLVED_NON_DATA_BLOCKING`. No rematerialize.
+No stray materialize process remains. Coverage still MATERIALIZED.
+
+### Final text-index coverage
+
+MATERIALIZED = 25 / PARTIAL = 0 / UNMATERIALIZED = 0 / UNKNOWN = 0.
+Rows 745,463,991. `idx_search_blob_text` type/expression unchanged.
+`idx_search_ngram` and `idx_search_token` PRESENT. Hunt still ILIKE.
