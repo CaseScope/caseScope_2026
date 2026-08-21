@@ -446,3 +446,172 @@ Phase 1B publication helpers/tests were not modified.
 ## Overall verdict
 
 PHASE2_ENTRY_GATES_PASS
+
+# Independent-review closure (4.23.1)
+
+This section does not replace the qualification measurements above. It records
+the three remaining closure items after independent review of that result.
+
+Measurement artifact: `docs/database_flow_phase2/phase2_entry_gate_closure.json`.
+
+HEAD / origin/main at start: `c73d414961d7417e78a2a3abdaad01655cb8e53c`
+(Phase 2 qualify entry Gates A and B without reader or UPDATE cutover).
+Baseline version: 4.23.0. Closure version: 4.23.1.
+Deployed ClickHouse remains `26.7.3.19`.
+
+No Phase 2.1 reader cutover, production text-index materialization, bloom
+removal, 2.2 insert-mode change, 2.3 lightweight UPDATE caller, 2.4 dedup,
+Phase 3, Phase 4, LEK, `events_current`, or `event_observations_current`.
+
+## Gate A expression-validation defect
+
+`migrations/add_events_search_blob_text_index.py` already read
+`name`, `type`, `type_full`, `expr`, and `granularity` from
+`system.data_skipping_indices`, but compatibility only checked `type_full`.
+
+An existing index named `idx_search_blob_text` on `command_line`,
+`lower(search_blob)`, `concat(...)`, or another expression would have been
+treated as already applied.
+
+## Gate A migration fix
+
+Compatibility now requires both:
+
+- type matches `tokenizer = splitByNonAlpha` and
+  `preprocessor = lower(search_blob)` (quoting/whitespace only)
+- expression is the locked `search_blob` column
+
+Live ClickHouse 26.7.3.19 reports `system.data_skipping_indices.expr` for the
+locked ADD INDEX as exactly `search_blob`. That proven form is the expected
+expression. Superficial identifier quoting (backticks / wrapping double quotes
+on a bare identifier) is normalized; `lower(search_blob)`, `command_line`,
+`concat(...)`, and other expressions fail closed as `IncompatibleSearchBlobTextIndex`.
+The migration does not DROP or REPLACE an incompatible index.
+
+Production `add_events_search_blob_text_index.py --apply-production` was **not**
+run. MATERIALIZE INDEX was not run.
+
+## Gate A tests
+
+A. correct type + `search_blob` expression → compatible / already-applied
+B. correct type + `command_line` expression → `IncompatibleSearchBlobTextIndex`
+C. correct type + `lower(search_blob)` expression → `IncompatibleSearchBlobTextIndex`
+D. wrong type + correct expression → `IncompatibleSearchBlobTextIndex`
+E. new ADD result validates both type and expression (`expr == search_blob`)
+
+Live disposable ClickHouse also proves after-ADD `expr == search_blob` and that
+the same index name on `command_line` fails closed without DROP.
+
+## Final Gate A verdict
+
+PHASE2_GATE_A_PASS
+
+Production index application remains a Phase 2.1 operator step.
+
+## Production Phase 1B schema before
+
+Read-only inspection of production database `casescope` (no DDL):
+
+- `events` column count: 75
+- Protocol columns **absent**: `source_ref_type`, `source_ref_id`,
+  `source_generation`, `ingest_batch_id`, `ingest_row_ordinal`,
+  `ingest_row_hash`, `ingest_attempt_id`
+- Engine settings: `index_granularity = 8192, min_bytes_for_wide_part = 0,
+  min_rows_for_wide_part = 0`
+- `enable_block_number_column` / `enable_block_offset_column` **absent** (default 0)
+- Active parts: 135 / 25 partitions / 745,463,991 rows / 108,493,322,926 bytes
+- Recent `system.mutations` on `events` are historical completed MITRE overlay
+  UPDATEs; none were in progress at inspection
+
+## Phase 1B schema convergence
+
+**Not applied.** Independent review required the seven protocol columns, but
+production ClickHouse also lacks the required control projections.
+
+STOP condition from the locked closure plan:
+
+PHASE1B_DEPLOYMENT_SCHEMA_NOT_READY
+
+No production `ALTER TABLE events ADD COLUMN` was executed. No backfill, no
+ALTER UPDATE, no OPTIMIZE, no historical-row rewrite.
+
+The earlier Gate qualification statement that protocol columns were absent was
+**confirmed**, not stale.
+
+## Phase 1B control tables / PostgreSQL authority
+
+ClickHouse production `casescope` tables matching
+`visible_evidence_generations` / `durable_ingest_batches`: **absent**.
+
+Those tables exist only in disposable `phase1b_exit_ingest_*` databases, not in
+production `casescope`. Production `casescope` tables remain:
+`events`, `events_buffer`, `events_evidence_identity_previous`,
+`event_mitre_matches`, `network_logs`, `network_logs_buffer`,
+`case_unified_findings`.
+
+PostgreSQL control-plane tables **present** (all row counts 0):
+
+- `evidence_source_generations`
+- `ingest_attempts`
+- `ingest_batches`
+- `case_capability_source_state`
+- `case_capability_batch_completions`
+- `case_completion_reconciliation_audit`
+- also present: `evidence_generation_audit`, `ingest_batch_reconciliation_audit`
+
+`case_files.ingest_protocol_origin` is **absent**. This is deployment drift, not
+a reason to classify retained cases as LEGACY.
+
+Existing accepted repair migrations were **not** improvised or applied:
+
+- `migrations/add_phase1b_tranche_b_manifest_protocol.py`
+- `migrations/add_case_file_ingest_protocol_origin.py`
+- `migrations/add_phase1b_event_protocol_columns.py`
+
+## Production Hunt smoke
+
+Not performed. Services were not stopped or restarted because production schema
+convergence did not complete.
+
+## Production Gate B settings before
+
+Absent from `SHOW CREATE TABLE events` / `engine_full`. Both default 0.
+
+## Gate B migration application
+
+**Not applied.** `migrations/add_events_block_number_offset.py --apply-production`
+requires Phase 1B production schema to be verified/converged first.
+
+No SQL UPDATE against production. No lightweight UPDATE on retained evidence.
+
+## Gate B no-rewrite proof
+
+Not applicable: the settings ALTER was not executed. Pre-change active
+parts/rows/bytes remain 135 / 745,463,991 / 108,493,322,926.
+
+## Production Gate B settings after
+
+Unchanged: both settings still absent / 0.
+
+## Final Gate B verdict
+
+PHASE2_GATE_B_NOT_READY
+
+Locked Gate B requires the settings **enabled on production events via
+migration**, not merely that the migration file exists. Disposable benchmark
+from 4.23.0 remains valid and was not re-run as a production UPDATE.
+
+## Closure remaining work
+
+Do not start Phase 2.1.
+
+Required before Gate B can pass and before Phase 2.1:
+
+1. Apply existing Phase 1B ClickHouse control-table migration so
+   `visible_evidence_generations` and `durable_ingest_batches` exist in
+   production `casescope` with the locked schemas
+2. Apply existing `case_files.ingest_protocol_origin` migration
+3. Apply existing additive `events` protocol-column migration (no backfill)
+4. Apply Gate B `enable_block_number_column` / `enable_block_offset_column`
+   with services stopped and no-rewrite proof
+5. Independent Phase 2 entry-gate re-review

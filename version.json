@@ -1,6 +1,14 @@
 {
-  "version": "4.23.0",
+  "version": "4.23.1",
   "changelog": [
+    {
+      "version": "4.23.1",
+      "date": "2026-08-21",
+      "changes": [
+        "Hardened the Gate A search_blob text-index migration so an existing idx_search_blob_text must match both the locked type and the search_blob expression, failing closed otherwise",
+        "Did not apply production text-index, block-number/offset, or Phase 1B events DDL in this closure; production still lacks ClickHouse control projections and CaseFile ingest_protocol_origin"
+      ]
+    },
     {
       "version": "4.23.0",
       "date": "2026-08-21",

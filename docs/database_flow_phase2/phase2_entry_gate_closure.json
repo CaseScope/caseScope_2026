@@ -1,0 +1,61 @@
+{
+  "closure_version": "4.23.1",
+  "baseline_commit": "c73d414961d7417e78a2a3abdaad01655cb8e53c",
+  "baseline_version": "4.23.0",
+  "clickhouse_version": "26.7.3.19",
+  "production_database": "casescope",
+  "gate_a": {
+    "verdict": "PHASE2_GATE_A_PASS",
+    "defect": "existing idx_search_blob_text compatibility checked type_full only",
+    "fix": "require locked text type AND expr search_blob; fail closed; no drop/replace",
+    "proven_expr": "search_blob",
+    "production_index_applied": false,
+    "materialize_index": false
+  },
+  "phase1b": {
+    "events_protocol_columns_present": false,
+    "visible_evidence_generations": false,
+    "durable_ingest_batches": false,
+    "postgres_control_tables_present": true,
+    "case_files_ingest_protocol_origin": false,
+    "convergence_applied": false,
+    "stop": "PHASE1B_DEPLOYMENT_SCHEMA_NOT_READY"
+  },
+  "gate_b": {
+    "verdict": "PHASE2_GATE_B_NOT_READY",
+    "enable_block_number_column_before": 0,
+    "enable_block_offset_column_before": 0,
+    "migration_applied": false,
+    "enable_block_number_column_after": 0,
+    "enable_block_offset_column_after": 0,
+    "production_update_executed": false,
+    "benchmark_still_valid": true
+  },
+  "services": {
+    "stopped": false,
+    "restarted": false,
+    "hunt_smoke": "not_performed"
+  },
+  "no_later_phase": {
+    "phase_2_1_reader_cutover": false,
+    "production_text_index_materialize": false,
+    "bloom_index_removal": false,
+    "phase_2_2_insert_mode": false,
+    "phase_2_3_lightweight_update_caller": false,
+    "phase_2_4_dedup": false,
+    "phase_3": false,
+    "phase_4": false,
+    "lek": false,
+    "events_current": false,
+    "event_observations_current": false
+  },
+  "regression": {
+    "pytest": "138 passed, 7 skipped",
+    "f2_skip_reason": "PHASE1B_PG_TEST_DATABASE_URL and PHASE1B_CH_TEST_DATABASE are required",
+    "f2_non_env_passed": 1,
+    "py_compile": "pass",
+    "pyflakes": "pass",
+    "git_diff_check": "pass"
+  },
+  "overall": "PHASE2_ENTRY_GATE_CLOSURE_NOT_READY"
+}

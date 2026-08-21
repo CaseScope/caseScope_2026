@@ -23,6 +23,8 @@ from migrations.add_events_search_blob_text_index import (
     INDEX_TYPE_SQL,
     IncompatibleSearchBlobTextIndex,
     add_events_search_blob_text_index,
+    search_blob_index_expression_is_compatible,
+    search_blob_text_index_is_compatible,
     text_index_type_is_compatible,
 )
 from migrations.add_events_table import EVENTS_SCHEMA
@@ -109,6 +111,102 @@ class SearchBlobTextIndexMigrationTests(unittest.TestCase):
         self.assertFalse(
             text_index_type_is_compatible("text(tokenizer = ngrams(3), preprocessor = lower(search_blob))")
         )
+
+    def test_a_correct_type_and_search_blob_expression_is_compatible(self):
+        index = {
+            "name": INDEX_NAME,
+            "type": "text",
+            "type_full": INDEX_TYPE_SQL,
+            "expr": "search_blob",
+            "granularity": 100000000,
+        }
+        self.assertTrue(search_blob_text_index_is_compatible(index))
+        client = _FakeClickHouse(indices=[index])
+        result = add_events_search_blob_text_index(client, allow_production=True)
+        self.assertTrue(result["already_applied"])
+        self.assertFalse(any("DROP INDEX" in command or "CLEAR INDEX" in command for command in client.commands))
+
+    def test_b_correct_type_command_line_expression_fails_closed(self):
+        client = _FakeClickHouse(
+            indices=[
+                {
+                    "name": INDEX_NAME,
+                    "type": "text",
+                    "type_full": INDEX_TYPE_SQL,
+                    "expr": "command_line",
+                    "granularity": 1,
+                }
+            ]
+        )
+        with self.assertRaises(IncompatibleSearchBlobTextIndex):
+            add_events_search_blob_text_index(client, allow_production=True)
+        self.assertEqual(client.commands, [])
+
+    def test_c_correct_type_lower_search_blob_expression_fails_closed(self):
+        client = _FakeClickHouse(
+            indices=[
+                {
+                    "name": INDEX_NAME,
+                    "type": "text",
+                    "type_full": INDEX_TYPE_SQL,
+                    "expr": "lower(search_blob)",
+                    "granularity": 1,
+                }
+            ]
+        )
+        with self.assertRaises(IncompatibleSearchBlobTextIndex):
+            add_events_search_blob_text_index(client, allow_production=True)
+        self.assertEqual(client.commands, [])
+
+    def test_d_wrong_type_correct_expression_fails_closed(self):
+        client = _FakeClickHouse(
+            indices=[
+                {
+                    "name": INDEX_NAME,
+                    "type": "text",
+                    "type_full": "text(tokenizer = ngrams(3), preprocessor = lower(search_blob))",
+                    "expr": "search_blob",
+                    "granularity": 1,
+                }
+            ]
+        )
+        with self.assertRaises(IncompatibleSearchBlobTextIndex):
+            add_events_search_blob_text_index(client, allow_production=True)
+        self.assertEqual(client.commands, [])
+
+    def test_e_new_migration_validates_type_and_expression_after_add(self):
+        client = _FakeClickHouse(indices=[])
+        result = add_events_search_blob_text_index(client, allow_production=True)
+        self.assertTrue(result["changed"])
+        self.assertTrue(search_blob_text_index_is_compatible(result["index_after"]))
+        self.assertTrue(text_index_type_is_compatible(result["index_after"]["type_full"]))
+        self.assertTrue(search_blob_index_expression_is_compatible(result["index_after"]["expr"]))
+        self.assertEqual(result["index_after"]["expr"], "search_blob")
+
+    def test_concat_and_other_column_expressions_fail_closed(self):
+        for expr in ("concat(search_blob, command_line)", "raw_json", "`command_line`"):
+            client = _FakeClickHouse(
+                indices=[
+                    {
+                        "name": INDEX_NAME,
+                        "type": "text",
+                        "type_full": INDEX_TYPE_SQL,
+                        "expr": expr,
+                        "granularity": 1,
+                    }
+                ]
+            )
+            with self.assertRaises(IncompatibleSearchBlobTextIndex):
+                add_events_search_blob_text_index(client, allow_production=True)
+            self.assertEqual(client.commands, [])
+
+    def test_expression_quoting_normalization_is_not_semantic(self):
+        self.assertTrue(search_blob_index_expression_is_compatible("search_blob"))
+        self.assertTrue(search_blob_index_expression_is_compatible("`search_blob`"))
+        self.assertTrue(search_blob_index_expression_is_compatible('"search_blob"'))
+        self.assertFalse(search_blob_index_expression_is_compatible("lower(search_blob)"))
+        self.assertFalse(search_blob_index_expression_is_compatible("lower(`search_blob`)"))
+        self.assertFalse(search_blob_index_expression_is_compatible("concat(search_blob, '')"))
 
     def test_refuses_production_without_flag(self):
         client = _FakeClickHouse(database="casescope")
@@ -312,6 +410,9 @@ class LivePhase2EntryGateTests(unittest.TestCase):
         after_blob = self.client.query("SELECT search_blob FROM events").result_rows[0][0]
         self.assertEqual(before_blob, after_blob)
         self.assertTrue(text_result["changed"])
+        self.assertTrue(search_blob_text_index_is_compatible(text_result["index_after"]))
+        self.assertEqual(text_result["index_after"]["expr"], "search_blob")
+        self.assertTrue(text_index_type_is_compatible(text_result["index_after"]["type_full"]))
         self.assertTrue(block_result["changed"])
         second_text = add_events_search_blob_text_index(self.client, allow_production=True)
         second_block = add_events_block_number_offset(self.client, allow_production=True)
@@ -323,6 +424,45 @@ class LivePhase2EntryGateTests(unittest.TestCase):
         self.assertIn(INDEX_NAME, create)
         self.assertIn("enable_block_number_column = 1", create)
         self.client.query("SELECT _block_number, _block_offset FROM events")
+        self.client.command("DROP TABLE events")
+
+    def test_existing_same_name_on_command_line_fails_closed_without_drop(self):
+        self.client.command(
+            """
+            CREATE TABLE events (
+                case_id UInt32,
+                selector_key String,
+                search_blob String,
+                command_line String
+            )
+            ENGINE = MergeTree
+            ORDER BY (case_id, selector_key)
+            """
+        )
+        self.client.command(
+            """
+            ALTER TABLE events ADD INDEX idx_search_blob_text command_line TYPE text(
+                tokenizer = 'splitByNonAlpha',
+                preprocessor = lower(command_line)
+            ) GRANULARITY 1
+            """
+        )
+        with self.assertRaises(IncompatibleSearchBlobTextIndex):
+            add_events_search_blob_text_index(self.client, allow_production=True)
+        reported = self.client.query(
+            """
+            SELECT expr, type_full
+            FROM system.data_skipping_indices
+            WHERE database = currentDatabase()
+              AND table = 'events'
+              AND name = {name:String}
+            """,
+            parameters={"name": INDEX_NAME},
+        ).result_rows
+        self.assertEqual(len(reported), 1)
+        self.assertEqual(reported[0][0], "command_line")
+        create = self.client.query("SHOW CREATE TABLE events").result_rows[0][0]
+        self.assertIn("INDEX idx_search_blob_text command_line", create)
         self.client.command("DROP TABLE events")
 
     def test_lightweight_update_matches_classic_on_small_state(self):

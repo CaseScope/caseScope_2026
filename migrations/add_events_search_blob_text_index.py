@@ -18,7 +18,19 @@ This migration is the upgrade path for existing tables:
 - refuses the production ``casescope`` database unless ``--apply-production``
 
 ClickHouse 26.7 rewrites the declared GRANULARITY to 100000000 for text indexes.
-Already-applied detection ignores granularity and matches tokenizer + preprocessor.
+Already-applied detection ignores granularity and requires BOTH:
+
+- type matches tokenizer = splitByNonAlpha / preprocessor = lower(search_blob)
+- expression is the locked search_blob column (not command_line, lower(...),
+  concat(...), or any other expression)
+
+Expression comparison normalizes only superficial quoting/whitespace.
+It does not treat semantically different expressions as compatible.
+An incompatible existing idx_search_blob_text fails closed; this migration
+does not DROP or REPLACE it.
+
+Proven on ClickHouse 26.7.3.19: system.data_skipping_indices.expr for
+INDEX ... search_blob TYPE text(...) is exactly ``search_blob``.
 
 Existing rows stay unindexed until an operator runs MATERIALIZE INDEX or a merge
 builds the index. Upgrade installs set exclude_materialize_skip_indexes_on_merge
@@ -38,6 +50,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 PRODUCTION_DATABASE_NAMES = frozenset({"casescope"})
 INDEX_NAME = "idx_search_blob_text"
 BLOOM_INDEX_NAMES = ("idx_search_ngram", "idx_search_token")
+INDEX_EXPR = "search_blob"
 TOKENIZER = "splitByNonAlpha"
 PREPROCESSOR = "lower(search_blob)"
 INDEX_TYPE_SQL = (
@@ -51,7 +64,7 @@ EXCLUDE_MERGE_SETTING = "exclude_materialize_skip_indexes_on_merge"
 
 
 class IncompatibleSearchBlobTextIndex(RuntimeError):
-    """Existing idx_search_blob_text does not match the locked Gate A type."""
+    """Existing idx_search_blob_text does not match the locked type and expression."""
 
 
 def _current_database_name(client):
@@ -101,6 +114,40 @@ EXPECTED_TYPE_NORMALIZED = normalize_text_index_type(INDEX_TYPE_SQL)
 def text_index_type_is_compatible(type_full):
     normalized = normalize_text_index_type(type_full)
     return normalized.startswith(EXPECTED_TYPE_NORMALIZED)
+
+
+def normalize_index_expression(expr):
+    """Normalize only superficial ClickHouse identifier quoting/whitespace.
+
+    Live 26.7.3.19 reports the locked index expression as exactly 'search_blob'.
+    Backticks around that identifier name the same column; any other expression
+    remains incompatible.
+    """
+    text = str(expr or "").strip()
+    text = text.replace("`", "")
+    if len(text) >= 2 and text[0] == '"' and text[-1] == '"' and '"' not in text[1:-1]:
+        inner = text[1:-1].strip()
+        if re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", inner):
+            text = inner
+    return text
+
+
+def search_blob_index_expression_is_compatible(expr):
+    return normalize_index_expression(expr) == INDEX_EXPR
+
+
+def search_blob_text_index_is_compatible(index):
+    index = index or {}
+    return text_index_type_is_compatible(index.get("type_full")) and (
+        search_blob_index_expression_is_compatible(index.get("expr"))
+    )
+
+
+def _incompatible_index_error(table_name, index, *, when):
+    return IncompatibleSearchBlobTextIndex(
+        f"{table_name}.{INDEX_NAME} {when} with incompatible type "
+        f"{index.get('type_full')!r} expr {index.get('expr')!r}; refusing to continue"
+    )
 
 
 def _skipping_indices(client, table_name="events"):
@@ -198,11 +245,8 @@ def add_events_search_blob_text_index(
         name for name in BLOOM_INDEX_NAMES if _index_by_name(indices_before, name)
     ]
 
-    if existing is not None and not text_index_type_is_compatible(existing.get("type_full")):
-        raise IncompatibleSearchBlobTextIndex(
-            f"{table_name}.{INDEX_NAME} exists with incompatible type "
-            f"{existing.get('type_full')!r}; refusing to continue"
-        )
+    if existing is not None and not search_blob_text_index_is_compatible(existing):
+        raise _incompatible_index_error(table_name, existing, when="exists")
 
     sql = (
         f"ALTER TABLE {table_name} ADD INDEX IF NOT EXISTS {INDEX_NAME} search_blob "
@@ -243,10 +287,9 @@ def add_events_search_blob_text_index(
     ]
     if result["index_after"] is None:
         raise RuntimeError(f"{table_name}.{INDEX_NAME} missing after migration")
-    if not text_index_type_is_compatible(result["index_after"].get("type_full")):
-        raise IncompatibleSearchBlobTextIndex(
-            f"{table_name}.{INDEX_NAME} after migration has incompatible type "
-            f"{result['index_after'].get('type_full')!r}"
+    if not search_blob_text_index_is_compatible(result["index_after"]):
+        raise _incompatible_index_error(
+            table_name, result["index_after"], when="after migration"
         )
     return result
 
