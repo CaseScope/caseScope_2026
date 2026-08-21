@@ -291,6 +291,18 @@ class ClickHouseDeleteContractTestCase(unittest.TestCase):
 
 
 class EventDeduplicationSafetyTestCase(unittest.TestCase):
+    def setUp(self):
+        # These tests prove legacy safety limits, not composition. They must
+        # positively establish "no managed evidence" instead of treating a
+        # missing Flask/PG context as unmanaged.
+        probe = patch.object(
+            event_deduplication,
+            'case_has_managed_source_generations',
+            return_value=False,
+        )
+        probe.start()
+        self.addCleanup(probe.stop)
+
     def test_deduplicate_artifact_type_skips_when_auto_threshold_exceeded(self):
         config = event_deduplication.ArtifactDeduplicationConfig(
             artifact_type='evtx',
@@ -486,10 +498,14 @@ class CompletionTaskContractTestCase(unittest.TestCase):
                                                         with patch.object(celery_tasks, '_build_case_ingest_summary', return_value={}):
                                                             with patch('models.audit_log.AuditLog.log'):
                                                                 with patch.object(celery_tasks, '_queue_auto_event_embedding', return_value='embed-task'):
-                                                                    result = celery_tasks.case_indexing_complete_task.run(
-                                                                        case_id=3,
-                                                                        case_uuid='case-uuid',
-                                                                    )
+                                                                    with patch(
+                                                                        'utils.completion_reconciler.resolve_case_completion_route',
+                                                                        return_value='legacy_only',
+                                                                    ):
+                                                                        result = celery_tasks.case_indexing_complete_task.run(
+                                                                            case_id=3,
+                                                                            case_uuid='case-uuid',
+                                                                        )
 
         self.assertFalse(result['buffer_flushed'])
         self.assertEqual(result['buffer_flush_status'], 'skipped')

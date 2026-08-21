@@ -183,6 +183,14 @@ class CompletionReconciliationError(RuntimeError):
     """Raised when completion reconciliation cannot proceed safely."""
 
 
+class CompletionCompositionUnknown(CompletionReconciliationError):
+    """Raised when PostgreSQL composition authority cannot be determined.
+
+    This is not a durable case state and must not be stored as a global
+    readiness value. Callers must fail closed, defer, or retry.
+    """
+
+
 @dataclass
 class ReconciliationHooks:
     """Optional executors/schedulers. None means inspect-only or production default."""
@@ -255,43 +263,75 @@ def completion_derivation_inventory() -> tuple[dict[str, Any], ...]:
     return COMPLETION_DERIVATION_INVENTORY
 
 
+def _require_composition_rows(session, *, case_id: int, description: str, query_fn):
+    """Execute a composition-authority query. Failure is unknown, not empty."""
+    try:
+        rows = query_fn()
+        if not isinstance(rows, (list, tuple)):
+            rows = list(rows)
+        return list(rows)
+    except CompletionCompositionUnknown:
+        raise
+    except Exception as exc:
+        try:
+            session.rollback()
+        except Exception:
+            pass
+        raise CompletionCompositionUnknown(
+            f"cannot determine ingest composition for case {case_id}: {description}"
+        ) from exc
+
+
 def classify_case_ingest_composition(
     session,
     *,
     case_id: int,
     case_uuid: Optional[str] = None,
 ) -> str:
-    """Classify a case as legacy-only, managed-only, or mixed from PG authority."""
-    try:
-        generations = (
+    """Classify a case as legacy-only, managed-only, or mixed from PG authority.
+
+    Returns only a proven composition. Authority-read failure raises
+    ``CompletionCompositionUnknown``. Query failure is never treated as
+    an empty result or as ``legacy_only``.
+    """
+    generations = _require_composition_rows(
+        session,
+        case_id=case_id,
+        description="evidence_source_generations query failed",
+        query_fn=lambda: (
             session.query(EvidenceSourceGeneration)
             .filter_by(case_id=int(case_id))
             .all()
-        )
-        if not isinstance(generations, (list, tuple)):
-            generations = list(generations)
-    except Exception:
-        return CaseIngestComposition.LEGACY_ONLY
+        ),
+    )
     has_managed = bool(generations)
     managed_file_ids = {
         str(row.source_ref_id)
         for row in generations
         if row.source_ref_type == "CASE_FILE"
     }
-    files = []
-    IngestProtocolOrigin = None
-    if case_uuid:
-        try:
-            from models.case_file import CaseFile, IngestProtocolOrigin
-            queried = (
-                session.query(CaseFile)
-                .filter_by(case_uuid=str(case_uuid))
-                .all()
-            )
-            files = queried if isinstance(queried, (list, tuple)) else list(queried)
-        except Exception:
-            files = []
-            IngestProtocolOrigin = None
+    if not case_uuid:
+        raise CompletionCompositionUnknown(
+            f"cannot determine ingest composition for case {case_id}: "
+            "case_uuid is required to classify CaseFile origins"
+        )
+    try:
+        from models.case_file import CaseFile, IngestProtocolOrigin
+    except Exception as exc:
+        raise CompletionCompositionUnknown(
+            f"cannot determine ingest composition for case {case_id}: "
+            "CaseFile model unavailable"
+        ) from exc
+    files = _require_composition_rows(
+        session,
+        case_id=case_id,
+        description="case_files query failed",
+        query_fn=lambda: (
+            session.query(CaseFile)
+            .filter_by(case_uuid=str(case_uuid))
+            .all()
+        ),
+    )
     has_legacy = False
     for case_file in files:
         if getattr(case_file, "is_archive", False):
@@ -322,6 +362,11 @@ def resolve_case_completion_route(
     case_id: int,
     case_uuid: Optional[str] = None,
 ) -> str:
+    """Return a proven completion route or raise.
+
+    Proven results are only ``legacy_only``, ``managed_only``, and ``mixed``.
+    Authority-read failures raise ``CompletionCompositionUnknown``.
+    """
     return classify_case_ingest_composition(session, case_id=case_id, case_uuid=case_uuid)
 
 
@@ -956,7 +1001,7 @@ def reconcile_case_completion(
         case_id=int(case_id),
         case_uuid=case_uuid,
         trigger_reason=str(trigger_reason or "durable_authority"),
-        composition=CaseIngestComposition.LEGACY_ONLY,
+        composition="",
     )
     try:
         snapshot = snapshot_case_completion_authority(
@@ -1045,10 +1090,29 @@ def reconcile_case_completion(
         session.commit()
         _write_operator_reconciliation_logs(result)
         return result
+    except CompletionCompositionUnknown as exc:
+        session.rollback()
+        result.errors.append(str(exc))
+        result.assessment = ReconciliationAssessment.FAILED
+        result.composition = "unknown"
+        result.duration_ms = (time.perf_counter() - started) * 1000.0
+        logger.exception(
+            "Case completion composition unknown for case %s; failing closed",
+            case_id,
+        )
+        try:
+            _write_reconciliation_audit(session, result)
+            session.commit()
+            _write_operator_reconciliation_logs(result)
+        except Exception:
+            session.rollback()
+        raise
     except Exception as exc:
         session.rollback()
         result.errors.append(str(exc))
         result.assessment = ReconciliationAssessment.FAILED
+        if result.composition not in CaseIngestComposition.all():
+            result.composition = "unknown"
         result.duration_ms = (time.perf_counter() - started) * 1000.0
         logger.exception("Case completion reconciliation failed for case %s", case_id)
         try:

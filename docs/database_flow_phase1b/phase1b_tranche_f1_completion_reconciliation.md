@@ -1,6 +1,6 @@
 # Phase 1B Tranche F1 — Completion Becomes Durable Reconciliation
 
-Status: implemented, uncommitted for review. Does not implement Tranche F2 or G.
+Status: implemented on live main, plus F1 closure fail-closed composition hardening. Does not implement Tranche F2 or G.
 
 ## Current completion architecture before F1
 
@@ -106,3 +106,91 @@ Reconciliation walks generation/batch/watermark rows only. ClickHouse is used on
 ## No-F2 / no-G audit
 
 Not implemented: readiness strip, search-during-ingest coverage note, analyst UI readiness, `events_current`, LEK reader cutover, graph Phase 6 lifecycle, Qdrant lifecycle, MEMORY_JOB/PCAP_FILE managed protocol.
+
+## F1 CLOSURE — FAIL-CLOSED COMPLETION COMPOSITION
+
+Independent review found a real fail-open after the original `PHASE1B_TRANCHE_F1_PASS` report. The F1 design is unchanged: PostgreSQL remains completion authority, Redis may debounce, and proven `legacy_only` still keeps the existing exclusive-fence tail. This closure only stops uncertainty from becoming permission.
+
+### Original fail-open
+
+Three connected paths treated authority-read failure as "no managed evidence":
+
+1. **Classification helper.** `classify_case_ingest_composition()` caught any `EvidenceSourceGeneration` query exception and returned `legacy_only`. A PostgreSQL outage, schema mismatch, or missing control-plane table therefore looked like a proven legacy case.
+2. **Completion task routing.** `case_indexing_complete_task` caught `resolve_case_completion_route()` failure and assigned `legacy_only`, which entered the exclusive ingest fence, optional `events_buffer` OPTIMIZE, case-wide destructive dedup, and the legacy known-systems/users/MITRE/embed/graph tail.
+3. **Dedup guard.** `case_has_managed_source_generations()` returned `False` on `ProgrammingError`, `OperationalError`, and generic exceptions. `deduplicate_case_events(..., allow_managed_evidence=False)` treated that `False` as permission to rewrite.
+
+`UNKNOWN != ABSENT`. Failure to read composition authority does not prove a legacy-only case.
+
+### Corrected proven-legacy semantics
+
+`resolve_case_completion_route()` returns only a proven composition:
+
+- `legacy_only`
+- `managed_only`
+- `mixed`
+
+Authority-read failures raise `CompletionCompositionUnknown`. That exception is not a durable case state and is not a global readiness value.
+
+`legacy_only` is positively established only when:
+
+- the `EvidenceSourceGeneration` query succeeds
+- zero managed generations are found
+- the `CaseFile` classification query also succeeds enough to establish legacy composition
+
+A missing `case_uuid` cannot prove composition. Query failure is never converted into an empty collection.
+
+### CaseFile classification failure
+
+The second half of classification used `files = []` when the `CaseFile` query failed. That could misclassify managed+legacy as `managed_only`, or invent `legacy_only` from incomplete information. A `CaseFile` query failure now fails closed whenever that data is required to distinguish `managed_only` from `mixed` or to prove `legacy_only`.
+
+### Completion task failure posture
+
+`case_indexing_complete_task` no longer assigns `legacy_only` on classification failure.
+
+On unknown composition it:
+
+- logs a safe error
+- does not enter the exclusive fence, Buffer OPTIMIZE, case-wide dedup, or legacy derivation tail
+- does not clear Redis progress or the completion trigger
+- defers with bounded retry: `_classification_retry_count` starts at 0, max 10 retries, countdown `min(30, 2 ** retry_count)` seconds (1, 2, 4, 8, 16, then 30)
+- after 10 retries, raises `CompletionCompositionUnknown`
+
+Redis reporting `complete` cannot authorize the destructive tail while PostgreSQL composition is unknown.
+
+### Dedup authority guard
+
+`case_has_managed_source_generations()` now returns a boolean only when the PostgreSQL probe succeeds:
+
+- query succeeds + managed generation exists => `True` / block destructive dedup
+- query succeeds + no managed generation exists => `False` / legacy dedup may proceed
+- query fails => raise `ManagedEvidenceAuthorityUnavailable`
+
+`deduplicate_case_events(..., allow_managed_evidence=False)` independently rechecks that authority before any ClickHouse client is created. Defense in depth is required: the completion route must be proven `legacy_only` before the old tail, and the dedup helper still fail-closes on its own probe.
+
+### Missing-schema behavior
+
+At 4.21 the Phase 1B control-plane tables are part of the deployed schema contract. A missing `evidence_source_generations` table is a schema/migration defect. It is not interpreted as a legacy installation. `ProgrammingError` / relation-absent fails closed.
+
+### Direct dedup defense-in-depth
+
+Production callers of case-wide destructive dedup:
+
+- `case_indexing_complete_task` legacy tail, only after proven `legacy_only`
+- `deduplicate_case_events_task` / manual `remove_duplicate_events` route
+
+Both go through `deduplicate_case_events`. Probe failure cannot execute `ALTER TABLE events DELETE`. `deduplicate_artifact_type` is only reached after the case-wide guard.
+
+### Real PostgreSQL / ClickHouse proof
+
+Disposable PG/CH tests prove:
+
+- proven `legacy_only` may run allowed legacy dedup
+- managed and mixed cases cannot run legacy dedup
+- PostgreSQL authority failure before composition cannot enter the old tail
+- PostgreSQL authority failure inside the direct dedup guard cannot execute a ClickHouse mutation
+- renaming the generation table (missing schema) cannot classify the install as legacy
+- Redis loss still does not become completion authority; Redis `complete` plus PG failure still cannot authorize destructive work
+
+### Legacy behavior retained
+
+This closure is fail-closed hardening, not removal of legacy dedup. Proven `legacy_only` still uses Redis progress, last-file completion, exclusive fence, optional Buffer OPTIMIZE, and case-wide dedup.

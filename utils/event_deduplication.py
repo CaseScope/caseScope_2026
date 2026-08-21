@@ -22,6 +22,14 @@ class ManagedEvidenceDedupForbidden(RuntimeError):
     """Raised when case-wide destructive dedup would touch managed generations."""
 
 
+class ManagedEvidenceAuthorityUnavailable(RuntimeError):
+    """Raised when managed-generation authority cannot be read.
+
+    Destructive case-wide rewrite must not proceed. Query failure is not
+    proof that a case has no managed evidence.
+    """
+
+
 @dataclass
 class ArtifactDeduplicationConfig:
     """Configuration for deduplicating a specific artifact type"""
@@ -372,15 +380,18 @@ def deduplicate_artifact_type(
 
 
 def case_has_managed_source_generations(case_id: int) -> bool:
-    """Return True when PostgreSQL proves the case has managed generations.
+    """Return True/False only when PostgreSQL proves generation presence.
 
-    Probe failures that mean "the control-plane table is absent" are treated as
-    no managed evidence. A positive match always refuses case-wide rewrite.
+    Query success + a managed generation exists => True / block destructive dedup.
+    Query success + no managed generation exists => False / legacy dedup may proceed.
+    Query failure, including a missing control-plane table, raises
+    ``ManagedEvidenceAuthorityUnavailable``. At 4.21 the Phase 1B tables are
+    part of the deployed schema contract; absence is a schema defect, not a
+    legacy case.
     """
     try:
         from models.database import db
         from models.database_flow import EvidenceSourceGeneration
-        from sqlalchemy.exc import OperationalError, ProgrammingError
 
         return (
             db.session.query(EvidenceSourceGeneration.id)
@@ -388,20 +399,22 @@ def case_has_managed_source_generations(case_id: int) -> bool:
             .first()
             is not None
         )
-    except (ProgrammingError, OperationalError):
+    except ManagedEvidenceAuthorityUnavailable:
+        raise
+    except Exception as exc:
         try:
             from models.database import db
             db.session.rollback()
         except Exception:
             pass
-        return False
-    except Exception:
-        logger.warning(
-            "Managed-generation probe failed for case %s; treating as unmanaged",
+        logger.error(
+            "Managed-generation authority unavailable for case %s; blocking destructive dedup",
             case_id,
             exc_info=True,
         )
-        return False
+        raise ManagedEvidenceAuthorityUnavailable(
+            f"cannot determine managed source generations for case {case_id}"
+        ) from exc
 
 
 def deduplicate_case_events(

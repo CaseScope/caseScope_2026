@@ -1,6 +1,14 @@
 {
-  "version": "4.21.0",
+  "version": "4.21.1",
   "changelog": [
+    {
+      "version": "4.21.1",
+      "date": "2026-08-21",
+      "changes": [
+        "Closed the Phase 1B Tranche F1 fail-open: completion composition and managed-generation probes now fail closed when PostgreSQL authority cannot be read",
+        "Unknown composition defers/retries and cannot enter the destructive legacy tail; missing control-plane tables are schema defects, not legacy cases; did not start Tranche F2 or G"
+      ]
+    },
     {
       "version": "4.21.0",
       "date": "2026-08-21",

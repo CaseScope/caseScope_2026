@@ -46,6 +46,7 @@ MANUAL_DEDUP_MAX_ELIGIBLE_EVENTS = max(
     int(getattr(Config, 'CLICKHOUSE_MANUAL_DEDUP_MAX_ELIGIBLE_EVENTS', 1000000) or 0),
     0,
 )
+COMPLETION_CLASSIFICATION_MAX_RETRIES = 10
 AUTO_COMPLETE_SIDECAR_EXTENSIONS = {
     '.db-journal', '.db-shm', '.db-wal', '.jfm', '.jrs', '.log1', '.log2',
     '.metadata-v2', '.mkd', '.regtrans-ms', '.xin', '.ebd', '.blf', '.chk',
@@ -3338,15 +3339,18 @@ def case_indexing_complete_task(
     case_uuid: str,
     _retry_count: int = 0,
     case_file_ids: Optional[List[int]] = None,
+    _classification_retry_count: int = 0,
 ) -> Dict[str, Any]:
     """Run post-indexing completion tasks for a case.
 
     Routing is decided from PostgreSQL managed-source state, not Redis
     last-file counters:
 
-    - legacy-only: preserve the existing exclusive-fence completion tail
-    - managed-only or mixed: durable reconciliation first; never run
+    - proven legacy-only: preserve the existing exclusive-fence completion tail
+    - proven managed-only or mixed: durable reconciliation first; never run
       case-wide destructive dedup / Buffer OPTIMIZE over managed evidence
+    - unknown composition: fail closed, defer/retry, never enter the
+      destructive legacy tail
     """
     from utils.clickhouse import get_fresh_client
     from utils.progress import clear_progress, set_phase, clear_completion_trigger
@@ -3358,6 +3362,7 @@ def case_indexing_complete_task(
         from models.database import db
         from utils.completion_reconciler import (
             CaseIngestComposition,
+            CompletionCompositionUnknown,
             resolve_case_completion_route,
         )
 
@@ -3365,13 +3370,35 @@ def case_indexing_complete_task(
             completion_route = resolve_case_completion_route(
                 db.session, case_id=case_id, case_uuid=case_uuid
             )
-        except Exception:
-            logger.warning(
-                "Could not classify completion route for case %s; preserving legacy tail",
+        except Exception as exc:
+            logger.error(
+                "Completion composition unknown for case %s; deferring without destructive tail",
                 case_uuid,
                 exc_info=True,
             )
-            completion_route = CaseIngestComposition.LEGACY_ONLY
+            if int(_classification_retry_count) < COMPLETION_CLASSIFICATION_MAX_RETRIES:
+                case_indexing_complete_task.apply_async(
+                    args=[case_id, case_uuid],
+                    kwargs={
+                        '_retry_count': _retry_count,
+                        'case_file_ids': case_file_ids,
+                        '_classification_retry_count': int(_classification_retry_count) + 1,
+                    },
+                    countdown=min(30, 2 ** max(int(_classification_retry_count), 0)),
+                )
+                return {
+                    'case_uuid': case_uuid,
+                    'case_id': case_id,
+                    'status': 'deferred',
+                    'reason': 'completion_composition_unknown',
+                    'classification_retry_count': int(_classification_retry_count) + 1,
+                    'legacy_destructive_skipped': True,
+                    'success': False,
+                }
+            raise CompletionCompositionUnknown(
+                f"completion composition unknown for case {case_uuid} after "
+                f"{COMPLETION_CLASSIFICATION_MAX_RETRIES} retries"
+            ) from exc
         if completion_route != CaseIngestComposition.LEGACY_ONLY:
             logger.info(
                 "Routing case %s completion to durable reconciliation (%s)",
@@ -3406,7 +3433,11 @@ def case_indexing_complete_task(
                 # Re-queue self with 30 second delay
                 case_indexing_complete_task.apply_async(
                     args=[case_id, case_uuid],
-                    kwargs={'_retry_count': _retry_count + 1, 'case_file_ids': case_file_ids},
+                    kwargs={
+                        '_retry_count': _retry_count + 1,
+                        'case_file_ids': case_file_ids,
+                        '_classification_retry_count': _classification_retry_count,
+                    },
                     countdown=30
                 )
                 return {

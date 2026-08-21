@@ -49,8 +49,10 @@ from utils.capability_watermarks import (
     PRIVACY_ALIASES_V1,
     record_capability_batch_completion,
 )
+from sqlalchemy.exc import OperationalError, ProgrammingError
 from utils.completion_reconciler import (
     COMPLETION_DERIVATION_INVENTORY,
+    CompletionCompositionUnknown,
     ReconciliationHooks,
     classify_case_ingest_composition,
     completion_derivation_inventory,
@@ -59,7 +61,11 @@ from utils.completion_reconciler import (
     reconcile_case_completion,
     resolve_case_completion_route,
 )
-from utils.event_deduplication import ManagedEvidenceDedupForbidden, case_has_managed_source_generations
+from utils.event_deduplication import (
+    ManagedEvidenceAuthorityUnavailable,
+    ManagedEvidenceDedupForbidden,
+    case_has_managed_source_generations,
+)
 from utils.ingest_fence import install_memory_backend, reset_fence_backend
 from utils.manifest_protocol import (
     PROTOCOL_CLICKHOUSE_COLUMNS,
@@ -730,6 +736,117 @@ class Phase1BF1RealPGTestCase(unittest.TestCase):
         self.assertEqual(later.batch_counts["generations"], 2)
         self.assertIsNone(later.readiness.get("case_ready"))
 
+    def _failing_query(self, target_model, exc):
+        original = self.session.query
+
+        def _query(model, *args, **kwargs):
+            if model is target_model:
+                raise exc
+            return original(model, *args, **kwargs)
+
+        return _query
+
+    def test_classification_pg_failure_is_not_legacy_only(self):
+        self._generation()
+        self.session.commit()
+        with patch.object(
+            self.session,
+            "query",
+            side_effect=self._failing_query(
+                EvidenceSourceGeneration,
+                OperationalError("SELECT", {}, Exception("pg down")),
+            ),
+        ):
+            with self.assertRaises(CompletionCompositionUnknown):
+                resolve_case_completion_route(
+                    self.session, case_id=self.case.id, case_uuid=self.case.uuid
+                )
+
+    def test_casefile_query_failure_fails_closed(self):
+        self._generation()
+        self.session.commit()
+        with patch.object(
+            self.session,
+            "query",
+            side_effect=self._failing_query(
+                CaseFile,
+                OperationalError("SELECT", {}, Exception("case_files down")),
+            ),
+        ):
+            with self.assertRaises(CompletionCompositionUnknown) as raised:
+                classify_case_ingest_composition(
+                    self.session, case_id=self.case.id, case_uuid=self.case.uuid
+                )
+        self.assertNotEqual(raised.exception.args[0], CaseIngestComposition.MANAGED_ONLY)
+        self.assertNotEqual(raised.exception.args[0], CaseIngestComposition.LEGACY_ONLY)
+
+    def test_missing_generation_table_is_not_legacy(self):
+        self._generation()
+        self.session.commit()
+        case_id = int(self.case.id)
+        case_uuid = str(self.case.uuid)
+        self.session.close()
+        with self.engine.begin() as conn:
+            conn.execute(text("ALTER TABLE evidence_source_generations RENAME TO evidence_source_generations_hidden"))
+        try:
+            session = self.Session()
+            try:
+                with self.assertRaises(CompletionCompositionUnknown):
+                    resolve_case_completion_route(
+                        session, case_id=case_id, case_uuid=case_uuid
+                    )
+            finally:
+                session.close()
+            db.session.remove()
+            with self.assertRaises(ManagedEvidenceAuthorityUnavailable):
+                case_has_managed_source_generations(case_id)
+        finally:
+            with self.engine.begin() as conn:
+                conn.execute(text(
+                    "ALTER TABLE IF EXISTS evidence_source_generations_hidden "
+                    "RENAME TO evidence_source_generations"
+                ))
+            db.session.remove()
+
+    def test_proven_legacy_only_route_remains_available(self):
+        self.session.query(EvidenceSourceGeneration).delete()
+        self.case_file.ingest_protocol_origin = IngestProtocolOrigin.LEGACY_OR_UNKNOWN
+        self.session.commit()
+        composition = resolve_case_completion_route(
+            self.session, case_id=self.case.id, case_uuid=self.case.uuid
+        )
+        self.assertEqual(composition, CaseIngestComposition.LEGACY_ONLY)
+        self.assertFalse(managed_destructive_completion_forbidden(composition))
+        db.session.remove()
+        self.assertFalse(case_has_managed_source_generations(self.case.id))
+
+    def test_proven_managed_only_route_is_durable(self):
+        self._generation()
+        self.session.commit()
+        composition = resolve_case_completion_route(
+            self.session, case_id=self.case.id, case_uuid=self.case.uuid
+        )
+        self.assertEqual(composition, CaseIngestComposition.MANAGED_ONLY)
+        self.assertTrue(managed_destructive_completion_forbidden(composition))
+
+    def test_redis_complete_cannot_override_pg_authority_failure(self):
+        self._generation()
+        self.session.commit()
+        with patch("utils.progress.get_redis_client") as redis_factory:
+            redis_factory.return_value.get.return_value = "complete"
+            with patch.object(
+                self.session,
+                "query",
+                side_effect=self._failing_query(
+                    EvidenceSourceGeneration,
+                    OperationalError("SELECT", {}, Exception("pg down")),
+                ),
+            ):
+                with self.assertRaises(CompletionCompositionUnknown):
+                    resolve_case_completion_route(
+                        self.session, case_id=self.case.id, case_uuid=self.case.uuid
+                    )
+
 
 @unittest.skipUnless(PG_URL and CH_DB, "PHASE1B_PG_TEST_DATABASE_URL and PHASE1B_CH_TEST_DATABASE are required")
 class Phase1BF1RealPGCHTestCase(unittest.TestCase):
@@ -1054,6 +1171,152 @@ class Phase1BF1RealPGCHTestCase(unittest.TestCase):
         self.assertEqual(result["route"], CaseIngestComposition.MANAGED_ONLY)
         self.assertEqual(result["buffer_flush_status"], "not_required_managed")
 
+    def _insert_json_log_duplicates(self):
+        ts = datetime(2026, 1, 1, 0, 0, 0)
+        earlier = datetime(2026, 1, 1, 0, 0, 1)
+        later = datetime(2026, 1, 1, 0, 0, 2)
+        self.ch.insert(
+            "events",
+            [
+                [self.case.id, "json_log", ts, ts, "dup.log", "e-dup", earlier],
+                [self.case.id, "json_log", ts, ts, "dup.log", "e-dup", later],
+            ],
+            column_names=[
+                "case_id",
+                "artifact_type",
+                "timestamp",
+                "timestamp_utc",
+                "source_file",
+                "event_id",
+                "indexed_at",
+            ],
+        )
+
+    def test_direct_dedup_legacy_still_operates(self):
+        self.case_file.ingest_protocol_origin = IngestProtocolOrigin.LEGACY_OR_UNKNOWN
+        db.session.commit()
+        self._insert_json_log_duplicates()
+        from utils.event_deduplication import deduplicate_case_events
+        with patch("utils.clickhouse.get_fresh_client", return_value=self.ch):
+            result = deduplicate_case_events(
+                case_id=self.case.id,
+                case_uuid=self.case.uuid,
+                track_progress=False,
+                allow_managed_evidence=False,
+            )
+        self.assertTrue(result["success"])
+        remaining = self.ch.query(
+            "SELECT count() FROM events WHERE case_id = {case_id:UInt32}",
+            parameters={"case_id": self.case.id},
+        ).result_rows[0][0]
+        self.assertEqual(remaining, 1)
+
+    def test_direct_dedup_managed_is_blocked(self):
+        self._generation()
+        self._insert_json_log_duplicates()
+        before = self.ch.query(
+            "SELECT count() FROM events WHERE case_id = {case_id:UInt32}",
+            parameters={"case_id": self.case.id},
+        ).result_rows[0][0]
+        capturing = _CapturingClickHouse()
+        from utils.event_deduplication import deduplicate_case_events
+        with patch("utils.clickhouse.get_fresh_client", return_value=capturing):
+            with self.assertRaises(ManagedEvidenceDedupForbidden):
+                deduplicate_case_events(
+                    case_id=self.case.id,
+                    case_uuid=self.case.uuid,
+                    track_progress=False,
+                    allow_managed_evidence=False,
+                )
+        self.assertEqual(capturing.commands, [])
+        after = self.ch.query(
+            "SELECT count() FROM events WHERE case_id = {case_id:UInt32}",
+            parameters={"case_id": self.case.id},
+        ).result_rows[0][0]
+        self.assertEqual(before, after)
+
+    def test_mixed_case_authority_unavailable_cannot_mutate(self):
+        generation = self._generation()
+        self._ingest_batch(generation, self.events[0:4], batch_ordinal=0)
+        legacy = CaseFile(
+            case_uuid=self.case.uuid,
+            filename="legacy-closure.evtx",
+            original_filename="legacy-closure.evtx",
+            file_path="/tmp/legacy-closure.evtx",
+            file_size=1,
+            sha256_hash="c" * 64,
+            uploaded_by="tester",
+            ingest_protocol_origin=IngestProtocolOrigin.LEGACY_OR_UNKNOWN,
+        )
+        db.session.add(legacy)
+        db.session.commit()
+        composition = resolve_case_completion_route(
+            db.session, case_id=self.case.id, case_uuid=self.case.uuid
+        )
+        self.assertEqual(composition, CaseIngestComposition.MIXED)
+        capturing = _CapturingClickHouse()
+        from utils.event_deduplication import deduplicate_case_events
+        with patch("models.database.db.session.query", side_effect=OperationalError("SELECT", {}, Exception("pg down"))), \
+             patch("utils.clickhouse.get_fresh_client", return_value=capturing):
+            with self.assertRaises(ManagedEvidenceAuthorityUnavailable):
+                deduplicate_case_events(
+                    case_id=self.case.id,
+                    case_uuid=self.case.uuid,
+                    track_progress=False,
+                    allow_managed_evidence=False,
+                )
+        self.assertEqual(capturing.commands, [])
+        surviving = self.ch.query(
+            "SELECT count() FROM events WHERE case_id = {case_id:UInt32} AND source_generation = 1",
+            parameters={"case_id": self.case.id},
+        ).result_rows[0][0]
+        self.assertGreater(surviving, 0)
+
+    def test_completion_task_pg_failure_does_not_enter_old_tail(self):
+        from tasks import celery_tasks as celery_mod
+
+        self._generation()
+        db.session.commit()
+        invoked = []
+        with patch.object(celery_mod, "get_flask_app", return_value=self.app), \
+             patch.object(
+                 celery_mod,
+                 "exclusive_ingest_fence",
+                 _raise_if_called("exclusive_ingest_fence", invoked),
+             ), \
+             patch(
+                 "utils.event_deduplication.deduplicate_case_events",
+                 _raise_if_called("deduplicate_case_events", invoked),
+             ), \
+             patch(
+                 "utils.known_systems_discovery.discover_known_systems",
+                 _raise_if_called("discover_known_systems", invoked),
+             ), \
+             patch(
+                 "utils.known_users_discovery.discover_known_users",
+                 _raise_if_called("discover_known_users", invoked),
+             ), \
+             patch.object(
+                 celery_mod,
+                 "_queue_post_ingest_mitre_mapping",
+                 _raise_if_called("mitre_tail", invoked),
+             ), \
+             patch.object(
+                 celery_mod,
+                 "_queue_auto_event_embedding",
+                 _raise_if_called("embed_tail", invoked),
+             ), \
+             patch.object(celery_mod.case_indexing_complete_task, "apply_async"), \
+             patch("utils.progress.clear_progress"), \
+             patch(
+                 "utils.completion_reconciler.resolve_case_completion_route",
+                 side_effect=CompletionCompositionUnknown("pg down"),
+             ):
+            result = celery_mod.case_indexing_complete_task.run(self.case.id, self.case.uuid)
+        self.assertEqual(result["status"], "deferred")
+        self.assertEqual(result["reason"], "completion_composition_unknown")
+        self.assertEqual(invoked, [])
+
 
 class Phase1BF1RoutingUnitTestCase(unittest.TestCase):
     def test_case_indexing_complete_routes_managed_before_legacy_tail(self):
@@ -1073,3 +1336,112 @@ class Phase1BF1RoutingUnitTestCase(unittest.TestCase):
             self.assertEqual(result, {"routed": True})
             durable.assert_called_once()
             fence.assert_not_called()
+
+
+class _CapturingClickHouse:
+    def __init__(self):
+        self.commands = []
+        self.queries = []
+
+    def command(self, sql, *args, **kwargs):
+        self.commands.append(sql)
+        raise AssertionError(f"unexpected ClickHouse command: {sql}")
+
+    def query(self, sql, parameters=None, **kwargs):
+        self.queries.append((sql, parameters))
+        raise AssertionError(f"unexpected ClickHouse query: {sql}")
+
+
+def _raise_if_called(name, bucket):
+    def _inner(*_args, **_kwargs):
+        bucket.append(name)
+        raise AssertionError(f"{name} invoked during fail-closed completion")
+    return _inner
+
+
+class Phase1BF1ClosureUnitTestCase(unittest.TestCase):
+    def test_classification_failure_before_legacy_tail(self):
+        from tasks import celery_tasks as celery_mod
+
+        invoked = []
+        queued = []
+
+        def capture_async(*_args, **kwargs):
+            queued.append(kwargs)
+            return None
+
+        with patch.object(celery_mod, "get_flask_app") as app_factory, \
+             patch(
+                 "utils.completion_reconciler.resolve_case_completion_route",
+                 side_effect=CompletionCompositionUnknown("pg down"),
+             ), \
+             patch.object(celery_mod, "exclusive_ingest_fence", _raise_if_called("exclusive_ingest_fence", invoked)), \
+             patch("utils.event_deduplication.deduplicate_case_events", _raise_if_called("deduplicate_case_events", invoked)), \
+             patch("utils.known_systems_discovery.discover_known_systems", _raise_if_called("discover_known_systems", invoked)), \
+             patch("utils.known_users_discovery.discover_known_users", _raise_if_called("discover_known_users", invoked)), \
+             patch.object(celery_mod, "_queue_post_ingest_mitre_mapping", _raise_if_called("mitre_tail", invoked)), \
+             patch.object(celery_mod, "_queue_auto_event_embedding", _raise_if_called("embed_tail", invoked)), \
+             patch.object(celery_mod, "materialize_case_graph_task") as graph_task, \
+             patch.object(celery_mod.case_indexing_complete_task, "apply_async", capture_async), \
+             patch.object(celery_mod.case_indexing_complete_task, "update_state"), \
+             patch("utils.progress.clear_progress", _raise_if_called("clear_progress", invoked)):
+            graph_task.apply_async.side_effect = _raise_if_called("graph_tail", invoked)
+            app_factory.return_value.app_context.return_value = MagicMock()
+            result = celery_mod.case_indexing_complete_task.run(9, "uuid-f1-closure")
+
+        self.assertEqual(result["status"], "deferred")
+        self.assertEqual(result["reason"], "completion_composition_unknown")
+        self.assertTrue(result["legacy_destructive_skipped"])
+        self.assertEqual(invoked, [])
+        self.assertEqual(len(queued), 1)
+        self.assertEqual(queued[0]["kwargs"]["_classification_retry_count"], 1)
+        self.assertEqual(queued[0]["countdown"], 1)
+
+    def test_classification_retry_exhaustion_still_skips_legacy_tail(self):
+        from tasks import celery_tasks as celery_mod
+
+        invoked = []
+        with patch.object(celery_mod, "get_flask_app") as app_factory, \
+             patch(
+                 "utils.completion_reconciler.resolve_case_completion_route",
+                 side_effect=CompletionCompositionUnknown("pg down"),
+             ), \
+             patch.object(celery_mod, "exclusive_ingest_fence", _raise_if_called("exclusive_ingest_fence", invoked)), \
+             patch("utils.event_deduplication.deduplicate_case_events", _raise_if_called("deduplicate_case_events", invoked)), \
+             patch.object(celery_mod.case_indexing_complete_task, "apply_async", _raise_if_called("apply_async", invoked)):
+            app_factory.return_value.app_context.return_value = MagicMock()
+            with self.assertRaises(CompletionCompositionUnknown):
+                celery_mod.case_indexing_complete_task.run(
+                    9,
+                    "uuid-f1-closure",
+                    _classification_retry_count=10,
+                )
+        self.assertEqual(invoked, [])
+
+    def _assert_probe_failure_blocks_dedup(self, exc):
+        capturing = _CapturingClickHouse()
+        with patch("models.database.db.session.query", side_effect=exc), \
+             patch("utils.clickhouse.get_fresh_client", return_value=capturing) as fresh:
+            with self.assertRaises(ManagedEvidenceAuthorityUnavailable):
+                from utils.event_deduplication import deduplicate_case_events
+                deduplicate_case_events(
+                    case_id=7,
+                    case_uuid="uuid-f1-probe",
+                    track_progress=False,
+                    allow_managed_evidence=False,
+                )
+            fresh.assert_not_called()
+        self.assertEqual(capturing.commands, [])
+
+    def test_generation_probe_operational_error_blocks_dedup(self):
+        self._assert_probe_failure_blocks_dedup(
+            OperationalError("SELECT", {}, Exception("pg operational"))
+        )
+
+    def test_generation_probe_programming_error_blocks_dedup(self):
+        self._assert_probe_failure_blocks_dedup(
+            ProgrammingError("SELECT", {}, Exception("relation does not exist"))
+        )
+
+    def test_generation_probe_generic_failure_blocks_dedup(self):
+        self._assert_probe_failure_blocks_dedup(RuntimeError("unexpected query failure"))
