@@ -50,6 +50,143 @@ def _percentile(values, pct):
     return round(ordered[low] * (1.0 - weight) + ordered[high] * weight, 3)
 
 
+def _round_seconds(value):
+    return round(float(value), 3)
+
+
+def _round_ms(value):
+    return round(float(value) * 1000.0, 3)
+
+
+class FirstDurableHuntClock:
+    """Capture first DURABLE -> Hunt visibility at protocol boundaries.
+
+    Measurement/test instrumentation only. Production functions stay unchanged;
+    callers wrap existing mark_batch_durable / project_generation_control_state.
+    """
+
+    def __init__(self, started):
+        self.started = float(started)
+        self.ingest_batch_id = None
+        self.case_id = None
+        self.source_ref_id = None
+        self.source_generation = None
+        self.batch_ordinal = None
+        self.file = None
+        self.hunt_total = None
+        self.durable_monotonic = None
+        self.projection_monotonic = None
+        self.hunt_visible_monotonic = None
+
+    def record_durable(self, *, batch, generation, now=None):
+        if self.durable_monotonic is not None:
+            return
+        self.durable_monotonic = time.perf_counter() if now is None else float(now)
+        self.ingest_batch_id = str(batch.ingest_batch_id)
+        self.case_id = int(generation.case_id)
+        self.source_ref_id = str(generation.source_ref_id)
+        self.source_generation = int(generation.source_generation)
+        self.batch_ordinal = int(batch.batch_ordinal)
+
+    def record_projection_complete(self, now=None):
+        if self.durable_monotonic is None or self.projection_monotonic is not None:
+            return
+        self.projection_monotonic = time.perf_counter() if now is None else float(now)
+
+    def record_hunt_visible(self, *, ingest_batch_id, hunt_total, now=None):
+        if self.hunt_visible_monotonic is not None:
+            return
+        if self.ingest_batch_id is None:
+            raise AssertionError("Hunt visibility recorded before first DURABLE batch identity")
+        visible_id = str(ingest_batch_id)
+        if visible_id != str(self.ingest_batch_id):
+            raise AssertionError(
+                f"Hunt visibility batch {visible_id!r} does not match first DURABLE {self.ingest_batch_id!r}"
+            )
+        self.hunt_visible_monotonic = time.perf_counter() if now is None else float(now)
+        self.hunt_total = int(hunt_total)
+
+    def _matches_timed_generation(self, generation):
+        if self.durable_monotonic is None:
+            return False
+        return (
+            int(generation.case_id) == int(self.case_id)
+            and str(generation.source_ref_id) == str(self.source_ref_id)
+            and int(generation.source_generation) == int(self.source_generation)
+        )
+
+    def wrap_mark_batch_durable(self, original):
+        def _wrapped(*, session, batch, verification):
+            result = original(session=session, batch=batch, verification=verification)
+            generation = getattr(result, "generation", None)
+            if generation is None:
+                from models.database_flow import EvidenceSourceGeneration
+                generation = session.query(EvidenceSourceGeneration).filter_by(
+                    id=result.generation_id
+                ).one()
+            self.record_durable(batch=result, generation=generation)
+            return result
+        return _wrapped
+
+    def wrap_project_generation_control_state(self, original, probe_hunt):
+        def _wrapped(clickhouse_client, session, generation):
+            original(clickhouse_client, session, generation)
+            if not self._matches_timed_generation(generation):
+                return
+            self.record_projection_complete()
+            if self.hunt_visible_monotonic is not None:
+                return
+            probe_hunt(clickhouse_client, generation)
+        return _wrapped
+
+    def artifact(self):
+        if self.durable_monotonic is None:
+            raise AssertionError("first DURABLE timestamp was not captured")
+        if self.hunt_visible_monotonic is None:
+            raise AssertionError("Hunt visible timestamp was not captured")
+        if self.hunt_visible_monotonic < self.durable_monotonic:
+            raise AssertionError("Hunt visible timestamp occurs before first DURABLE")
+        if self.durable_monotonic == self.started:
+            raise AssertionError(
+                "first_durable_to_hunt used benchmark-start origin instead of mark_batch_durable"
+            )
+        if self.ingest_batch_id is None:
+            raise AssertionError("first DURABLE batch identity was not captured")
+        ingest_start_to_hunt = self.hunt_visible_monotonic - self.started
+        durable_to_hunt = self.hunt_visible_monotonic - self.durable_monotonic
+        if abs(durable_to_hunt - ingest_start_to_hunt) <= 0.0:
+            raise AssertionError(
+                "first_durable_to_hunt collapsed onto ingest-start -> first-searchable"
+            )
+        projection_offset = None
+        durable_to_projection_ms = None
+        if self.projection_monotonic is not None:
+            if self.projection_monotonic < self.durable_monotonic:
+                raise AssertionError("projection complete timestamp occurs before first DURABLE")
+            projection_offset = _round_seconds(self.projection_monotonic - self.started)
+            durable_to_projection_ms = _round_ms(self.projection_monotonic - self.durable_monotonic)
+        return {
+            "time_to_first_searchable_managed_seconds": _round_seconds(ingest_start_to_hunt),
+            "first_durable_to_hunt": {
+                "seconds": _round_seconds(durable_to_hunt),
+                "milliseconds": _round_ms(durable_to_hunt),
+                "durable_to_hunt_ms": _round_ms(durable_to_hunt),
+                "ingest_batch_id": self.ingest_batch_id,
+                "case_id": self.case_id,
+                "source_ref_id": self.source_ref_id,
+                "source_generation": self.source_generation,
+                "batch_ordinal": self.batch_ordinal,
+                "durable_offset_seconds": _round_seconds(self.durable_monotonic - self.started),
+                "projection_complete_offset_seconds": projection_offset,
+                "hunt_visible_offset_seconds": _round_seconds(self.hunt_visible_monotonic - self.started),
+                "durable_to_projection_ms": durable_to_projection_ms,
+                "ingest_start_to_hunt_seconds": _round_seconds(ingest_start_to_hunt),
+                "file": self.file,
+                "hunt_total": self.hunt_total,
+            },
+        }
+
+
 def main() -> int:
     pg_name, ch_name = _assert_disposable()
     os.environ.setdefault("SECRET_KEY", "phase1b-exit-measure")
@@ -78,6 +215,7 @@ def main() -> int:
     from tasks.celery_tasks import _process_managed_initial_case_file
     from utils.capability_watermarks import PRIVACY_ALIASES_V1
     from utils.completion_reconciler import ReconciliationHooks, reconcile_case_completion
+    from utils.manifest_protocol import mark_batch_durable as original_mark
     from utils.manifest_protocol import project_generation_control_state as original_project
     from utils.row_local_derivations import derive_privacy_aliases_for_durable_batch
 
@@ -110,28 +248,35 @@ def main() -> int:
         ch.command(ddl)
 
     app = create_app(run_startup_bootstrap=False, register_blueprints=False)
-    first_searchable = {"seconds": None, "hunt_total": None, "file": None}
     started = time.perf_counter()
+    clock = FirstDurableHuntClock(started)
 
-    def _project_and_probe(clickhouse_client, session, generation):
-        original_project(clickhouse_client, session, generation)
-        if first_searchable["seconds"] is not None:
-            return
+    def _probe_exact_batch_hunt(clickhouse_client, _generation):
         bridge = build_hunting_publication_bridge(alias="e")
         result = clickhouse_client.query(
             f"""
             SELECT count()
             FROM events AS e
             {bridge["join_sql"]}
-            WHERE e.case_id = {{case_id:UInt32}}{bridge["where_sql"]}
+            WHERE e.case_id = {{case_id:UInt32}}
+              AND e.ingest_batch_id = {{ingest_batch_id:String}}
+              AND e.source_ref_id = {{source_ref_id:String}}
+              AND e.source_generation = {{source_generation:UInt32}}
+              {bridge["where_sql"]}
             """,
-            parameters={"case_id": int(generation.case_id)},
+            parameters={
+                "case_id": int(clock.case_id),
+                "ingest_batch_id": str(clock.ingest_batch_id),
+                "source_ref_id": str(clock.source_ref_id),
+                "source_generation": int(clock.source_generation),
+            },
         )
         total = int(result.result_rows[0][0]) if result.result_rows else 0
         if total > 0:
-            first_searchable["seconds"] = round(time.perf_counter() - started, 3)
-            first_searchable["hunt_total"] = total
-            first_searchable["source_generation"] = int(generation.source_generation)
+            clock.record_hunt_visible(
+                ingest_batch_id=clock.ingest_batch_id,
+                hunt_total=total,
+            )
 
     with app.app_context():
         import models.audit_log as _audit_log
@@ -161,8 +306,14 @@ def main() -> int:
         per_file = []
         events_total = 0
         with patch("tasks.celery_tasks.get_flask_app", return_value=app), patch(
+            "utils.manifest_protocol.mark_batch_durable",
+            side_effect=clock.wrap_mark_batch_durable(original_mark),
+        ), patch(
             "utils.manifest_protocol.project_generation_control_state",
-            side_effect=_project_and_probe,
+            side_effect=clock.wrap_project_generation_control_state(
+                original_project,
+                _probe_exact_batch_hunt,
+            ),
         ):
             for path in files:
                 case_file = CaseFile(
@@ -193,8 +344,8 @@ def main() -> int:
                 )
                 elapsed = round(time.perf_counter() - file_started, 3)
                 events_total += int(result.events_count or 0)
-                if first_searchable["file"] is None and first_searchable["seconds"] is not None:
-                    first_searchable["file"] = path.name
+                if clock.file is None and clock.hunt_visible_monotonic is not None:
+                    clock.file = path.name
                 per_file.append({
                     "file": path.name,
                     "bytes": path.stat().st_size,
@@ -267,10 +418,18 @@ def main() -> int:
         explain = ch.query("EXPLAIN indexes = 1\n" + count_sql, parameters=params)
         explain_lines = [" ".join(str(col) for col in row) for row in explain.result_rows]
 
+        measured = clock.artifact()
+        if (
+            measured["first_durable_to_hunt"]["seconds"]
+            == measured["time_to_first_searchable_managed_seconds"]
+        ):
+            raise SystemExit(
+                "first_durable_to_hunt collapsed onto ingest-start -> first-searchable"
+            )
         payload = {
             "measured_at": _utc(),
-            "baseline_sha": "9aaafaf3ce13ccb9eee7676a9ec636637b16b765",
-            "version": "4.22.1",
+            "baseline_sha": "16bede5ac622820492b09813146ea9b3a351ec8a",
+            "version": "4.22.2",
             "postgres_database": pg_name,
             "clickhouse_database": ch_name,
             "corpus_dir": str(CORPUS),
@@ -280,8 +439,8 @@ def main() -> int:
             "ingest_wall_seconds": ingest_wall,
             "ingest_seconds_per_gb": round(ingest_wall / gb, 3) if gb else None,
             "ingest_seconds_per_million_events": round(ingest_wall / (events_total / 1_000_000.0), 3) if events_total else None,
-            "time_to_first_searchable_managed_seconds": first_searchable["seconds"],
-            "first_durable_to_hunt": first_searchable,
+            "time_to_first_searchable_managed_seconds": measured["time_to_first_searchable_managed_seconds"],
+            "first_durable_to_hunt": measured["first_durable_to_hunt"],
             "privacy_alias_time_to_ready_seconds": privacy_seconds,
             "privacy_batches": privacy_batches,
             "completion_reconciliation_seconds": recon_seconds,
@@ -325,7 +484,10 @@ def main() -> int:
             "artifact": str(ARTIFACT),
             "ingest_wall_seconds": ingest_wall,
             "events": events_total,
-            "first_searchable_seconds": first_searchable["seconds"],
+            "first_searchable_seconds": measured["time_to_first_searchable_managed_seconds"],
+            "first_durable_to_hunt_seconds": measured["first_durable_to_hunt"]["seconds"],
+            "first_durable_to_hunt_ms": measured["first_durable_to_hunt"]["milliseconds"],
+            "timed_ingest_batch_id": measured["first_durable_to_hunt"]["ingest_batch_id"],
             "privacy_seconds": privacy_seconds,
             "reconciliation_seconds": recon_seconds,
             "assessment": recon.assessment,

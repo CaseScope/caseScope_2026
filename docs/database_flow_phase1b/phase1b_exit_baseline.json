@@ -1,39 +1,50 @@
 {
-  "measured_at": "2026-08-21T14:26:06.622009+00:00",
-  "baseline_sha": "9aaafaf3ce13ccb9eee7676a9ec636637b16b765",
-  "version": "4.22.1",
-  "postgres_database": "phase1b_exit_ingest_20260821142146",
-  "clickhouse_database": "phase1b_exit_ingest_20260821142146",
+  "measured_at": "2026-08-21T15:33:05.669174+00:00",
+  "baseline_sha": "16bede5ac622820492b09813146ea9b3a351ec8a",
+  "version": "4.22.2",
+  "postgres_database": "phase1b_exit_ingest_20260821152852",
+  "clickhouse_database": "phase1b_exit_ingest_20260821152852",
   "corpus_dir": "/opt/casescope-benchmark/phase0a_evtx",
   "file_count": 8,
   "bytes": 77103104,
   "events": 110742,
-  "ingest_wall_seconds": 245.202,
-  "ingest_seconds_per_gb": 3414.696,
-  "ingest_seconds_per_million_events": 2214.173,
-  "time_to_first_searchable_managed_seconds": 19.515,
+  "ingest_wall_seconds": 237.647,
+  "ingest_seconds_per_gb": 3309.484,
+  "ingest_seconds_per_million_events": 2145.952,
+  "time_to_first_searchable_managed_seconds": 18.708,
   "first_durable_to_hunt": {
-    "seconds": 19.515,
-    "hunt_total": 10000,
+    "seconds": 0.176,
+    "milliseconds": 176.233,
+    "durable_to_hunt_ms": 176.233,
+    "ingest_batch_id": "ingest-batch:v1:19328c306ba20690a7af7e264f5d3acf1a8e65afc5311234d99ea94a306c0c43",
+    "case_id": 1,
+    "source_ref_id": "1",
+    "source_generation": 1,
+    "batch_ordinal": 0,
+    "durable_offset_seconds": 18.531,
+    "projection_complete_offset_seconds": 18.669,
+    "hunt_visible_offset_seconds": 18.708,
+    "durable_to_projection_ms": 137.405,
+    "ingest_start_to_hunt_seconds": 18.708,
     "file": "Application.evtx",
-    "source_generation": 1
+    "hunt_total": 10000
   },
-  "privacy_alias_time_to_ready_seconds": 9.091,
+  "privacy_alias_time_to_ready_seconds": 9.104,
   "privacy_batches": 16,
-  "completion_reconciliation_seconds": 0.099,
+  "completion_reconciliation_seconds": 0.1,
   "completion_reconciliation_assessment": "work_queued",
   "hunt_count_ms": {
-    "p50": 39.931,
-    "p95": 49.104,
-    "p99": 67.469,
-    "mean": 42.198,
+    "p50": 40.733,
+    "p95": 51.991,
+    "p99": 66.927,
+    "mean": 42.711,
     "samples": 20
   },
   "hunt_page_ms": {
-    "p50": 59.452,
-    "p95": 73.233,
-    "p99": 73.713,
-    "mean": 61.838,
+    "p50": 60.554,
+    "p95": 76.35,
+    "p99": 84.121,
+    "mean": 63.12,
     "samples": 20
   },
   "hunt_last_summary": {
@@ -44,89 +55,10 @@
     "total_rows_to_read": "110766",
     "result_rows": "1",
     "result_bytes": "136",
-    "elapsed_ns": "34864380",
-    "memory_usage": "21811480",
-    "query_id": "13ae3254-1adc-4c65-850c-ac4b775e5e9b"
+    "elapsed_ns": "38090894",
+    "memory_usage": "15957074",
+    "query_id": "0adcb779-0248-43c2-a9bc-14627d92b4e4"
   },
-  "peak_rss_mb": 288.71,
-  "per_file": [
-    {
-      "file": "Application.evtx",
-      "bytes": 11603968,
-      "events": 12137,
-      "success": true,
-      "errors": [],
-      "wall_seconds": 24.807
-    },
-    {
-      "file": "Microsoft-Windows-PowerShell-Operational.evtx",
-      "bytes": 15798272,
-      "events": 488,
-      "success": true,
-      "errors": [],
-      "wall_seconds": 13.247
-    },
-    {
-      "file": "Microsoft-Windows-TaskScheduler-Operational.evtx",
-      "bytes": 69632,
-      "events": 0,
-      "success": true,
-      "errors": [],
-      "wall_seconds": 10.217
-    },
-    {
-      "file": "Microsoft-Windows-TerminalServices-LocalSessionManager.evtx",
-      "bytes": 1118208,
-      "events": 221,
-      "success": true,
-      "errors": [],
-      "wall_seconds": 10.948
-    },
-    {
-      "file": "Microsoft-Windows-WMI-Activity-Operational.evtx",
-      "bytes": 1118208,
-      "events": 1158,
-      "success": true,
-      "errors": [],
-      "wall_seconds": 11.728
-    },
-    {
-      "file": "Microsoft-Windows-Windows-Defender-Operational.evtx",
-      "bytes": 5312512,
-      "events": 5536,
-      "success": true,
-      "errors": [],
-      "wall_seconds": 16.209
-    },
-    {
-      "file": "Security.evtx",
-      "bytes": 21041152,
-      "events": 29575,
-      "success": true,
-      "errors": [],
-      "wall_seconds": 71.593
-    },
-    {
-      "file": "System.evtx",
-      "bytes": 21041152,
-      "events": 61627,
-      "success": true,
-      "errors": [],
-      "wall_seconds": 86.321
-    }
-  ],
-  "corpus_deviation": {
-    "preferred": "multi-host >=20 EVTX including large Security.evtx plus memory image and PCAP",
-    "used": "existing Phase 0A authorized EVTX corpus: 8 files, 77,103,104 bytes, includes Security.evtx",
-    "memory_image": false,
-    "pcap": false
-  },
-  "ioc_full_run": {
-    "included": false,
-    "reason": "Phase 1.5 IOC raw_json recall gate failed; no established passing full-run baseline was shipped"
-  },
-  "phase2_started": false,
-  "events_current": false,
   "hunt_count_explain_indexes_1": [
     "Output: count()",
     "",
@@ -135,7 +67,7 @@
     "\u2502  Aggregates: count()",
     "\u2502  Skip merging: 0",
     "\u2514\u2500\u2500Filter (WHERE)",
-    "   \u2502  Filter column: source_ref_type IS NULL AND source_ref_id IS NULL AND source_generation IS NULL AND ingest_batch_id IS NULL AND ingest_row_ordinal.null AND ingest_row_hash.null AND ingest_attempt_id.null OR source_ref_type IS NOT NULL AND source_ref_type != \\'\\' AND source_ref_id IS NOT NULL AND source_ref_id != \\'\\' AND source_generation IS NOT NULL AND ingest_batch_id IS NOT NULL AND ingest_batch_id != \\'\\' AND publishable = 1 AND visibility_state IN (\\'BUILDING_INITIAL\\', \\'ACTIVE\\') AND state = \\'DURABLE\\'",
+    "   \u2502  Filter column: source_ref_type IS NULL AND source_ref_id IS NULL AND source_generation IS NULL AND ingest_batch_id IS NULL AND ingest_row_ordinal.null AND ingest_row_hash.null AND ingest_attempt_id.null OR source_ref_type IS NOT NULL AND source_ref_type != '' AND source_ref_id IS NOT NULL AND source_ref_id != '' AND source_generation IS NOT NULL AND ingest_batch_id IS NOT NULL AND ingest_batch_id != '' AND publishable = 1 AND visibility_state IN ('BUILDING_INITIAL', 'ACTIVE') AND state = 'DURABLE'",
     "   \u2514\u2500\u2500Join (JOIN FillRightFirst)",
     "      \u2502  R0 \u27d5 dib[16]",
     "      \u2502  Type: left | Strictness: all | Algorithm: SpillingHashJoin(HashJoin)",
@@ -144,7 +76,7 @@
     "      \u2502    Left:  ingest_batch_id, source_ref_type, source_ref_id, source_generation, `ingest_row_ordinal.null`, `ingest_row_hash.null`, `ingest_attempt_id.null`, visibility_state, publishable",
     "      \u2502    Right: state",
     "      \u251c\u2500\u2500Filter (( + ))",
-    "      \u2502  \u2502  Filter column: source_ref_type IS NULL AND source_ref_id IS NULL AND source_generation IS NULL AND ingest_batch_id IS NULL AND ingest_row_ordinal.null AND ingest_row_hash.null AND ingest_attempt_id.null OR source_ref_type IS NOT NULL AND source_ref_type != \\'\\' AND source_ref_id IS NOT NULL AND source_ref_id != \\'\\' AND source_generation IS NOT NULL AND ingest_batch_id IS NOT NULL AND ingest_batch_id != \\'\\' AND publishable = 1 AND visibility_state IN (\\'BUILDING_INITIAL\\', \\'ACTIVE\\')",
+    "      \u2502  \u2502  Filter column: source_ref_type IS NULL AND source_ref_id IS NULL AND source_generation IS NULL AND ingest_batch_id IS NULL AND ingest_row_ordinal.null AND ingest_row_hash.null AND ingest_attempt_id.null OR source_ref_type IS NOT NULL AND source_ref_type != '' AND source_ref_id IS NOT NULL AND source_ref_id != '' AND source_generation IS NOT NULL AND ingest_batch_id IS NOT NULL AND ingest_batch_id != '' AND publishable = 1 AND visibility_state IN ('BUILDING_INITIAL', 'ACTIVE')",
     "      \u2502  \u2514\u2500\u2500Join (JOIN FillRightFirst)",
     "      \u2502     \u2502  e[110742] \u27d5 veg[8]",
     "      \u2502     \u2502  Type: left | Strictness: all | Algorithm: SpillingHashJoin(HashJoin)",
@@ -154,8 +86,8 @@
     "      \u2502     \u2502    Left:  case_id, source_ref_type, source_ref_id, source_generation, ingest_batch_id, `ingest_row_ordinal.null`, `ingest_row_hash.null`, `ingest_attempt_id.null`",
     "      \u2502     \u2502    Right: visibility_state, publishable",
     "      \u2502     \u251c\u2500\u2500Filter",
-    "      \u2502     \u2502  \u2502  Filter column: source_ref_type IS NULL AND source_ref_id IS NULL AND source_generation IS NULL AND ingest_batch_id IS NULL AND ingest_row_ordinal.null AND ingest_row_hash.null AND ingest_attempt_id.null OR source_ref_type IS NOT NULL AND source_ref_type != \\'\\' AND source_ref_id IS NOT NULL AND source_ref_id != \\'\\' AND source_generation IS NOT NULL AND ingest_batch_id IS NOT NULL AND ingest_batch_id != \\'\\'",
-    "      \u2502     \u2502  \u2514\u2500\u2500ReadFromMergeTree (phase1b_exit_ingest_20260821142146.events)",
+    "      \u2502     \u2502  \u2502  Filter column: source_ref_type IS NULL AND source_ref_id IS NULL AND source_generation IS NULL AND ingest_batch_id IS NULL AND ingest_row_ordinal.null AND ingest_row_hash.null AND ingest_attempt_id.null OR source_ref_type IS NOT NULL AND source_ref_type != '' AND source_ref_id IS NOT NULL AND source_ref_id != '' AND source_generation IS NOT NULL AND ingest_batch_id IS NOT NULL AND ingest_batch_id != ''",
+    "      \u2502     \u2502  \u2514\u2500\u2500ReadFromMergeTree (phase1b_exit_ingest_20260821152852.events)",
     "      \u2502     \u2502        Read type: Default",
     "      \u2502     \u2502        Parts: 5 | Granules: 44",
     "      \u2502     \u2502        Output: case_id, source_ref_type, source_ref_id, source_generation, ingest_batch_id, ingest_row_ordinal.null, ingest_row_hash.null, ingest_attempt_id.null",
@@ -184,7 +116,7 @@
     "      \u2502     \u2502          Ranges: 5",
     "      \u2502     \u2514\u2500\u2500Filter ((WHERE + (Change column names to column identifiers + (Project names + (Projection + Change column names to column identifiers)))))",
     "      \u2502        \u2502  Filter column: case_id = 1",
-    "      \u2502        \u2514\u2500\u2500ReadFromMergeTree (phase1b_exit_ingest_20260821142146.visible_evidence_generations)",
+    "      \u2502        \u2514\u2500\u2500ReadFromMergeTree (phase1b_exit_ingest_20260821152852.visible_evidence_generations)",
     "      \u2502              Read type: Default",
     "      \u2502              FINAL: 1",
     "      \u2502              Parts: 1 | Granules: 1",
@@ -200,7 +132,7 @@
     "      \u2502                Ranges: 1",
     "      \u2514\u2500\u2500Filter ((WHERE + (Change column names to column identifiers + (Project names + (Projection + Change column names to column identifiers)))))",
     "         \u2502  Filter column: case_id = 1",
-    "         \u2514\u2500\u2500ReadFromMergeTree (phase1b_exit_ingest_20260821142146.durable_ingest_batches)",
+    "         \u2514\u2500\u2500ReadFromMergeTree (phase1b_exit_ingest_20260821152852.durable_ingest_batches)",
     "               Read type: Default",
     "               FINAL: 1",
     "               Parts: 1 | Granules: 1",
@@ -212,6 +144,85 @@
     "                   Granules: 1/1",
     "                 Ranges: 1"
   ],
-  "events_per_second": 451.636,
-  "ingest_mb_per_second": 0.3
+  "events_per_second": 465.994,
+  "ingest_mb_per_second": 0.309,
+  "peak_rss_mb": 259.7,
+  "per_file": [
+    {
+      "file": "Application.evtx",
+      "bytes": 11603968,
+      "events": 12137,
+      "success": true,
+      "errors": [],
+      "wall_seconds": 23.762
+    },
+    {
+      "file": "Microsoft-Windows-PowerShell-Operational.evtx",
+      "bytes": 15798272,
+      "events": 488,
+      "success": true,
+      "errors": [],
+      "wall_seconds": 11.764
+    },
+    {
+      "file": "Microsoft-Windows-TaskScheduler-Operational.evtx",
+      "bytes": 69632,
+      "events": 0,
+      "success": true,
+      "errors": [],
+      "wall_seconds": 8.564
+    },
+    {
+      "file": "Microsoft-Windows-TerminalServices-LocalSessionManager.evtx",
+      "bytes": 1118208,
+      "events": 221,
+      "success": true,
+      "errors": [],
+      "wall_seconds": 10.354
+    },
+    {
+      "file": "Microsoft-Windows-WMI-Activity-Operational.evtx",
+      "bytes": 1118208,
+      "events": 1158,
+      "success": true,
+      "errors": [],
+      "wall_seconds": 10.961
+    },
+    {
+      "file": "Microsoft-Windows-Windows-Defender-Operational.evtx",
+      "bytes": 5312512,
+      "events": 5536,
+      "success": true,
+      "errors": [],
+      "wall_seconds": 16.425
+    },
+    {
+      "file": "Security.evtx",
+      "bytes": 21041152,
+      "events": 29575,
+      "success": true,
+      "errors": [],
+      "wall_seconds": 70.579
+    },
+    {
+      "file": "System.evtx",
+      "bytes": 21041152,
+      "events": 61627,
+      "success": true,
+      "errors": [],
+      "wall_seconds": 85.085
+    }
+  ],
+  "corpus_deviation": {
+    "preferred": "multi-host >=20 EVTX including large Security.evtx plus memory image and PCAP",
+    "used": "existing Phase 0A authorized EVTX corpus: 8 files, 77,103,104 bytes, includes Security.evtx",
+    "memory_image": false,
+    "pcap": false
+  },
+  "ioc_full_run": {
+    "included": false,
+    "reason": "Phase 1.5 IOC raw_json recall gate failed; no established passing full-run baseline was shipped"
+  },
+  "phase2_started": false,
+  "events_current": false
 }

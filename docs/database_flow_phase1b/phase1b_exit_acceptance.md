@@ -1,10 +1,10 @@
 # Phase 1B EXIT Blocker Closure Evidence
 
-Status: **blocker closure complete**. This is not a new tranche and does not start Phase 2.
+Status: **final measurement closure complete**. This is not a new tranche and does not start Phase 2.
 
 Independent Phase 1B EXIT ACCEPTANCE re-review remains the only remaining Phase 1B work.
 
-Baseline for this closure: `origin/main` `9aaafaf3ce13ccb9eee7676a9ec636637b16b765` (4.22.0 F2 UI). Closure version: **4.22.1**.
+Baseline for this measurement closure: `origin/main` `16bede5ac622820492b09813146ea9b3a351ec8a` (4.22.1 EXIT readiness blockers). Closure version: **4.22.2**.
 
 ## Three correctness closures
 
@@ -66,11 +66,11 @@ Proof: `test_multi_source_privacy_does_not_claim_case_wide_ordinal`, `test_inval
 
 Last measured lifecycle timings (IIS fixture, not the EVTX corpus):
 
-- time-to-first-searchable: 286.19 ms
-- first DURABLE to Hunt: 286.19 ms
-- privacy batch completions: 21.723 / 9.591 / 10.435 ms
-- completion reconciliation: 22.651 ms
-- lifecycle wall: 1441.682 ms
+- time-to-first-searchable (lifecycle start → Hunt visible): 376.0 ms
+- first DURABLE to Hunt (`mark_batch_durable` → Hunt visible): 179.51 ms
+- privacy batch completions: 17.897 / 8.688 / 10.894 ms
+- completion reconciliation: 36.475 ms
+- lifecycle wall: 1620.015 ms
 
 ## Phase 1B exit baseline measurement
 
@@ -78,28 +78,36 @@ Harness: `scripts/phase1b_exit_measure.py`.
 
 Artifact: `docs/database_flow_phase1b/phase1b_exit_baseline.json`.
 
-Isolation: disposable PostgreSQL/ClickHouse `phase1b_exit_ingest_20260821142146`. Production databases were not used.
+Isolation: disposable PostgreSQL/ClickHouse `phase1b_exit_ingest_20260821152852`. Production databases were not used.
 
 Corpus: existing Phase 0A authorized EVTX set at `/opt/casescope-benchmark/phase0a_evtx` (8 files, 77,103,104 bytes, 110,742 events, includes `Security.evtx`). Deviation from locked preferred corpus: not >=20 EVTX, no memory image, no PCAP. That is the existing Phase 0/1 baseline corpus.
 
 IOC full-run: not included. Phase 1.5 raw_json recall gate failed; no passing full-run baseline was shipped.
 
+The 4.22.1 artifact stored ingest-start → first-searchable **19.515 s** under both `time_to_first_searchable_managed_seconds` and `first_durable_to_hunt`. That 19.515 s figure is **not** first DURABLE → Hunt. 4.22.2 times those origins separately at protocol boundaries.
+
+Timed batch: `ingest-batch:v1:19328c306ba20690a7af7e264f5d3acf1a8e65afc5311234d99ea94a306c0c43`, `Application.evtx`, `case_id=1`, `source_ref_id=1`, `source_generation=1`, `batch_ordinal=0`, Hunt-visible row count 10000.
+
 | Metric | Phase 0 | Phase 1 exit | Phase 1B exit |
 |---|---:|---:|---:|
-| Wall seconds | 332.884 | 136.869 | 245.202 |
+| Wall seconds | 332.884 | 136.869 | 237.647 |
 | Events | 110,742 | 110,742 | 110,742 |
-| Events / sec | 332.674 | 809.109 | 451.636 |
-| Ingest / GB (s) | — | — | 3414.696 |
-| Ingest / million events (s) | — | — | 2214.173 |
-| First searchable (s) | 184.478 | 18.371 | 19.515 |
-| Peak RSS (MB) | 237.36 | 222.45 | 288.71 |
+| Events / sec | 332.674 | 809.109 | 465.994 |
+| Ingest / GB (s) | — | — | 3309.484 |
+| Ingest / million events (s) | — | — | 2145.952 |
+| First searchable (ingest start → Hunt visible, s) | 184.478 | 18.371 | 18.708 |
+| First DURABLE → Hunt (s) | — | — | 0.176 |
+| Peak RSS (MB) | 237.36 | 222.45 | 259.7 |
 
 Phase 1B ingest is slower than Phase 1 because this measurement includes managed STAGED/DURABLE protocol, control-projection, first-searchable Hunt probes during ingest, then privacy-alias derivation and F1 reconciliation. No optimization pass was performed.
 
-- Privacy-alias time-to-ready: 9.091 s (16 DURABLE batches)
-- Completion reconciliation: 0.099 s, assessment `work_queued` (transitional MITRE/embedding/discovery work remains queued; that is F1, not a false Reconciled UI state)
-- Hunt count p50/p95/p99: 39.931 / 49.104 / 67.469 ms (20 samples)
-- Hunt page p50/p95/p99: 59.452 / 73.233 / 73.713 ms
+- First DURABLE offset: 18.531 s after ingest start
+- Control projection complete offset: 18.669 s (`durable_to_projection_ms` 137.405)
+- Hunt visible offset: 18.708 s (`durable_to_hunt_ms` 176.233)
+- Privacy-alias time-to-ready: 9.104 s (16 DURABLE batches)
+- Completion reconciliation: 0.1 s, assessment `work_queued` (transitional MITRE/embedding/discovery work remains queued; that is F1, not a false Reconciled UI state)
+- Hunt count p50/p95/p99: 40.733 / 51.991 / 66.927 ms (20 samples)
+- Hunt page p50/p95/p99: 60.554 / 76.35 / 84.121 ms
 - Hunt count read_rows / read_bytes: 110,766 / 14,287,603
 - `EXPLAIN indexes=1` stored in the JSON artifact. Events PK/partition still case-scoped; control projections are FINAL joins on the existing tables.
 
@@ -125,26 +133,23 @@ Case-scoping the FINAL control subqueries did not reduce rows or bytes read at t
 
 | Suite | Result |
 |---|---|
+| Focused first-DURABLE-to-Hunt origin split | PASS (`Phase1BExitFirstDurableHuntMeasurementTestCase`) |
 | F2 readiness UI + Redis-loss + PG-failure + completion repair | PASS |
-| F2 Hunt publication gate | PASS (8 tests, product request 85.894 ms, extra Hunt SELECT round-trips 0) |
-| F1 completion reconciliation + fail-closed | PASS (35 tests; `PYTEST_CURRENT_TEST` set so the pytest-disabled scheduler contract holds under unittest) |
-| D1 lifecycle | PASS |
-| D2 reconciler | PASS |
-| E1 watermarks | PASS |
-| E2 privacy freeze/send | PASS |
-| C3E parser inventory | PASS: 84 registered, 12 CERTIFIED_MANAGED, 72 DEFERRED_LEGACY_ONLY, 0 unclassified |
-| Route security | 1 pre-existing failure on origin/main, out of this closure's locked scope: `test_tag_artifacts_start_routes_to_ioc_queue_and_tracks_task_access` still expects `apply_async(args=(11,), queue='ioc')` while `routes/iocs.py` on the F2 baseline already passes `(case.id, username, remote_ip)`. This closure did not change IOC routes. |
+| F2 Hunt publication gate | PASS |
+| EXIT blocker lifecycle + Hunt scale + no-later-phase | PASS |
 
 ## No-later-phase audit
 
 - Phase 2 ClickHouse modernization: **NO**
 - Phase 3 ERK API migration: **NO**
+- Phase 4: **NO**
 - `event_observations_current`: **NO**
 - `events_current`: **NO**
 - LEK: **NO**
 - Broad reader migration: **NO**
 - Qdrant / MEMORY_JOB / PCAP generation adoption: **NO**
 - New capability migrations: **NO**
+- Production Hunt publication semantics unchanged: **YES**
 
 Hunt still reads `events` plus the existing control-projection bridge.
 

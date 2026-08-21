@@ -1,6 +1,14 @@
 {
-  "version": "4.22.1",
+  "version": "4.22.2",
   "changelog": [
+    {
+      "version": "4.22.2",
+      "date": "2026-08-21",
+      "changes": [
+        "Corrected Phase 1B EXIT first-DURABLE-to-Hunt measurement so it is timed from mark_batch_durable, not ingest start; ingest-start-to-first-searchable is retained separately",
+        "Did not change Hunt publication semantics and did not start Phase 2"
+      ]
+    },
     {
       "version": "4.22.1",
       "date": "2026-08-21",

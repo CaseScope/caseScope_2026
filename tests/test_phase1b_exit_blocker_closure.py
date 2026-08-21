@@ -1,6 +1,7 @@
 """Phase 1B EXIT blocker-closure proofs: lifecycle, Hunt scale, no-later-phase."""
 from __future__ import annotations
 
+import importlib.util
 import json
 import os
 import statistics
@@ -9,6 +10,7 @@ import time
 import unittest
 from datetime import datetime, timezone
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import patch
 
 os.environ.setdefault("SECRET_KEY", "phase1b-exit-blocker-secret")
@@ -79,6 +81,20 @@ CH_DB = os.environ.get("PHASE1B_CH_TEST_DATABASE")
 REPO = Path("/opt/casescope")
 ARTIFACT_DIR = REPO / "docs" / "database_flow_phase1b"
 
+
+def _load_exit_measure():
+    spec = importlib.util.spec_from_file_location(
+        "phase1b_exit_measure",
+        REPO / "scripts" / "phase1b_exit_measure.py",
+    )
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+_EXIT_MEASURE = _load_exit_measure()
+FirstDurableHuntClock = _EXIT_MEASURE.FirstDurableHuntClock
+
 POSTGRES_INDEX_DDL = [
     """
     CREATE UNIQUE INDEX IF NOT EXISTS uq_evidence_source_generation_open_building
@@ -131,6 +147,107 @@ def _query_with_stats(client, sql, parameters=None):
         "rows": list(result.result_rows or []),
         "summary": dict(summary),
     }
+
+
+class Phase1BExitFirstDurableHuntMeasurementTestCase(unittest.TestCase):
+    def _batch(self, ingest_batch_id="batch-1", batch_ordinal=0):
+        return SimpleNamespace(ingest_batch_id=ingest_batch_id, batch_ordinal=batch_ordinal)
+
+    def _generation(self, case_id=7, source_ref_id="src-1", source_generation=1):
+        return SimpleNamespace(
+            case_id=case_id,
+            source_ref_id=source_ref_id,
+            source_generation=source_generation,
+        )
+
+    def test_exit_measure_script_does_not_alias_first_durable_to_ingest_start(self):
+        source = (REPO / "scripts" / "phase1b_exit_measure.py").read_text(encoding="utf-8")
+        self.assertNotIn('"first_durable_to_hunt": first_searchable', source)
+        self.assertIn("wrap_mark_batch_durable", source)
+        self.assertIn("record_hunt_visible", source)
+
+    def test_first_durable_to_hunt_uses_durable_origin_not_benchmark_start(self):
+        clock = FirstDurableHuntClock(started=100.0)
+        clock.record_durable(batch=self._batch(), generation=self._generation(), now=118.0)
+        clock.record_projection_complete(now=118.012)
+        clock.record_hunt_visible(ingest_batch_id="batch-1", hunt_total=10000, now=118.040)
+        payload = clock.artifact()
+        hunt = payload["first_durable_to_hunt"]
+        self.assertEqual(payload["time_to_first_searchable_managed_seconds"], 18.04)
+        self.assertEqual(hunt["seconds"], 0.04)
+        self.assertEqual(hunt["milliseconds"], 40.0)
+        self.assertEqual(hunt["durable_to_hunt_ms"], 40.0)
+        self.assertEqual(hunt["ingest_start_to_hunt_seconds"], 18.04)
+        self.assertEqual(hunt["durable_offset_seconds"], 18.0)
+        self.assertEqual(hunt["projection_complete_offset_seconds"], 18.012)
+        self.assertEqual(hunt["hunt_visible_offset_seconds"], 18.04)
+        self.assertEqual(hunt["durable_to_projection_ms"], 12.0)
+        self.assertEqual(hunt["ingest_batch_id"], "batch-1")
+        self.assertEqual(hunt["case_id"], 7)
+        self.assertEqual(hunt["source_ref_id"], "src-1")
+        self.assertEqual(hunt["source_generation"], 1)
+        self.assertEqual(hunt["batch_ordinal"], 0)
+        self.assertEqual(hunt["hunt_total"], 10000)
+        self.assertNotEqual(
+            payload["time_to_first_searchable_managed_seconds"],
+            hunt["seconds"],
+        )
+        self.assertAlmostEqual(
+            hunt["seconds"],
+            hunt["hunt_visible_offset_seconds"] - hunt["durable_offset_seconds"],
+            places=3,
+        )
+        self.assertAlmostEqual(
+            payload["time_to_first_searchable_managed_seconds"],
+            hunt["hunt_visible_offset_seconds"],
+            places=3,
+        )
+        self.assertNotEqual(clock.durable_monotonic, clock.started)
+        self.assertGreaterEqual(clock.hunt_visible_monotonic, clock.durable_monotonic)
+
+    def test_artifact_rejects_durable_timestamp_equal_to_benchmark_start(self):
+        clock = FirstDurableHuntClock(started=10.0)
+        clock.record_durable(batch=self._batch(), generation=self._generation(), now=10.0)
+        clock.record_projection_complete(now=10.01)
+        clock.record_hunt_visible(ingest_batch_id="batch-1", hunt_total=4, now=10.05)
+        with self.assertRaises(AssertionError) as raised:
+            clock.artifact()
+        self.assertIn("benchmark-start origin", str(raised.exception))
+
+    def test_artifact_rejects_hunt_before_durable(self):
+        clock = FirstDurableHuntClock(started=1.0)
+        clock.record_durable(batch=self._batch(), generation=self._generation(), now=5.0)
+        clock.record_projection_complete(now=5.01)
+        clock.record_hunt_visible(ingest_batch_id="batch-1", hunt_total=4, now=4.9)
+        with self.assertRaises(AssertionError) as raised:
+            clock.artifact()
+        self.assertIn("before first DURABLE", str(raised.exception))
+
+    def test_record_hunt_visible_rejects_mismatched_batch_identity(self):
+        clock = FirstDurableHuntClock(started=1.0)
+        clock.record_durable(batch=self._batch("batch-1"), generation=self._generation(), now=2.0)
+        with self.assertRaises(AssertionError) as raised:
+            clock.record_hunt_visible(ingest_batch_id="batch-other", hunt_total=4, now=2.1)
+        self.assertIn("does not match first DURABLE", str(raised.exception))
+
+    def test_later_batch_does_not_replace_first_durable_identity(self):
+        clock = FirstDurableHuntClock(started=1.0)
+        clock.record_durable(
+            batch=self._batch("batch-0", batch_ordinal=0),
+            generation=self._generation(),
+            now=2.0,
+        )
+        clock.record_durable(
+            batch=self._batch("batch-1", batch_ordinal=1),
+            generation=self._generation(),
+            now=3.0,
+        )
+        clock.record_projection_complete(now=2.01)
+        clock.record_hunt_visible(ingest_batch_id="batch-0", hunt_total=10000, now=2.05)
+        hunt = clock.artifact()["first_durable_to_hunt"]
+        self.assertEqual(hunt["ingest_batch_id"], "batch-0")
+        self.assertEqual(hunt["batch_ordinal"], 0)
+        self.assertEqual(hunt["seconds"], 0.05)
 
 
 class Phase1BExitNoLaterPhaseTestCase(unittest.TestCase):
@@ -425,15 +542,27 @@ class Phase1BExitLifecycleAndScaleTestCase(unittest.TestCase):
         self.assertEqual(hunt["total"], 0)
         self.assertEqual(batch0.state, IngestBatchState.STAGED)
 
-        first_searchable_started = time.perf_counter()
+        clock = FirstDurableHuntClock(started)
         mark_batch_durable(session=db.session, batch=batch0, verification=verification0)
+        clock.record_durable(batch=batch0, generation=generation)
         update_generation_ingest_accounting(session=db.session, generation=generation)
         db.session.commit()
         project_generation_control_state(self.ch, db.session, generation)
+        clock.record_projection_complete()
         hunt = self._hunt(flask_client)
-        hunt = self._hunt(flask_client)
-        self.timings["time_to_first_searchable_ms"] = round((time.perf_counter() - first_searchable_started) * 1000.0, 3)
-        self.timings["first_durable_to_hunt_ms"] = self.timings["time_to_first_searchable_ms"]
+        clock.record_hunt_visible(ingest_batch_id=batch0.ingest_batch_id, hunt_total=hunt["total"])
+        measured = clock.artifact()
+        self.timings["time_to_first_searchable_ms"] = round(
+            measured["time_to_first_searchable_managed_seconds"] * 1000.0,
+            3,
+        )
+        self.timings["first_durable_to_hunt_ms"] = measured["first_durable_to_hunt"]["milliseconds"]
+        self.assertNotEqual(
+            self.timings["time_to_first_searchable_ms"],
+            self.timings["first_durable_to_hunt_ms"],
+        )
+        self.assertEqual(measured["first_durable_to_hunt"]["ingest_batch_id"], batch0.ingest_batch_id)
+        self.assertEqual(measured["first_durable_to_hunt"]["batch_ordinal"], 0)
         self.assertEqual(hunt["total"], 4)
         readiness = self._readiness()
         self.assertTrue(readiness["hunt_coverage"]["search_enabled"])
