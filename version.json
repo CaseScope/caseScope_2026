@@ -1,6 +1,14 @@
 {
-  "version": "4.23.1",
+  "version": "4.23.2",
   "changelog": [
+    {
+      "version": "4.23.2",
+      "date": "2026-08-21",
+      "changes": [
+        "Closed remaining Phase 2 entry-gate deployed-schema items: production events now has the seven Phase 1B protocol columns and enable_block_number_column/enable_block_offset_column=1, with no evidence rewrite",
+        "Applied existing accepted Phase 1B control-table and CaseFile ingest_protocol_origin migrations so Hunt publication-bridge schema is present; did not apply the production text index or start Phase 2.1"
+      ]
+    },
     {
       "version": "4.23.1",
       "date": "2026-08-21",

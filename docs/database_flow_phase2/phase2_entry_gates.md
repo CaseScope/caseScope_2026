@@ -615,3 +615,166 @@ Required before Gate B can pass and before Phase 2.1:
 4. Apply Gate B `enable_block_number_column` / `enable_block_offset_column`
    with services stopped and no-rewrite proof
 5. Independent Phase 2 entry-gate re-review
+
+# Independent-review closure completion (4.23.2)
+
+This section does not replace the 4.23.0 qualification measurements or the
+4.23.1 STOP. It records completion of the remaining deployed-schema items
+after that STOP.
+
+HEAD / origin/main at start of this completion: `7aaffc5ce5612a0f31e5d8fb9b87c74f7425de8c`
+(4.23.1 Gate A harden + PHASE1B_DEPLOYMENT_SCHEMA_NOT_READY).
+Baseline expected by the re-issued closure prompt was `c73d4149` / 4.23.0;
+tree was clean and HEAD == origin/main, so work continued from current main.
+Completion version: 4.23.2. Deployed ClickHouse remains `26.7.3.19`.
+
+No Phase 2.1 reader cutover, production text-index ADD/MATERIALIZE, bloom
+removal, 2.2 insert-mode change, 2.3 lightweight UPDATE caller, 2.4 dedup,
+Phase 3, Phase 4, LEK, `events_current`, or `event_observations_current`.
+
+## Gate A expression-validation defect
+
+Unchanged from 4.23.1: compatibility previously checked `type_full` only.
+
+## Gate A migration fix
+
+Unchanged from 4.23.1. Existing `idx_search_blob_text` must match both locked
+type and `search_blob` expression. Live 26.7.3.19 still reports `expr` as
+exactly `search_blob`. Production text index was **not** applied.
+
+## Gate A tests
+
+Unchanged A–E coverage in `tests/test_phase2_entry_gates.py`. Focused suite
+re-run in this completion: 138 passed, 7 skipped.
+
+## Final Gate A verdict
+
+PHASE2_GATE_A_PASS
+
+## Production Phase 1B schema before
+
+Read-only re-inspection of production `casescope` confirmed the 4.23.1
+measurement was **not stale**:
+
+- Protocol columns **absent**
+- `visible_evidence_generations` / `durable_ingest_batches` **absent**
+- `enable_block_number_column` / `enable_block_offset_column` **absent** (default 0)
+- Active parts: 135 / 25 partitions / 745,463,991 rows / 108,493,322,926 bytes
+- `system.mutations` in progress: none
+- PostgreSQL control tables present (0 rows); `case_files.ingest_protocol_origin` absent
+
+Missing ClickHouse control projections were treated as deployment drift, not
+as LEGACY. Hunt publication already JOINs those tables, so empty accepted
+control tables were required for schema convergence.
+
+## Phase 1B schema convergence
+
+Services stopped (`casescope-web`, `casescope-workers`, `casescope-beat`).
+No ingest/reprocess exclusive fence; shared writers 0; Celery active empty.
+
+Applied existing accepted migrations only (no redesigned DDL, no backfill,
+no ALTER UPDATE, no OPTIMIZE, no historical-row rewrite):
+
+1. `migrations/add_phase1b_tranche_b_manifest_protocol.py`
+   - created empty `visible_evidence_generations` and `durable_ingest_batches`
+     with the locked ReplacingMergeTree schemas
+2. `migrations/add_case_file_ingest_protocol_origin.py`
+   - added `case_files.ingest_protocol_origin`; existing 546,874 rows received
+     the migration default `legacy_or_unknown`; future default `not_started`
+3. `migrations/add_phase1b_event_protocol_columns.py`
+   - `ADD COLUMN IF NOT EXISTS … Nullable … DEFAULT NULL` for all seven
+     protocol identity columns
+
+After protocol columns:
+
+| Column | Type |
+|---|---|
+| source_ref_type | Nullable(String) DEFAULT NULL |
+| source_ref_id | Nullable(String) DEFAULT NULL |
+| source_generation | Nullable(UInt32) DEFAULT NULL |
+| ingest_batch_id | Nullable(String) DEFAULT NULL |
+| ingest_row_ordinal | Nullable(UInt32) DEFAULT NULL |
+| ingest_row_hash | Nullable(String) DEFAULT NULL |
+| ingest_attempt_id | Nullable(UUID) DEFAULT NULL |
+
+All 745,463,991 historical rows remain NULL on every protocol identity
+column (`any_nonnull = 0`). Active parts/rows/bytes unchanged:
+135 / 745,463,991 / 108,493,322,926. No new `system.mutations` row.
+
+## Phase 1B control tables / PostgreSQL authority
+
+ClickHouse production now has:
+
+- `visible_evidence_generations` — ReplacingMergeTree(state_version),
+  ORDER BY (case_id, source_ref_type, source_ref_id, source_generation),
+  0 rows
+- `durable_ingest_batches` — ReplacingMergeTree(state_version),
+  ORDER BY ingest_batch_id, 0 rows
+
+PostgreSQL control-plane tables remain present. `ingest_protocol_origin`
+is now present. Empty control projections were not classified as LEGACY.
+
+## Production Hunt smoke
+
+Services restarted in order: `casescope-web`, `casescope-workers`,
+`casescope-beat`.
+
+- Live `GET https://127.0.0.1/login`: HTTP 200, login form present
+- Hunt API `GET /api/hunting/events/14` (legacy Sonicwall case): success,
+  total 1341 matching ClickHouse row count, `search_blob` present
+- Hunt search `search=sonicwall`: success, 13 hits
+- No missing-column / missing-table error (`source_ref_type`,
+  `visible_evidence_generations`, `durable_ingest_batches`)
+- Hunt term search remains `search_blob ilike`; no reader cutover
+- No ingest/reprocess of retained evidence
+
+## Production Gate B settings before
+
+Absent from `SHOW CREATE TABLE events` / `engine_full`. Both default 0.
+
+## Gate B migration application
+
+`migrations/add_events_block_number_offset.py --apply-production`
+
+```sql
+ALTER TABLE events MODIFY SETTING
+    enable_block_number_column = 1,
+    enable_block_offset_column = 1
+```
+
+`changed=True`. No SQL UPDATE. No lightweight UPDATE on retained evidence.
+Production text index was not applied.
+
+## Gate B no-rewrite proof
+
+| Metric | Before | After protocol columns | After Gate B |
+|---|---:|---:|---:|
+| active parts | 135 | 135 | 135 |
+| partitions | 25 | 25 | 25 |
+| active rows | 745,463,991 | 745,463,991 | 745,463,991 |
+| active bytes | 108,493,322,926 | 108,493,322,926 | 108,493,322,926 |
+| mutations in progress | 0 | 0 | 0 |
+| new mutations after 16:36:38 | — | none | none |
+
+Case 14 sample selector_key / search_blob lengths unchanged. `_block_number`
+and `_block_offset` readable (offsets 0–1340). Forensic columns and bloom
+indexes unchanged. `idx_search_blob_text` still absent.
+
+## Production Gate B settings after
+
+Both present and enabled in `SHOW CREATE TABLE` / `engine_full`:
+
+`enable_block_number_column = 1, enable_block_offset_column = 1`
+
+Disposable INSERT / lightweight-UPDATE proof remains the 4.23.0 benchmark
+plus live `tests/test_phase2_entry_gates.py` (green). No production UPDATE.
+
+## Final Gate B verdict
+
+PHASE2_GATE_B_PASS
+
+## Closure remaining work
+
+Independent Phase 2 entry-gate re-review.
+
+Do not start Phase 2.1 until that review accepts this closure.

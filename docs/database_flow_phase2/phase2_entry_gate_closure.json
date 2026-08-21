@@ -1,7 +1,9 @@
 {
-  "closure_version": "4.23.1",
-  "baseline_commit": "c73d414961d7417e78a2a3abdaad01655cb8e53c",
-  "baseline_version": "4.23.0",
+  "closure_version": "4.23.2",
+  "prior_closure_version": "4.23.1",
+  "baseline_commit_at_4_23_1": "c73d414961d7417e78a2a3abdaad01655cb8e53c",
+  "baseline_commit_at_4_23_2_start": "7aaffc5ce5612a0f31e5d8fb9b87c74f7425de8c",
+  "baseline_version": "4.23.1",
   "clickhouse_version": "26.7.3.19",
   "production_database": "casescope",
   "gate_a": {
@@ -13,32 +15,64 @@
     "materialize_index": false
   },
   "phase1b": {
-    "events_protocol_columns_present": false,
-    "visible_evidence_generations": false,
-    "durable_ingest_batches": false,
+    "events_protocol_columns_present_before": false,
+    "events_protocol_columns_present_after": true,
+    "protocol_column_types": {
+      "source_ref_type": "Nullable(String)",
+      "source_ref_id": "Nullable(String)",
+      "source_generation": "Nullable(UInt32)",
+      "ingest_batch_id": "Nullable(String)",
+      "ingest_row_ordinal": "Nullable(UInt32)",
+      "ingest_row_hash": "Nullable(String)",
+      "ingest_attempt_id": "Nullable(UUID)"
+    },
+    "historical_protocol_identity_nonnull_rows": 0,
+    "visible_evidence_generations": true,
+    "durable_ingest_batches": true,
+    "control_projection_rows": 0,
     "postgres_control_tables_present": true,
-    "case_files_ingest_protocol_origin": false,
-    "convergence_applied": false,
-    "stop": "PHASE1B_DEPLOYMENT_SCHEMA_NOT_READY"
+    "case_files_ingest_protocol_origin": true,
+    "ingest_protocol_origin_existing_value": "legacy_or_unknown",
+    "ingest_protocol_origin_existing_count": 546874,
+    "convergence_applied": true,
+    "stop": null
   },
   "gate_b": {
-    "verdict": "PHASE2_GATE_B_NOT_READY",
+    "verdict": "PHASE2_GATE_B_PASS",
     "enable_block_number_column_before": 0,
     "enable_block_offset_column_before": 0,
-    "migration_applied": false,
-    "enable_block_number_column_after": 0,
-    "enable_block_offset_column_after": 0,
+    "migration_applied": true,
+    "sql": "ALTER TABLE events MODIFY SETTING enable_block_number_column = 1, enable_block_offset_column = 1",
+    "enable_block_number_column_after": 1,
+    "enable_block_offset_column_after": 1,
     "production_update_executed": false,
     "benchmark_still_valid": true
   },
+  "no_rewrite": {
+    "active_parts_before": 135,
+    "active_parts_after": 135,
+    "active_rows_before": 745463991,
+    "active_rows_after": 745463991,
+    "active_bytes_before": 108493322926,
+    "active_bytes_after": 108493322926,
+    "mutations_in_progress_before": 0,
+    "mutations_in_progress_after": 0,
+    "new_mutations": false
+  },
   "services": {
-    "stopped": false,
-    "restarted": false,
-    "hunt_smoke": "not_performed"
+    "stopped": true,
+    "restarted": true,
+    "restart_order": ["casescope-web", "casescope-workers", "casescope-beat"],
+    "hunt_smoke": "pass",
+    "login_http": 200,
+    "hunt_case_id": 14,
+    "hunt_events_total": 1341,
+    "hunt_search_sonicwall_total": 13
   },
   "no_later_phase": {
     "phase_2_1_reader_cutover": false,
     "production_text_index_materialize": false,
+    "production_text_index_applied": false,
     "bloom_index_removal": false,
     "phase_2_2_insert_mode": false,
     "phase_2_3_lightweight_update_caller": false,
@@ -57,5 +91,5 @@
     "pyflakes": "pass",
     "git_diff_check": "pass"
   },
-  "overall": "PHASE2_ENTRY_GATE_CLOSURE_NOT_READY"
+  "overall": "PHASE2_ENTRY_GATE_CLOSURE_PASS"
 }
