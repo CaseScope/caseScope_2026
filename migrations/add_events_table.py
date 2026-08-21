@@ -129,6 +129,7 @@ CREATE TABLE IF NOT EXISTS events (
 
     INDEX idx_search_ngram search_blob TYPE ngrambf_v1(3, 512, 2, 0) GRANULARITY 4,
     INDEX idx_search_token search_blob TYPE tokenbf_v1(32768, 3, 0) GRANULARITY 4,
+    INDEX idx_search_blob_text search_blob TYPE text(tokenizer = 'splitByNonAlpha', preprocessor = lower(search_blob)) GRANULARITY 1,
     INDEX idx_event_id event_id TYPE bloom_filter(0.01) GRANULARITY 4,
     INDEX idx_selector_key selector_key TYPE bloom_filter(0.01) GRANULARITY 4,
     INDEX idx_evidence_record_key evidence_record_key TYPE bloom_filter(0.01) GRANULARITY 4
@@ -137,7 +138,9 @@ ENGINE = MergeTree()
 PARTITION BY case_id
 ORDER BY (case_id, timestamp_utc, artifact_type, source_host, source_file, event_id)
 SETTINGS
-    index_granularity = 8192;
+    index_granularity = 8192,
+    enable_block_number_column = 1,
+    enable_block_offset_column = 1;
 """
 
 EVENTS_BUFFER_SCHEMA_TEMPLATE = """

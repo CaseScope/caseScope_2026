@@ -1,0 +1,1338 @@
+{
+  "python": "/opt/casescope/venv/bin/python",
+  "production": {
+    "version": "26.7.3.19",
+    "settings": [
+      {
+        "name": "allow_experimental_full_text_index",
+        "value": "1",
+        "default": "1",
+        "changed": 0
+      },
+      {
+        "name": "allow_experimental_lightweight_update",
+        "value": "1",
+        "default": "1",
+        "changed": 0
+      },
+      {
+        "name": "alter_update_mode",
+        "value": "heavy",
+        "default": "heavy",
+        "changed": 0
+      },
+      {
+        "name": "apply_patch_parts",
+        "value": "1",
+        "default": "1",
+        "changed": 0
+      },
+      {
+        "name": "async_insert",
+        "value": "1",
+        "default": "1",
+        "changed": 0
+      },
+      {
+        "name": "enable_full_text_index",
+        "value": "1",
+        "default": "1",
+        "changed": 0
+      },
+      {
+        "name": "enable_lightweight_update",
+        "value": "1",
+        "default": "1",
+        "changed": 0
+      },
+      {
+        "name": "materialize_skip_indexes_on_insert",
+        "value": "1",
+        "default": "1",
+        "changed": 0
+      },
+      {
+        "name": "query_plan_direct_read_from_text_index",
+        "value": "1",
+        "default": "1",
+        "changed": 0
+      },
+      {
+        "name": "use_skip_indexes",
+        "value": "1",
+        "default": "1",
+        "changed": 0
+      },
+      {
+        "name": "use_skip_indexes_on_data_read",
+        "value": "1",
+        "default": "1",
+        "changed": 0
+      },
+      {
+        "name": "wait_for_async_insert",
+        "value": "1",
+        "default": "1",
+        "changed": 0
+      }
+    ],
+    "missing_settings": [],
+    "show_create_events": "CREATE TABLE casescope.events\n(\n    `case_id` UInt32,\n    `artifact_type` LowCardinality(String),\n    `timestamp` DateTime64(3),\n    `timestamp_utc` DateTime64(3),\n    `timestamp_source_tz` LowCardinality(String) DEFAULT 'UTC',\n    `source_file` String DEFAULT '',\n    `source_path` String DEFAULT '',\n    `source_host` LowCardinality(String) DEFAULT '',\n    `case_file_id` Nullable(UInt32),\n    `event_id` String DEFAULT '',\n    `channel` LowCardinality(String) DEFAULT '',\n    `provider` String DEFAULT '',\n    `record_id` Nullable(UInt64),\n    `level` LowCardinality(String) DEFAULT '',\n    `username` String DEFAULT '',\n    `domain` String DEFAULT '',\n    `sid` String DEFAULT '',\n    `logon_type` Nullable(UInt16),\n    `logon_id` String DEFAULT '',\n    `remote_host` String DEFAULT '',\n    `workstation_name` String DEFAULT '',\n    `auth_package` LowCardinality(String) DEFAULT '',\n    `logon_process` String DEFAULT '',\n    `key_length` Nullable(UInt16),\n    `elevated_token` LowCardinality(String) DEFAULT '',\n    `process_name` String DEFAULT '',\n    `process_path` String DEFAULT '',\n    `process_id` Nullable(UInt64),\n    `parent_process` String DEFAULT '',\n    `parent_pid` Nullable(UInt64),\n    `command_line` String DEFAULT '',\n    `thread_id` Nullable(UInt64),\n    `executable_info` String DEFAULT '',\n    `payload_data1` String DEFAULT '',\n    `payload_data2` String DEFAULT '',\n    `payload_data3` String DEFAULT '',\n    `payload_data4` String DEFAULT '',\n    `payload_data5` String DEFAULT '',\n    `payload_data6` String DEFAULT '',\n    `target_path` String DEFAULT '',\n    `file_hash_md5` String DEFAULT '',\n    `file_hash_sha1` String DEFAULT '',\n    `file_hash_sha256` String DEFAULT '',\n    `file_size` Nullable(UInt64),\n    `src_ip` Nullable(IPv4),\n    `dst_ip` Nullable(IPv4),\n    `src_port` Nullable(UInt16),\n    `dst_port` Nullable(UInt16),\n    `reg_key` String DEFAULT '',\n    `reg_value` String DEFAULT '',\n    `reg_data` String DEFAULT '',\n    `rule_title` String DEFAULT '',\n    `rule_level` LowCardinality(String) DEFAULT '',\n    `rule_file` String DEFAULT '',\n    `mitre_tactics` Array(String) DEFAULT [],\n    `mitre_tags` Array(String) DEFAULT [],\n    `raw_json` String DEFAULT '{}' CODEC(ZSTD(3)),\n    `search_blob` String DEFAULT '' CODEC(ZSTD(1)),\n    `extra_fields` String DEFAULT '{}' CODEC(ZSTD(3)),\n    `parser_version` LowCardinality(String) DEFAULT '',\n    `indexed_at` DateTime64(3) DEFAULT now64(3),\n    `selector_key` String MATERIALIZED multiIf((ifNull(record_id, 0) > 0) AND (source_file != '') AND (source_file != '-') AND (source_host != '') AND (source_host != '-'), concat('record:', toString(record_id), '|file:', source_file, '|host:', source_host), concat('ts:', formatDateTime(timestamp_utc, '%Y-%m-%d %H:%i:%S'), '|host:', if(source_host = '-', '', source_host), '|artifact:', if(artifact_type = '-', '', artifact_type), '|event:', if(event_id = '-', '', event_id), '|file:', if(source_file = '-', '', source_file))),\n    `analyst_tagged` Bool DEFAULT false,\n    `analyst_tags` Array(String) DEFAULT [],\n    `analyst_notes` Nullable(String) DEFAULT NULL,\n    `noise_matched` Bool DEFAULT false,\n    `noise_rules` Array(String) DEFAULT [],\n    `ioc_types` Array(String) DEFAULT [],\n    `mitre_attack_ids` Array(String) DEFAULT [],\n    `mitre_attack_tactics` Array(String) DEFAULT [],\n    `mitre_attack_sources` Array(String) DEFAULT [],\n    `mitre_mapping_max_confidence` UInt8 DEFAULT 0,\n    `evidence_record_key` String DEFAULT '',\n    `evidence_identity_version` LowCardinality(String) DEFAULT '',\n    `evidence_identity_quality` LowCardinality(String) DEFAULT '',\n    INDEX idx_search_ngram search_blob TYPE ngrambf_v1(3, 512, 2, 0) GRANULARITY 4,\n    INDEX idx_search_token search_blob TYPE tokenbf_v1(32768, 3, 0) GRANULARITY 4,\n    INDEX idx_event_id event_id TYPE bloom_filter(0.01) GRANULARITY 4,\n    INDEX idx_selector_key selector_key TYPE bloom_filter(0.01) GRANULARITY 4,\n    INDEX idx_evidence_record_key evidence_record_key TYPE bloom_filter(0.01) GRANULARITY 4\n)\nENGINE = MergeTree\nPARTITION BY case_id\nORDER BY (case_id, timestamp_utc, artifact_type, source_host, source_file, event_id)\nSETTINGS index_granularity = 8192, min_bytes_for_wide_part = 0, min_rows_for_wide_part = 0",
+    "indexes": [
+      {
+        "name": "idx_event_id",
+        "type": "bloom_filter",
+        "type_full": "bloom_filter(0.01)",
+        "expr": "event_id",
+        "granularity": 4,
+        "data_compressed_bytes": 9913034
+      },
+      {
+        "name": "idx_evidence_record_key",
+        "type": "bloom_filter",
+        "type_full": "bloom_filter(0.01)",
+        "expr": "evidence_record_key",
+        "granularity": 4,
+        "data_compressed_bytes": 886609005
+      },
+      {
+        "name": "idx_search_ngram",
+        "type": "ngrambf_v1",
+        "type_full": "ngrambf_v1(3, 512, 2, 0)",
+        "expr": "search_blob",
+        "granularity": 4,
+        "data_compressed_bytes": 4049580
+      },
+      {
+        "name": "idx_search_token",
+        "type": "tokenbf_v1",
+        "type_full": "tokenbf_v1(32768, 3, 0)",
+        "expr": "search_blob",
+        "granularity": 4,
+        "data_compressed_bytes": 964699630
+      },
+      {
+        "name": "idx_selector_key",
+        "type": "bloom_filter",
+        "type_full": "bloom_filter(0.01)",
+        "expr": "selector_key",
+        "granularity": 4,
+        "data_compressed_bytes": 453214994
+      }
+    ],
+    "parts": {
+      "active_parts": 135,
+      "rows": 745463991,
+      "bytes": 108493322926,
+      "partitions": 25
+    },
+    "table": {
+      "engine": "MergeTree",
+      "engine_full": "MergeTree PARTITION BY case_id ORDER BY (case_id, timestamp_utc, artifact_type, source_host, source_file, event_id) SETTINGS index_granularity = 8192, min_bytes_for_wide_part = 0, min_rows_for_wide_part = 0",
+      "partition_key": "case_id",
+      "sorting_key": "case_id, timestamp_utc, artifact_type, source_host, source_file, event_id",
+      "primary_key": "case_id, timestamp_utc, artifact_type, source_host, source_file, event_id"
+    },
+    "command_line_sample": {
+      "case_id": 32,
+      "summary": {
+        "read_rows": "958626",
+        "read_bytes": "3902557",
+        "written_rows": "0",
+        "written_bytes": "0",
+        "total_rows_to_read": "174899397",
+        "result_rows": "1",
+        "result_bytes": "272",
+        "elapsed_ns": "57743462",
+        "memory_usage": "10713469",
+        "query_id": "d6ee76d9-8a88-4e96-9582-0b13a6735ad4"
+      },
+      "n": 20000,
+      "nonempty_command_line": 0
+    },
+    "production_explain": {
+      "hunt_ilike_powershell": {
+        "sql": "SELECT count() FROM events WHERE case_id = 32 AND search_blob ILIKE '%powershell%'",
+        "explain": "Output: count()\n\nAggregating\n\u2502  Keys:\n\u2502  Aggregates: count()\n\u2502  Skip merging: 0\n\u2514\u2500\u2500ReadFromMergeTree (casescope.events)\n      Read type: Default\n      Parts: 14 | Granules: 35535\n      Output: Empty\n      Prewhere filter\n      Prewhere filter column:  case_id = 32 AND search_blob ILIKE '%powershell%'\n      Indexes:\n        Min-Max\n          Keys:\n            case_id\n          Condition: (case_id in [32, 32])\n          Parts: 14/135\n          Granules: 35535/148018\n        Partition\n          Keys:\n            case_id\n          Condition: (case_id in [32, 32])\n          Parts: 14/14\n          Granules: 35535/35535\n        PrimaryKey\n          Keys:\n            case_id\n          Condition: (case_id in [32, 32])\n          Parts: 14/14\n          Granules: 35535/35535\n          Search Algorithm: binary search\n        Ranges: 14"
+      },
+      "has_token_ci_powershell": {
+        "sql": "SELECT count() FROM events WHERE case_id = 32 AND hasTokenCaseInsensitive(search_blob, 'powershell')",
+        "explain": "Output: count()\n\nAggregating\n\u2502  Keys:\n\u2502  Aggregates: count()\n\u2502  Skip merging: 0\n\u2514\u2500\u2500ReadFromMergeTree (casescope.events)\n      Read type: Default\n      Parts: 14 | Granules: 35535\n      Output: Empty\n      Prewhere filter\n      Prewhere filter column:  case_id = 32 AND hasTokenCaseInsensitive(search_blob, 'powershell')\n      Indexes:\n        Min-Max\n          Keys:\n            case_id\n          Condition: (case_id in [32, 32])\n          Parts: 14/135\n          Granules: 35535/148018\n        Partition\n          Keys:\n            case_id\n          Condition: (case_id in [32, 32])\n          Parts: 14/14\n          Granules: 35535/35535\n        PrimaryKey\n          Keys:\n            case_id\n          Condition: (case_id in [32, 32])\n          Parts: 14/14\n          Granules: 35535/35535\n          Search Algorithm: binary search\n        Ranges: 14"
+      },
+      "command_line_ilike": {
+        "sql": "SELECT count() FROM events WHERE case_id = 32 AND command_line ILIKE '%powershell%'",
+        "explain": "Output: count()\n\nAggregating\n\u2502  Keys:\n\u2502  Aggregates: count()\n\u2502  Skip merging: 0\n\u2514\u2500\u2500ReadFromMergeTree (casescope.events)\n      Read type: Default\n      Parts: 14 | Granules: 35535\n      Output: Empty\n      Prewhere filter\n      Prewhere filter column:  case_id = 32 AND command_line ILIKE '%powershell%'\n      Indexes:\n        Min-Max\n          Keys:\n            case_id\n          Condition: (case_id in [32, 32])\n          Parts: 14/135\n          Granules: 35535/148018\n        Partition\n          Keys:\n            case_id\n          Condition: (case_id in [32, 32])\n          Parts: 14/14\n          Granules: 35535/35535\n        PrimaryKey\n          Keys:\n            case_id\n          Condition: (case_id in [32, 32])\n          Parts: 14/14\n          Granules: 35535/35535\n          Search Algorithm: binary search\n        Ranges: 14"
+      }
+    },
+    "query_id_sample": "d6ee76d9-8a88-4e96-9582-0b13a6735ad4"
+  },
+  "scratch_database": "casescope_phase2_gate_scratch",
+  "application_insert_client_settings": {
+    "get_client": [
+      "max_threads",
+      "max_execution_time"
+    ],
+    "async_insert_explicit": false,
+    "wait_for_async_insert_explicit": false
+  },
+  "gate_a": {
+    "accepted_ddl": "INDEX idx_search_blob_text search_blob TYPE text(tokenizer = 'splitByNonAlpha', preprocessor = lower(search_blob)) GRANULARITY 1",
+    "show_create_text_table": "CREATE TABLE casescope_phase2_gate_scratch.events_search_text\n(\n    `case_id` UInt32,\n    `selector_key` String,\n    `search_blob` String,\n    `command_line` String,\n    `analyst_tagged` Bool DEFAULT false,\n    `artifact_type` LowCardinality(String),\n    `source_host` LowCardinality(String),\n    `event_id` String,\n    INDEX idx_search_ngram search_blob TYPE ngrambf_v1(3, 512, 2, 0) GRANULARITY 4,\n    INDEX idx_search_token search_blob TYPE tokenbf_v1(32768, 3, 0) GRANULARITY 4,\n    INDEX idx_search_blob_text search_blob TYPE text(tokenizer = 'splitByNonAlpha', preprocessor = lower(search_blob)) GRANULARITY 100000000\n)\nENGINE = MergeTree\nORDER BY (case_id, selector_key)\nSETTINGS index_granularity = 8192",
+    "parity": [
+      {
+        "term": "powershell",
+        "kind": "token",
+        "current_ilike_vs_hasAllTokens_index": {
+          "a_count": 5715,
+          "b_count": 5715,
+          "equal": true,
+          "a_only": [],
+          "b_only": [],
+          "a_only_count": 0,
+          "b_only_count": 0
+        },
+        "scan_tokens_vs_index_tokens": {
+          "a_count": 5715,
+          "b_count": 5715,
+          "equal": true,
+          "a_only": [],
+          "b_only": [],
+          "a_only_count": 0,
+          "b_only_count": 0
+        },
+        "hasAnyTokens_equal_hasAllTokens": true
+      },
+      {
+        "term": "PowerShell",
+        "kind": "token",
+        "current_ilike_vs_hasAllTokens_index": {
+          "a_count": 5715,
+          "b_count": 5715,
+          "equal": true,
+          "a_only": [],
+          "b_only": [],
+          "a_only_count": 0,
+          "b_only_count": 0
+        },
+        "scan_tokens_vs_index_tokens": {
+          "a_count": 5715,
+          "b_count": 5715,
+          "equal": true,
+          "a_only": [],
+          "b_only": [],
+          "a_only_count": 0,
+          "b_only_count": 0
+        },
+        "hasAnyTokens_equal_hasAllTokens": true
+      },
+      {
+        "term": "jsmith",
+        "kind": "token",
+        "current_ilike_vs_hasAllTokens_index": {
+          "a_count": 5715,
+          "b_count": 5715,
+          "equal": true,
+          "a_only": [],
+          "b_only": [],
+          "a_only_count": 0,
+          "b_only_count": 0
+        },
+        "scan_tokens_vs_index_tokens": {
+          "a_count": 5715,
+          "b_count": 5715,
+          "equal": true,
+          "a_only": [],
+          "b_only": [],
+          "a_only_count": 0,
+          "b_only_count": 0
+        },
+        "hasAnyTokens_equal_hasAllTokens": true
+      },
+      {
+        "term": "evil.example.com",
+        "kind": "domain",
+        "current_ilike_vs_hasAllTokens_index": {
+          "a_count": 5714,
+          "b_count": 5714,
+          "equal": true,
+          "a_only": [],
+          "b_only": [],
+          "a_only_count": 0,
+          "b_only_count": 0
+        },
+        "scan_tokens_vs_index_tokens": {
+          "a_count": 5714,
+          "b_count": 5714,
+          "equal": true,
+          "a_only": [],
+          "b_only": [],
+          "a_only_count": 0,
+          "b_only_count": 0
+        },
+        "hasAnyTokens_equal_hasAllTokens": false
+      },
+      {
+        "term": "10.20.30.40",
+        "kind": "ip",
+        "current_ilike_vs_hasAllTokens_index": {
+          "a_count": 5714,
+          "b_count": 5714,
+          "equal": true,
+          "a_only": [],
+          "b_only": [],
+          "a_only_count": 0,
+          "b_only_count": 0
+        },
+        "scan_tokens_vs_index_tokens": {
+          "a_count": 5714,
+          "b_count": 5714,
+          "equal": true,
+          "a_only": [],
+          "b_only": [],
+          "a_only_count": 0,
+          "b_only_count": 0
+        },
+        "hasAnyTokens_equal_hasAllTokens": true
+      },
+      {
+        "term": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "kind": "hash",
+        "current_ilike_vs_hasAllTokens_index": {
+          "a_count": 5714,
+          "b_count": 5714,
+          "equal": true,
+          "a_only": [],
+          "b_only": [],
+          "a_only_count": 0,
+          "b_only_count": 0
+        },
+        "scan_tokens_vs_index_tokens": {
+          "a_count": 5714,
+          "b_count": 5714,
+          "equal": true,
+          "a_only": [],
+          "b_only": [],
+          "a_only_count": 0,
+          "b_only_count": 0
+        },
+        "hasAnyTokens_equal_hasAllTokens": true
+      },
+      {
+        "term": "4688",
+        "kind": "event_id_token",
+        "current_ilike_vs_hasAllTokens_index": {
+          "a_count": 5714,
+          "b_count": 5714,
+          "equal": true,
+          "a_only": [],
+          "b_only": [],
+          "a_only_count": 0,
+          "b_only_count": 0
+        },
+        "scan_tokens_vs_index_tokens": {
+          "a_count": 5714,
+          "b_count": 5714,
+          "equal": true,
+          "a_only": [],
+          "b_only": [],
+          "a_only_count": 0,
+          "b_only_count": 0
+        },
+        "hasAnyTokens_equal_hasAllTokens": true
+      },
+      {
+        "term": "substringneedle",
+        "kind": "true_substring_and_token",
+        "current_ilike_vs_hasAllTokens_index": {
+          "a_count": 4706,
+          "b_count": 4706,
+          "equal": true,
+          "a_only": [],
+          "b_only": [],
+          "a_only_count": 0,
+          "b_only_count": 0
+        },
+        "scan_tokens_vs_index_tokens": {
+          "a_count": 4706,
+          "b_count": 4706,
+          "equal": true,
+          "a_only": [],
+          "b_only": [],
+          "a_only_count": 0,
+          "b_only_count": 0
+        },
+        "hasAnyTokens_equal_hasAllTokens": true
+      },
+      {
+        "term": "Invoke",
+        "kind": "token",
+        "current_ilike_vs_hasAllTokens_index": {
+          "a_count": 5715,
+          "b_count": 5715,
+          "equal": true,
+          "a_only": [],
+          "b_only": [],
+          "a_only_count": 0,
+          "b_only_count": 0
+        },
+        "scan_tokens_vs_index_tokens": {
+          "a_count": 5715,
+          "b_count": 5715,
+          "equal": true,
+          "a_only": [],
+          "b_only": [],
+          "a_only_count": 0,
+          "b_only_count": 0
+        },
+        "hasAnyTokens_equal_hasAllTokens": true
+      },
+      {
+        "term": "m\u00fcnchen",
+        "kind": "unicode",
+        "current_ilike_vs_hasAllTokens_index": {
+          "a_count": 5714,
+          "b_count": 5714,
+          "equal": true,
+          "a_only": [],
+          "b_only": [],
+          "a_only_count": 0,
+          "b_only_count": 0
+        },
+        "scan_tokens_vs_index_tokens": {
+          "a_count": 5714,
+          "b_count": 5714,
+          "equal": true,
+          "a_only": [],
+          "b_only": [],
+          "a_only_count": 0,
+          "b_only_count": 0
+        },
+        "hasAnyTokens_equal_hasAllTokens": true
+      },
+      {
+        "term": "\u7528\u6237",
+        "kind": "unicode",
+        "current_ilike_vs_hasAllTokens_index": {
+          "a_count": 5714,
+          "b_count": 5714,
+          "equal": true,
+          "a_only": [],
+          "b_only": [],
+          "a_only_count": 0,
+          "b_only_count": 0
+        },
+        "scan_tokens_vs_index_tokens": {
+          "a_count": 5714,
+          "b_count": 5714,
+          "equal": true,
+          "a_only": [],
+          "b_only": [],
+          "a_only_count": 0,
+          "b_only_count": 0
+        },
+        "hasAnyTokens_equal_hasAllTokens": true
+      },
+      {
+        "term": "zxqvunique",
+        "kind": "rare_token",
+        "current_ilike_vs_hasAllTokens_index": {
+          "a_count": 2000,
+          "b_count": 2000,
+          "equal": true,
+          "a_only": [],
+          "b_only": [],
+          "a_only_count": 0,
+          "b_only_count": 0
+        },
+        "scan_tokens_vs_index_tokens": {
+          "a_count": 2000,
+          "b_count": 2000,
+          "equal": true,
+          "a_only": [],
+          "b_only": [],
+          "a_only_count": 0,
+          "b_only_count": 0
+        },
+        "hasAnyTokens_equal_hasAllTokens": true
+      },
+      {
+        "term": "WindowsPowerShell",
+        "kind": "commandish",
+        "current_ilike_vs_hasAllTokens_index": {
+          "a_count": 0,
+          "b_count": 0,
+          "equal": true,
+          "a_only": [],
+          "b_only": [],
+          "a_only_count": 0,
+          "b_only_count": 0
+        },
+        "scan_tokens_vs_index_tokens": {
+          "a_count": 0,
+          "b_count": 0,
+          "equal": true,
+          "a_only": [],
+          "b_only": [],
+          "a_only_count": 0,
+          "b_only_count": 0
+        },
+        "hasAnyTokens_equal_hasAllTokens": true
+      },
+      {
+        "term": "HKLM",
+        "kind": "registry",
+        "current_ilike_vs_hasAllTokens_index": {
+          "a_count": 5714,
+          "b_count": 5714,
+          "equal": true,
+          "a_only": [],
+          "b_only": [],
+          "a_only_count": 0,
+          "b_only_count": 0
+        },
+        "scan_tokens_vs_index_tokens": {
+          "a_count": 5714,
+          "b_count": 5714,
+          "equal": true,
+          "a_only": [],
+          "b_only": [],
+          "a_only_count": 0,
+          "b_only_count": 0
+        },
+        "hasAnyTokens_equal_hasAllTokens": true
+      },
+      {
+        "term": "0xC000006A",
+        "kind": "punct",
+        "current_ilike_vs_hasAllTokens_index": {
+          "a_count": 5715,
+          "b_count": 5715,
+          "equal": true,
+          "a_only": [],
+          "b_only": [],
+          "a_only_count": 0,
+          "b_only_count": 0
+        },
+        "scan_tokens_vs_index_tokens": {
+          "a_count": 5715,
+          "b_count": 5715,
+          "equal": true,
+          "a_only": [],
+          "b_only": [],
+          "a_only_count": 0,
+          "b_only_count": 0
+        },
+        "hasAnyTokens_equal_hasAllTokens": true
+      },
+      {
+        "term": "net",
+        "kind": "short_token",
+        "current_ilike_vs_hasAllTokens_index": {
+          "a_count": 11428,
+          "b_count": 11428,
+          "equal": true,
+          "a_only": [],
+          "b_only": [],
+          "a_only_count": 0,
+          "b_only_count": 0
+        },
+        "scan_tokens_vs_index_tokens": {
+          "a_count": 11428,
+          "b_count": 11428,
+          "equal": true,
+          "a_only": [],
+          "b_only": [],
+          "a_only_count": 0,
+          "b_only_count": 0
+        },
+        "hasAnyTokens_equal_hasAllTokens": true
+      },
+      {
+        "term": "power",
+        "kind": "true_substring_only",
+        "current_ilike_vs_hasAllTokens_index": {
+          "a_count": 5715,
+          "b_count": 0,
+          "equal": false,
+          "a_only": [
+            "sel-0",
+            "sel-10010",
+            "sel-10024",
+            "sel-10038",
+            "sel-10052",
+            "sel-10066",
+            "sel-1008",
+            "sel-10080",
+            "sel-10094",
+            "sel-10108",
+            "sel-10122",
+            "sel-10136",
+            "sel-10150",
+            "sel-10164",
+            "sel-10178",
+            "sel-10192",
+            "sel-10206",
+            "sel-1022",
+            "sel-10220",
+            "sel-10234",
+            "sel-10248",
+            "sel-10262",
+            "sel-10276",
+            "sel-10290",
+            "sel-10304"
+          ],
+          "b_only": [],
+          "a_only_count": 5715,
+          "b_only_count": 0
+        },
+        "scan_tokens_vs_index_tokens": {
+          "a_count": 0,
+          "b_count": 0,
+          "equal": true,
+          "a_only": [],
+          "b_only": [],
+          "a_only_count": 0,
+          "b_only_count": 0
+        },
+        "hasAnyTokens_equal_hasAllTokens": true
+      },
+      {
+        "term": "C:\\Windows\\System32\\cmd.exe",
+        "kind": "path",
+        "current_ilike_vs_hasAllTokens_index": {
+          "a_count": 5715,
+          "b_count": 5715,
+          "equal": true,
+          "a_only": [],
+          "b_only": [],
+          "a_only_count": 0,
+          "b_only_count": 0
+        },
+        "scan_tokens_vs_index_tokens": {
+          "a_count": 5715,
+          "b_count": 5715,
+          "equal": true,
+          "a_only": [],
+          "b_only": [],
+          "a_only_count": 0,
+          "b_only_count": 0
+        },
+        "hasAnyTokens_equal_hasAllTokens": false
+      }
+    ],
+    "token_path_false_negatives": [],
+    "substring_ilike_preserved_across_tables": {
+      "a_count": 5715,
+      "b_count": 5715,
+      "equal": true,
+      "a_only": [],
+      "b_only": [],
+      "a_only_count": 0,
+      "b_only_count": 0
+    },
+    "explains": {
+      "current_ilike_rare": "Output: count()\n\nAggregating\n\u2502  Keys:\n\u2502  Aggregates: count()\n\u2502  Skip merging: 0\n\u2514\u2500\u2500Filter ((WHERE + Change column names to column identifiers))\n   \u2502  Filter column: search_blob ILIKE '%zxqvunique%'\n   \u2514\u2500\u2500ReadFromMergeTree (casescope_phase2_gate_scratch.events_search_current)\n         Read type: Default\n         Parts: 1 | Granules: 10\n         Output: search_blob\n         Indexes:\n           PrimaryKey\n             Condition: true\n             Parts: 1/1\n             Granules: 10/10\n           Ranges: 1",
+      "text_hasAllTokens_rare": "Output: count()\n\nAggregating\n\u2502  Keys:\n\u2502  Aggregates: count()\n\u2502  Skip merging: 0\n\u2514\u2500\u2500Filter\n   \u2502  Filter column: __text_index_idx_search_blob_text_hasAllTokens_ae3913fab5efecfa69a46a6cd5cd022f\n   \u2514\u2500\u2500ReadFromMergeTree (casescope_phase2_gate_scratch.events_search_text)\n         Read type: Default\n         Parts: 1 | Granules: 10\n         Output: __text_index_idx_search_blob_text_hasAllTokens_ae3913fab5efecfa69a46a6cd5cd022f\n         Indexes:\n           PrimaryKey\n             Condition: true\n             Parts: 1/1\n             Granules: 10/10\n           Skip\n             Name: idx_search_blob_text\n             Description: text GRANULARITY 100000000\n             Condition: (mode: All; tokens: [\"zxqvunique\"])\n             Parts: 1/1\n             Granules: 10/10\n           Ranges: 1",
+      "current_ilike_powershell": "Output: count()\n\nAggregating\n\u2502  Keys:\n\u2502  Aggregates: count()\n\u2502  Skip merging: 0\n\u2514\u2500\u2500Filter ((WHERE + Change column names to column identifiers))\n   \u2502  Filter column: search_blob ILIKE '%powershell%'\n   \u2514\u2500\u2500ReadFromMergeTree (casescope_phase2_gate_scratch.events_search_current)\n         Read type: Default\n         Parts: 1 | Granules: 10\n         Output: search_blob\n         Indexes:\n           PrimaryKey\n             Condition: true\n             Parts: 1/1\n             Granules: 10/10\n           Ranges: 1",
+      "text_hasAllTokens_powershell": "Output: count()\n\nAggregating\n\u2502  Keys:\n\u2502  Aggregates: count()\n\u2502  Skip merging: 0\n\u2514\u2500\u2500Filter\n   \u2502  Filter column: __text_index_idx_search_blob_text_hasAllTokens_e54b45757fcbe742caf8a80a5063acc3\n   \u2514\u2500\u2500ReadFromMergeTree (casescope_phase2_gate_scratch.events_search_text)\n         Read type: Default\n         Parts: 1 | Granules: 10\n         Output: __text_index_idx_search_blob_text_hasAllTokens_e54b45757fcbe742caf8a80a5063acc3\n         Indexes:\n           PrimaryKey\n             Condition: true\n             Parts: 1/1\n             Granules: 10/10\n           Skip\n             Name: idx_search_blob_text\n             Description: text GRANULARITY 100000000\n             Condition: (mode: All; tokens: [\"powershell\"])\n             Parts: 1/1\n             Granules: 10/10\n           Ranges: 1",
+      "substring_ilike_on_text_table": "Output: count()\n\nAggregating\n\u2502  Keys:\n\u2502  Aggregates: count()\n\u2502  Skip merging: 0\n\u2514\u2500\u2500Filter\n   \u2502  Filter column: __text_index_idx_search_blob_text_ilike_d9d339728b106cb99e7c7bd7c47daf25\n   \u2514\u2500\u2500ReadFromMergeTree (casescope_phase2_gate_scratch.events_search_text)\n         Read type: Default\n         Parts: 1 | Granules: 10\n         Output: __text_index_idx_search_blob_text_ilike_d9d339728b106cb99e7c7bd7c47daf25\n         Indexes:\n           PrimaryKey\n             Condition: true\n             Parts: 1/1\n             Granules: 10/10\n           Skip\n             Name: idx_search_blob_text\n             Description: text GRANULARITY 100000000\n             Condition: (mode: All; tokens: [])\n             Parts: 1/1\n             Granules: 10/10\n           Ranges: 1"
+    },
+    "benchmarks": {
+      "current_ilike_rare": {
+        "sql": "SELECT count() FROM events_search_current WHERE search_blob ILIKE '%zxqvunique%'",
+        "result": 2000,
+        "p50_ms": 6.150227040052414,
+        "p95_ms": 6.422420963644981,
+        "min_ms": 6.0307178646326065,
+        "max_ms": 6.422420963644981,
+        "read_rows_p50": 80000,
+        "read_bytes_p50": 4965896
+      },
+      "text_hasAllTokens_rare": {
+        "sql": "SELECT count() FROM events_search_text WHERE hasAllTokens(search_blob, 'zxqvunique')",
+        "result": 2000,
+        "p50_ms": 3.5704392939805984,
+        "p95_ms": 3.592248074710369,
+        "min_ms": 3.474542871117592,
+        "max_ms": 3.592248074710369,
+        "read_rows_p50": 80000,
+        "read_bytes_p50": 80000
+      },
+      "current_ilike_powershell": {
+        "sql": "SELECT count() FROM events_search_current WHERE search_blob ILIKE '%powershell%'",
+        "result": 5715,
+        "p50_ms": 8.288983255624771,
+        "p95_ms": 8.516096509993076,
+        "min_ms": 7.985767908394337,
+        "max_ms": 8.516096509993076,
+        "read_rows_p50": 80000,
+        "read_bytes_p50": 4965896
+      },
+      "text_hasAllTokens_powershell": {
+        "sql": "SELECT count() FROM events_search_text WHERE hasAllTokens(search_blob, 'powershell')",
+        "result": 5715,
+        "p50_ms": 3.6821365356445312,
+        "p95_ms": 4.153892397880554,
+        "min_ms": 3.572997637093067,
+        "max_ms": 4.153892397880554,
+        "read_rows_p50": 80000,
+        "read_bytes_p50": 80000
+      },
+      "current_command_line_ilike": {
+        "sql": "SELECT count() FROM events_search_current WHERE command_line ILIKE '%powershell%'",
+        "result": 16000,
+        "p50_ms": 6.2697334215044975,
+        "p95_ms": 6.8243807181715965,
+        "min_ms": 6.113431416451931,
+        "max_ms": 6.8243807181715965,
+        "read_rows_p50": 80000,
+        "read_bytes_p50": 2032000
+      },
+      "current_command_line_tokens": {
+        "sql": "SELECT count() FROM events_search_current WHERE hasAllTokens(lower(command_line), 'powershell')",
+        "result": 16000,
+        "p50_ms": 6.939247250556946,
+        "p95_ms": 7.172988727688789,
+        "min_ms": 6.5480731427669525,
+        "max_ms": 7.172988727688789,
+        "read_rows_p50": 80000,
+        "read_bytes_p50": 2032000
+      },
+      "command_line_text_hasAllTokens": {
+        "sql": "SELECT count() FROM events_search_current WHERE hasAllTokens(command_line, 'powershell')",
+        "result": 16000,
+        "p50_ms": 4.057621583342552,
+        "p95_ms": 5.0293030217289925,
+        "min_ms": 3.693440929055214,
+        "max_ms": 5.0293030217289925,
+        "read_rows_p50": 80000,
+        "read_bytes_p50": 80000
+      }
+    },
+    "command_line": {
+      "nonempty": [
+        32000,
+        80000
+      ],
+      "explain_after_index": "Output: count()\n\nAggregating\n\u2502  Keys:\n\u2502  Aggregates: count()\n\u2502  Skip merging: 0\n\u2514\u2500\u2500Filter\n   \u2502  Filter column: __text_index_idx_command_line_text_hasAllTokens_e54b45757fcbe742caf8a80a5063acc3\n   \u2514\u2500\u2500ReadFromMergeTree (casescope_phase2_gate_scratch.events_search_current)\n         Read type: Default\n         Parts: 1 | Granules: 10\n         Output: __text_index_idx_command_line_text_hasAllTokens_e54b45757fcbe742caf8a80a5063acc3\n         Indexes:\n           PrimaryKey\n             Condition: true\n             Parts: 1/1\n             Granules: 10/10\n           Skip\n             Name: idx_command_line_text\n             Description: text GRANULARITY 100000000\n             Condition: (mode: All; tokens: [\"powershell\"])\n             Parts: 1/1\n             Granules: 10/10\n           Ranges: 1",
+      "ilike_count": 16000,
+      "token_count": 16000,
+      "indexed_token_count": 16000
+    },
+    "materialize_skip_indexes_on_insert": {
+      "insert_default_bytes": [
+        {
+          "data_compressed_bytes": 8630
+        }
+      ],
+      "explain_default": "Output: count()\n\nAggregating\n\u2502  Keys:\n\u2502  Aggregates: count()\n\u2502  Skip merging: 0\n\u2514\u2500\u2500Filter\n   \u2502  Filter column: __text_index_idx_search_blob_text_hasAllTokens_5676cdd10596104bea00fded4bc17612\n   \u2514\u2500\u2500ReadFromMergeTree (casescope_phase2_gate_scratch.mat_probe)\n         Read type: Default\n         Parts: 1 | Granules: 1\n         Output: __text_index_idx_search_blob_text_hasAllTokens_5676cdd10596104bea00fded4bc17612\n         Indexes:\n           PrimaryKey\n             Condition: true\n             Parts: 1/1\n             Granules: 1/1\n           Skip\n             Name: idx_search_blob_text\n             Description: text GRANULARITY 100000000\n             Condition: (mode: All; tokens: [\"alpha\"])\n             Parts: 1/1\n             Granules: 1/1\n           Ranges: 1",
+      "insert_zero_bytes": [
+        {
+          "data_compressed_bytes": 0
+        }
+      ],
+      "explain_zero": "Output: count()\n\nAggregating\n\u2502  Keys:\n\u2502  Aggregates: count()\n\u2502  Skip merging: 0\n\u2514\u2500\u2500Filter\n   \u2502  Filter column: hasAllTokens(lower(search_blob), ['alpha'], 'splitByNonAlpha')\n   \u2514\u2500\u2500ReadFromMergeTree (casescope_phase2_gate_scratch.mat_probe)\n         Read type: Default\n         Parts: 1 | Granules: 1\n         Output: search_blob\n         Indexes:\n           PrimaryKey\n             Condition: true\n             Parts: 1/1\n             Granules: 1/1\n           Skip\n             Name: idx_search_blob_text\n             Description: text GRANULARITY 100000000\n             Condition: (mode: All; tokens: [\"alpha\"])\n             Parts: 1/1\n             Granules: 1/1\n           Ranges: 1",
+      "count_with_zero_still_correct": 2000,
+      "after_explicit_materialize_bytes": [
+        {
+          "data_compressed_bytes": 8630
+        }
+      ],
+      "explain_materialize": "Output: count()\n\nAggregating\n\u2502  Keys:\n\u2502  Aggregates: count()\n\u2502  Skip merging: 0\n\u2514\u2500\u2500Filter\n   \u2502  Filter column: __text_index_idx_search_blob_text_hasAllTokens_5676cdd10596104bea00fded4bc17612\n   \u2514\u2500\u2500ReadFromMergeTree (casescope_phase2_gate_scratch.mat_probe)\n         Read type: Default\n         Parts: 1 | Granules: 1\n         Output: __text_index_idx_search_blob_text_hasAllTokens_5676cdd10596104bea00fded4bc17612\n         Indexes:\n           PrimaryKey\n             Condition: true\n             Parts: 1/1\n             Granules: 1/1\n           Skip\n             Name: idx_search_blob_text\n             Description: text GRANULARITY 100000000\n             Condition: (mode: All; tokens: [\"alpha\"])\n             Parts: 1/1\n             Granules: 1/1\n           Ranges: 1",
+      "new_rows_after_index_with_zero_visible": 200
+    },
+    "upgrade_migration": {
+      "first": {
+        "database": "casescope_phase2_gate_scratch",
+        "table": "events",
+        "exists": true,
+        "changed": true,
+        "already_applied": false,
+        "sql": "ALTER TABLE events ADD INDEX IF NOT EXISTS idx_search_blob_text search_blob TYPE text(tokenizer = 'splitByNonAlpha', preprocessor = lower(search_blob)) GRANULARITY 1",
+        "exclude_from_merge_sql": "ALTER TABLE events MODIFY SETTING exclude_materialize_skip_indexes_on_merge = 'idx_search_blob_text'",
+        "materialize_sql": null,
+        "index_before": null,
+        "index_after": {
+          "name": "idx_search_blob_text",
+          "type": "text",
+          "type_full": "text(tokenizer = 'splitByNonAlpha', preprocessor = lower(search_blob))",
+          "expr": "search_blob",
+          "granularity": 100000000
+        },
+        "bloom_indexes_present": [
+          "idx_search_ngram",
+          "idx_search_token"
+        ],
+        "search_blob_mutated": false
+      },
+      "second": {
+        "database": "casescope_phase2_gate_scratch",
+        "table": "events",
+        "exists": true,
+        "changed": false,
+        "already_applied": true,
+        "sql": null,
+        "exclude_from_merge_sql": null,
+        "materialize_sql": null,
+        "index_before": {
+          "name": "idx_search_blob_text",
+          "type": "text",
+          "type_full": "text(tokenizer = 'splitByNonAlpha', preprocessor = lower(search_blob))",
+          "expr": "search_blob",
+          "granularity": 100000000
+        },
+        "index_after": {
+          "name": "idx_search_blob_text",
+          "type": "text",
+          "type_full": "text(tokenizer = 'splitByNonAlpha', preprocessor = lower(search_blob))",
+          "expr": "search_blob",
+          "granularity": 100000000
+        },
+        "bloom_indexes_present": [
+          "idx_search_ngram",
+          "idx_search_token"
+        ],
+        "search_blob_mutated": false
+      },
+      "search_blob_unchanged": true,
+      "show_create": "CREATE TABLE casescope_phase2_gate_scratch.events\n(\n    `case_id` UInt32,\n    `selector_key` String,\n    `search_blob` String,\n    INDEX idx_search_ngram search_blob TYPE ngrambf_v1(3, 512, 2, 0) GRANULARITY 4,\n    INDEX idx_search_token search_blob TYPE tokenbf_v1(32768, 3, 0) GRANULARITY 4,\n    INDEX idx_search_blob_text search_blob TYPE text(tokenizer = 'splitByNonAlpha', preprocessor = lower(search_blob)) GRANULARITY 100000000\n)\nENGINE = MergeTree\nORDER BY (case_id, selector_key)\nSETTINGS index_granularity = 8192, exclude_materialize_skip_indexes_on_merge = 'idx_search_blob_text'"
+    }
+  },
+  "gate_b": {
+    "sql_update_without_block_settings_error": "Lightweight updates are supported only for tables with materialized _block_number column",
+    "upgrade_migration": {
+      "first": {
+        "database": "casescope_phase2_gate_scratch",
+        "table": "events",
+        "exists": true,
+        "changed": true,
+        "already_applied": false,
+        "sql": "ALTER TABLE events MODIFY SETTING enable_block_number_column = 1, enable_block_offset_column = 1",
+        "engine_full_before": "MergeTree ORDER BY (case_id, selector_key) SETTINGS index_granularity = 8192",
+        "engine_full_after": "MergeTree ORDER BY (case_id, selector_key) SETTINGS index_granularity = 8192, enable_block_number_column = 1, enable_block_offset_column = 1",
+        "block_columns_enabled": true
+      },
+      "second": {
+        "database": "casescope_phase2_gate_scratch",
+        "table": "events",
+        "exists": true,
+        "changed": false,
+        "already_applied": true,
+        "sql": null,
+        "engine_full_before": "MergeTree ORDER BY (case_id, selector_key) SETTINGS index_granularity = 8192, enable_block_number_column = 1, enable_block_offset_column = 1",
+        "engine_full_after": "MergeTree ORDER BY (case_id, selector_key) SETTINGS index_granularity = 8192, enable_block_number_column = 1, enable_block_offset_column = 1",
+        "block_columns_enabled": true
+      },
+      "forensic_columns_unchanged": true,
+      "parts_before": {
+        "parts": 1,
+        "rows": 2000,
+        "bytes": 17082
+      },
+      "parts_after": {
+        "parts": 1,
+        "rows": 2000,
+        "bytes": 17082
+      },
+      "block_select_on_existing_rows": {
+        "count": 2000,
+        "min_block_number": 1,
+        "max_block_number": 1,
+        "min_block_offset": 0,
+        "max_block_offset": 1999
+      },
+      "insert_after_settings": [
+        [
+          "sel-new",
+          "new row",
+          2
+        ]
+      ]
+    },
+    "correctness": {
+      "intended_and_unintended": [
+        [
+          "sel-0",
+          false
+        ],
+        [
+          "sel-1",
+          true
+        ],
+        [
+          "sel-2",
+          false
+        ]
+      ],
+      "repeated_idempotent_true": true,
+      "batched_true_false": [
+        4,
+        1997
+      ],
+      "concurrent_read_errors": []
+    },
+    "classic_benchmark": [
+      {
+        "n": 1,
+        "submit_ms": 21.375744603574276,
+        "visible_select_ms": 3.9413925260305405,
+        "rows_affected": 1,
+        "parts_before": {
+          "parts": 1,
+          "rows": 25000,
+          "bytes": 232610
+        },
+        "parts_after": {
+          "parts": 1,
+          "rows": 25000,
+          "bytes": 232621
+        },
+        "summary": {
+          "read_rows": "25000",
+          "read_bytes": "3",
+          "written_rows": "0",
+          "written_bytes": "0",
+          "total_rows_to_read": "25000",
+          "result_rows": "1",
+          "result_bytes": "136",
+          "elapsed_ns": "2390020",
+          "memory_usage": "4444209",
+          "query_id": "0936fbac-f830-442b-9d14-5d83e032b3dd"
+        }
+      },
+      {
+        "n": 10,
+        "submit_ms": 20.978442393243313,
+        "visible_select_ms": 4.123236984014511,
+        "rows_affected": 10,
+        "parts_before": {
+          "parts": 1,
+          "rows": 25000,
+          "bytes": 232610
+        },
+        "parts_after": {
+          "parts": 1,
+          "rows": 25000,
+          "bytes": 232637
+        },
+        "summary": {
+          "read_rows": "25000",
+          "read_bytes": "41",
+          "written_rows": "0",
+          "written_bytes": "0",
+          "total_rows_to_read": "25000",
+          "result_rows": "1",
+          "result_bytes": "136",
+          "elapsed_ns": "2368736",
+          "memory_usage": "4444231",
+          "query_id": "c547d66c-f9ee-4542-befe-ed2003dd9ab6"
+        }
+      },
+      {
+        "n": 100,
+        "submit_ms": 25.671156123280525,
+        "visible_select_ms": 3.9876457303762436,
+        "rows_affected": 100,
+        "parts_before": {
+          "parts": 1,
+          "rows": 25000,
+          "bytes": 232610
+        },
+        "parts_after": {
+          "parts": 1,
+          "rows": 25000,
+          "bytes": 232680
+        },
+        "summary": {
+          "read_rows": "25000",
+          "read_bytes": "401",
+          "written_rows": "0",
+          "written_bytes": "0",
+          "total_rows_to_read": "25000",
+          "result_rows": "1",
+          "result_bytes": "136",
+          "elapsed_ns": "2417844",
+          "memory_usage": "4444391",
+          "query_id": "4c21fbb3-c81e-4c88-9862-d4c4c3f431cb"
+        }
+      },
+      {
+        "n": 1000,
+        "submit_ms": 59.28601883351803,
+        "visible_select_ms": 4.132024943828583,
+        "rows_affected": 1000,
+        "parts_before": {
+          "parts": 1,
+          "rows": 25000,
+          "bytes": 232610
+        },
+        "parts_after": {
+          "parts": 1,
+          "rows": 25000,
+          "bytes": 232716
+        },
+        "summary": {
+          "read_rows": "25000",
+          "read_bytes": "4001",
+          "written_rows": "0",
+          "written_bytes": "0",
+          "total_rows_to_read": "25000",
+          "result_rows": "1",
+          "result_bytes": "136",
+          "elapsed_ns": "2459962",
+          "memory_usage": "4450006",
+          "query_id": "a4a80a8a-9885-47b0-b1e6-ce6840e7c83a"
+        }
+      },
+      {
+        "n": 10000,
+        "submit_ms": 479.49506528675556,
+        "visible_select_ms": 4.085562191903591,
+        "rows_affected": 10000,
+        "parts_before": {
+          "parts": 1,
+          "rows": 25000,
+          "bytes": 232610
+        },
+        "parts_after": {
+          "parts": 1,
+          "rows": 25000,
+          "bytes": 232804
+        },
+        "summary": {
+          "read_rows": "25000",
+          "read_bytes": "40001",
+          "written_rows": "0",
+          "written_bytes": "0",
+          "total_rows_to_read": "25000",
+          "result_rows": "1",
+          "result_bytes": "136",
+          "elapsed_ns": "2503921",
+          "memory_usage": "4600243",
+          "query_id": "f514fd10-007d-4d3c-b606-374acc539762"
+        }
+      }
+    ],
+    "lightweight_benchmark": [
+      {
+        "n": 1,
+        "submit_ms": 6.740182638168335,
+        "visible_select_ms": 5.101609043776989,
+        "rows_affected": 1,
+        "parts_before": {
+          "parts": 2,
+          "rows": 50000,
+          "bytes": 231050
+        },
+        "parts_after_update": {
+          "parts": 3,
+          "rows": 50001,
+          "bytes": 241183
+        },
+        "parts_after_optimize": {
+          "parts": 3,
+          "rows": 50001,
+          "bytes": 241183
+        },
+        "query_before": {
+          "sql": "SELECT countIf(analyst_tagged) FROM events_update_light",
+          "result": 0,
+          "p50_ms": 5.564853549003601,
+          "p95_ms": 5.856607109308243,
+          "min_ms": 4.030143842101097,
+          "max_ms": 5.856607109308243,
+          "read_rows_p50": 25000,
+          "read_bytes_p50": 200000
+        },
+        "query_with_patch_parts": {
+          "sql": "SELECT countIf(analyst_tagged) FROM events_update_light",
+          "result": 1,
+          "p50_ms": 4.90148738026619,
+          "p95_ms": 5.314568988978863,
+          "min_ms": 4.246638156473637,
+          "max_ms": 5.314568988978863,
+          "read_rows_p50": 25000,
+          "read_bytes_p50": 200000
+        },
+        "query_after_merge": {
+          "sql": "SELECT countIf(analyst_tagged) FROM events_update_light",
+          "result": 1,
+          "p50_ms": 3.0032768845558167,
+          "p95_ms": 3.200170584022999,
+          "min_ms": 2.864622510969639,
+          "max_ms": 3.200170584022999,
+          "read_rows_p50": 25000,
+          "read_bytes_p50": 3
+        },
+        "summary": {
+          "read_rows": "25000",
+          "read_bytes": "200000",
+          "written_rows": "0",
+          "written_bytes": "0",
+          "total_rows_to_read": "25000",
+          "result_rows": "1",
+          "result_bytes": "136",
+          "elapsed_ns": "3650919",
+          "memory_usage": "5577388",
+          "query_id": "9be0bf9a-74c8-47bb-ae78-066f30b92fbd"
+        }
+      },
+      {
+        "n": 10,
+        "submit_ms": 7.798369042575359,
+        "visible_select_ms": 4.164122976362705,
+        "rows_affected": 10,
+        "parts_before": {
+          "parts": 4,
+          "rows": 75001,
+          "bytes": 246478
+        },
+        "parts_after_update": {
+          "parts": 5,
+          "rows": 75011,
+          "bytes": 247777
+        },
+        "parts_after_optimize": {
+          "parts": 5,
+          "rows": 75011,
+          "bytes": 247777
+        },
+        "query_before": {
+          "sql": "SELECT countIf(analyst_tagged) FROM events_update_light",
+          "result": 0,
+          "p50_ms": 4.002186469733715,
+          "p95_ms": 4.082243889570236,
+          "min_ms": 3.7266267463564873,
+          "max_ms": 4.082243889570236,
+          "read_rows_p50": 25000,
+          "read_bytes_p50": 200003
+        },
+        "query_with_patch_parts": {
+          "sql": "SELECT countIf(analyst_tagged) FROM events_update_light",
+          "result": 10,
+          "p50_ms": 3.7522418424487114,
+          "p95_ms": 3.89755517244339,
+          "min_ms": 3.6518098786473274,
+          "max_ms": 3.89755517244339,
+          "read_rows_p50": 25000,
+          "read_bytes_p50": 200003
+        },
+        "query_after_merge": {
+          "sql": "SELECT countIf(analyst_tagged) FROM events_update_light",
+          "result": 10,
+          "p50_ms": 4.8353411257267,
+          "p95_ms": 4.897891543805599,
+          "min_ms": 3.7871776148676872,
+          "max_ms": 4.897891543805599,
+          "read_rows_p50": 25000,
+          "read_bytes_p50": 41
+        },
+        "summary": {
+          "read_rows": "25000",
+          "read_bytes": "200003",
+          "written_rows": "0",
+          "written_bytes": "0",
+          "total_rows_to_read": "25000",
+          "result_rows": "1",
+          "result_bytes": "136",
+          "elapsed_ns": "2748289",
+          "memory_usage": "5573870",
+          "query_id": "179daca1-91cd-4912-b363-1706fe57d13b"
+        }
+      },
+      {
+        "n": 100,
+        "submit_ms": 11.277458630502224,
+        "visible_select_ms": 4.347647540271282,
+        "rows_affected": 100,
+        "parts_before": {
+          "parts": 6,
+          "rows": 100011,
+          "bytes": 253083
+        },
+        "parts_after_update": {
+          "parts": 7,
+          "rows": 100111,
+          "bytes": 254476
+        },
+        "parts_after_optimize": {
+          "parts": 7,
+          "rows": 100111,
+          "bytes": 254476
+        },
+        "query_before": {
+          "sql": "SELECT countIf(analyst_tagged) FROM events_update_light",
+          "result": 0,
+          "p50_ms": 5.315709859132767,
+          "p95_ms": 5.479049868881702,
+          "min_ms": 4.183491691946983,
+          "max_ms": 5.479049868881702,
+          "read_rows_p50": 25000,
+          "read_bytes_p50": 200041
+        },
+        "query_with_patch_parts": {
+          "sql": "SELECT countIf(analyst_tagged) FROM events_update_light",
+          "result": 100,
+          "p50_ms": 3.855329006910324,
+          "p95_ms": 3.956848755478859,
+          "min_ms": 3.7491507828235626,
+          "max_ms": 3.956848755478859,
+          "read_rows_p50": 25000,
+          "read_bytes_p50": 200041
+        },
+        "query_after_merge": {
+          "sql": "SELECT countIf(analyst_tagged) FROM events_update_light",
+          "result": 100,
+          "p50_ms": 3.164278343319893,
+          "p95_ms": 3.1791962683200836,
+          "min_ms": 3.0762506648898125,
+          "max_ms": 3.1791962683200836,
+          "read_rows_p50": 25000,
+          "read_bytes_p50": 401
+        },
+        "summary": {
+          "read_rows": "25000",
+          "read_bytes": "200041",
+          "written_rows": "0",
+          "written_bytes": "0",
+          "total_rows_to_read": "25000",
+          "result_rows": "1",
+          "result_bytes": "136",
+          "elapsed_ns": "2870568",
+          "memory_usage": "5574090",
+          "query_id": "a53a4a6e-f004-4f81-a530-bb3852fe06d2"
+        }
+      },
+      {
+        "n": 1000,
+        "submit_ms": 21.420901641249657,
+        "visible_select_ms": 4.97940368950367,
+        "rows_affected": 1000,
+        "parts_before": {
+          "parts": 8,
+          "rows": 125111,
+          "bytes": 259789
+        },
+        "parts_after_update": {
+          "parts": 4,
+          "rows": 126000,
+          "bytes": 256593
+        },
+        "parts_after_optimize": {
+          "parts": 4,
+          "rows": 126000,
+          "bytes": 256593
+        },
+        "query_before": {
+          "sql": "SELECT countIf(analyst_tagged) FROM events_update_light",
+          "result": 0,
+          "p50_ms": 4.434539936482906,
+          "p95_ms": 4.76117804646492,
+          "min_ms": 4.2123692110180855,
+          "max_ms": 4.76117804646492,
+          "read_rows_p50": 25000,
+          "read_bytes_p50": 200401
+        },
+        "query_with_patch_parts": {
+          "sql": "SELECT countIf(analyst_tagged) FROM events_update_light",
+          "result": 1000,
+          "p50_ms": 4.826484248042107,
+          "p95_ms": 4.8278141766786575,
+          "min_ms": 4.198415204882622,
+          "max_ms": 4.8278141766786575,
+          "read_rows_p50": 25000,
+          "read_bytes_p50": 200401
+        },
+        "query_after_merge": {
+          "sql": "SELECT countIf(analyst_tagged) FROM events_update_light",
+          "result": 1000,
+          "p50_ms": 4.155774600803852,
+          "p95_ms": 4.396194592118263,
+          "min_ms": 3.316176123917103,
+          "max_ms": 4.396194592118263,
+          "read_rows_p50": 25000,
+          "read_bytes_p50": 4001
+        },
+        "summary": {
+          "read_rows": "25000",
+          "read_bytes": "200401",
+          "written_rows": "0",
+          "written_bytes": "0",
+          "total_rows_to_read": "25000",
+          "result_rows": "1",
+          "result_bytes": "136",
+          "elapsed_ns": "3045061",
+          "memory_usage": "5574188",
+          "query_id": "ee869e46-9818-4303-871c-43272e742fdd"
+        }
+      },
+      {
+        "n": 10000,
+        "submit_ms": 159.29574891924858,
+        "visible_select_ms": 4.757569171488285,
+        "rows_affected": 10000,
+        "parts_before": {
+          "parts": 5,
+          "rows": 151000,
+          "bytes": 261906
+        },
+        "parts_after_update": {
+          "parts": 6,
+          "rows": 161000,
+          "bytes": 265064
+        },
+        "parts_after_optimize": {
+          "parts": 6,
+          "rows": 161000,
+          "bytes": 265064
+        },
+        "query_before": {
+          "sql": "SELECT countIf(analyst_tagged) FROM events_update_light",
+          "result": 0,
+          "p50_ms": 4.110594280064106,
+          "p95_ms": 4.397003911435604,
+          "min_ms": 4.051863215863705,
+          "max_ms": 4.397003911435604,
+          "read_rows_p50": 25000,
+          "read_bytes_p50": 204001
+        },
+        "query_with_patch_parts": {
+          "sql": "SELECT countIf(analyst_tagged) FROM events_update_light",
+          "result": 10000,
+          "p50_ms": 4.536349326372147,
+          "p95_ms": 4.738901741802692,
+          "min_ms": 4.317070357501507,
+          "max_ms": 4.738901741802692,
+          "read_rows_p50": 25000,
+          "read_bytes_p50": 204001
+        },
+        "query_after_merge": {
+          "sql": "SELECT countIf(analyst_tagged) FROM events_update_light",
+          "result": 10000,
+          "p50_ms": 3.031717613339424,
+          "p95_ms": 3.1547266989946365,
+          "min_ms": 2.9624532908201218,
+          "max_ms": 3.1547266989946365,
+          "read_rows_p50": 25000,
+          "read_bytes_p50": 40001
+        },
+        "summary": {
+          "read_rows": "25000",
+          "read_bytes": "204001",
+          "written_rows": "0",
+          "written_bytes": "0",
+          "total_rows_to_read": "25000",
+          "result_rows": "1",
+          "result_bytes": "136",
+          "elapsed_ns": "3168606",
+          "memory_usage": "5579867",
+          "query_id": "3aa3d6e2-ab34-4537-94e5-50c804e64293"
+        }
+      }
+    ]
+  },
+  "fresh_events_schema": {
+    "contains_text_index": true,
+    "contains_block_settings": true
+  }
+}

@@ -1,6 +1,14 @@
 {
-  "version": "4.22.2",
+  "version": "4.23.0",
   "changelog": [
+    {
+      "version": "4.23.0",
+      "date": "2026-08-21",
+      "changes": [
+        "Qualified Phase 2 entry Gate A (search_blob text index) and Gate B (lightweight UPDATE / block-number columns) independently against deployed ClickHouse 26.7.3.19",
+        "Added operator-controlled idempotent events migrations for the text index and block-number/offset settings; did not cut over Hunt readers, insert mode, UPDATE callers, or later-phase surfaces"
+      ]
+    },
     {
       "version": "4.22.2",
       "date": "2026-08-21",
