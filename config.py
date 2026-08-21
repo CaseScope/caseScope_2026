@@ -79,6 +79,9 @@ class Config:
     PHASE1B_INCREMENTAL_ROW_LOCAL_DERIVATIONS_ENABLED = os.environ.get(
         'PHASE1B_INCREMENTAL_ROW_LOCAL_DERIVATIONS_ENABLED', ''
     ).strip().lower() in {'1', 'true', 'yes', 'on'}
+    PHASE1B_AI_PRIVACY_FREEZE_VERIFY_ENABLED = os.environ.get(
+        'PHASE1B_AI_PRIVACY_FREEZE_VERIFY_ENABLED', ''
+    ).strip().lower() in {'1', 'true', 'yes', 'on'}
     
     # RAG System Configuration
     QDRANT_HOST = os.environ.get('QDRANT_HOST', 'localhost')

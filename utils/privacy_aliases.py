@@ -414,6 +414,7 @@ class AIPrivacyContext:
     retention_policy: str = 'store_aliased'
     allow_local_bypass: bool = False
     tenant_id: str | None = None
+    verified_egress: object | None = None
 
     @classmethod
     def case_content(
@@ -432,6 +433,34 @@ class AIPrivacyContext:
             retention_policy=retention_policy,
             allow_local_bypass=allow_local_bypass,
             tenant_id=tenant_id,
+            verified_egress=None,
+        )
+
+    @classmethod
+    def verified_case_content(
+        cls,
+        case_id: int,
+        proof: object,
+        *,
+        privacy_level: str | None = None,
+        retention_policy: str = 'store_aliased',
+        allow_local_bypass: bool = False,
+        tenant_id: str | None = None,
+    ) -> 'AIPrivacyContext':
+        from utils.ai_privacy_freeze import is_verified_egress_proof
+
+        if not is_verified_egress_proof(proof):
+            raise TypeError('verified_case_content requires a verifier-issued proof')
+        if int(getattr(proof.frozen, 'case_id')) != int(case_id):
+            raise ValueError('verified privacy context case_id does not match frozen evidence')
+        return cls(
+            case_id=case_id,
+            content_scope=PRIVACY_SCOPE_CASE_CONTENT,
+            privacy_level=privacy_level,
+            retention_policy=retention_policy,
+            allow_local_bypass=allow_local_bypass,
+            tenant_id=tenant_id,
+            verified_egress=proof,
         )
 
     @classmethod

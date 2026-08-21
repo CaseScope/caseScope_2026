@@ -14,11 +14,30 @@ except Exception:
         return extra_instructions
 
 
-def _case_privacy_context(case_id: int | None):
+def _case_privacy_context(case_id: int | None, privacy_context=None):
+    if privacy_context is not None:
+        return privacy_context
     if not case_id:
         return None
     from utils.privacy_aliases import AIPrivacyContext
     return AIPrivacyContext.case_content(case_id)
+
+
+def _followon_privacy_context(privacy_context, raw_payload):
+    proof = getattr(privacy_context, "verified_egress", None)
+    if proof is None:
+        return privacy_context
+    from models.database import db
+    from utils.ai_privacy_freeze import (
+        build_verified_privacy_context,
+        inherit_verified_proof_for_followon_payload,
+    )
+    inherited = inherit_verified_proof_for_followon_payload(
+        db.session,
+        proof,
+        raw_payload=raw_payload,
+    )
+    return build_verified_privacy_context(privacy_context.case_id, inherited)
 
 
 def _rehydrate_for_display(case_id: int | None, value: Any) -> Any:
@@ -115,6 +134,7 @@ def review_text_output(
     review_focus: str,
     max_tokens: int = 2000,
     case_id: int | None = None,
+    privacy_context=None,
 ) -> str:
     """Run a lightweight second-pass review over analyst-facing text output."""
     if not draft or draft.startswith("[Error generating content:"):
@@ -130,6 +150,10 @@ def review_text_output(
         f"DRAFT:\n{draft}"
     )
     system_prompt = build_role_system_prompt(function, review_focus)
+    review_privacy = _followon_privacy_context(
+        _case_privacy_context(case_id, privacy_context),
+        {"prompt": review_prompt, "system": system_prompt},
+    )
 
     try:
         result = _invoke_text_with_optional_router(
@@ -139,7 +163,7 @@ def review_text_output(
             system=system_prompt,
             temperature=0.0,
             max_tokens=max_tokens,
-            privacy_context=_case_privacy_context(case_id),
+            privacy_context=review_privacy,
         )
     except Exception:
         return draft
@@ -161,6 +185,7 @@ def review_structured_output(
     review_focus: str,
     max_tokens: int = 3000,
     case_id: int | None = None,
+    privacy_context=None,
 ) -> dict[str, Any]:
     """Run a low-temperature review pass over structured JSON output."""
     if not payload:
@@ -176,6 +201,10 @@ def review_structured_output(
         f"JSON:\n{json.dumps(payload, ensure_ascii=True)}"
     )
     system_prompt = build_role_system_prompt(function, review_focus)
+    review_privacy = _followon_privacy_context(
+        _case_privacy_context(case_id, privacy_context),
+        {"prompt": review_prompt, "system": system_prompt},
+    )
 
     try:
         result = _invoke_json_with_optional_router(
@@ -185,7 +214,7 @@ def review_structured_output(
             system=system_prompt,
             temperature=0.0,
             max_tokens=max_tokens,
-            privacy_context=_case_privacy_context(case_id),
+            privacy_context=review_privacy,
         )
     except Exception:
         return sanitize_review_payload(payload)

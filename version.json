@@ -1,6 +1,15 @@
 {
-  "version": "4.19.0",
+  "version": "4.20.0",
   "changelog": [
+    {
+      "version": "4.20.0",
+      "date": "2026-08-20",
+      "changes": [
+        "Added Phase 1B Tranche E2 AI privacy freeze-verify-alias-send behind PHASE1B_AI_PRIVACY_FREEZE_VERIFY_ENABLED (default off)",
+        "Remote case-content provider calls now fail closed in strict E2 mode unless an immutable frozen evidence proof is verified against privacy-aliases:v1",
+        "Preserved local-provider privacy policy and existing sanitizer defense-in-depth; did not start Tranche F or G"
+      ]
+    },
     {
       "version": "4.19.0",
       "date": "2026-08-15",

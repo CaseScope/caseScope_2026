@@ -272,13 +272,14 @@ class AITimelineGenerator:
                              review: bool = False) -> str:
         """Send prompt to AI and get response via configured provider"""
         try:
+            privacy_context = getattr(self, 'privacy_context', None) or AIPrivacyContext.case_content(self.case.id)
             result = invoke_text(
                 function='timeline',
                 prompt=prompt,
                 system=TIMELINE_SYSTEM_PROMPT,
                 temperature=0.7,
                 max_tokens=4000,
-                privacy_context=AIPrivacyContext.case_content(self.case.id),
+                privacy_context=privacy_context,
             )
             self._last_runtime = result.get('runtime', {})
             if result.get('success'):
@@ -293,6 +294,7 @@ class AITimelineGenerator:
                         ),
                         max_tokens=2000,
                         case_id=self.case.id,
+                        privacy_context=privacy_context,
                     )
                 return rehydrate_for_display(self.case.id, content)
             current_app.logger.error(f"AI generation error: {result.get('error')}")

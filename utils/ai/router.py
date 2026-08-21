@@ -324,6 +324,100 @@ def _record_stream_runtime(
 
 
 
+def _raw_text_payload(*, prompt, system) -> dict[str, Any]:
+    return {"prompt": prompt, "system": system}
+
+
+def _raw_chat_payload(*, messages, tools) -> dict[str, Any]:
+    return {"messages": messages, "tools": tools}
+
+
+def _strict_e2_preflight(*, function: str, mode: str, provider, privacy_context, raw_payload):
+    """Fail closed for remote case-content before any provider method is called."""
+    try:
+        from utils.ai_privacy_freeze import (
+            AIPrivacyPreflightError,
+            freeze_verify_enabled,
+            get_preflight_session,
+            privacy_audit_metadata,
+            require_remote_case_content_preflight,
+        )
+    except Exception:
+        return None, {}
+    if not freeze_verify_enabled():
+        return None, {}
+    try:
+        session = get_preflight_session()
+        proof = require_remote_case_content_preflight(
+            session=session,
+            provider=provider,
+            privacy_context=privacy_context,
+            raw_payload=raw_payload,
+            function=function,
+            mode=mode,
+        )
+        metadata = privacy_audit_metadata(
+            privacy_context=privacy_context,
+            provider=provider,
+            strict_enabled=True,
+            verification_passed=True,
+            provider_invoked=False,
+        )
+        return proof, metadata
+    except Exception as exc:
+        from utils.ai_privacy_freeze import privacy_audit_metadata
+
+        reason = getattr(exc, "reason", None) or "preflight_error"
+        metadata = privacy_audit_metadata(
+            privacy_context=privacy_context,
+            provider=provider,
+            strict_enabled=True,
+            verification_passed=False,
+            failure_reason=reason,
+            provider_invoked=False,
+        )
+        try:
+            _record_ai_audit(
+                function=function,
+                mode=mode,
+                provider=provider,
+                request_payload={"preflight": "blocked"},
+                status="privacy_preflight_failed",
+                response_complete=False,
+                privacy_context=privacy_context,
+                privacy=metadata,
+                error=exc,
+            )
+        except Exception:
+            pass
+        if isinstance(exc, AIPrivacyPreflightError):
+            raise
+        raise AIPrivacyPreflightError(reason) from exc
+
+
+def _finalize_e2_privacy_metadata(metadata: dict[str, Any], *sanitizer_items, outbound_payload=None):
+    merged = dict(metadata or {})
+    aliases_applied = 0
+    enabled = False
+    for item in sanitizer_items:
+        if not isinstance(item, dict):
+            continue
+        aliases_applied += int(item.get("aliases_applied") or 0)
+        enabled = enabled or bool(item.get("enabled"))
+        if item.get("error"):
+            merged["sanitizer_error"] = item.get("error")
+    merged["aliased"] = bool(enabled or aliases_applied)
+    merged["aliases_applied"] = aliases_applied
+    if outbound_payload is not None:
+        try:
+            from utils.ai_privacy_freeze import canonical_fingerprint
+            merged["final_outbound_payload_fingerprint"] = canonical_fingerprint(outbound_payload)
+        except Exception:
+            pass
+    merged["provider_invoked"] = True
+    return merged
+
+
 def _sanitize_for_provider(value, *, privacy_context, provider):
     try:
         from utils.privacy_aliases import sanitize_for_ai_egress
@@ -389,6 +483,19 @@ def _merge_privacy_metadata(result: Dict[str, Any], *metadata_items: Optional[Di
         categories.update(item.get('entity_categories') or [])
         if item.get('error'):
             metadata['error'] = item.get('error')
+        for key, value in item.items():
+            if key in {
+                'enabled',
+                'privacy_level',
+                'case_id',
+                'content_scope',
+                'aliases_applied',
+                'duration_ms',
+                'entity_categories',
+                'error',
+            }:
+                continue
+            metadata[key] = value
     metadata['entity_categories'] = sorted(categories)
     enriched = dict(result or {})
     enriched['privacy'] = metadata
@@ -483,6 +590,14 @@ def invoke_text(
     )
     if provider is not None:
         _mark_resolved_provider(resolved_provider, function=getattr(resolved_provider, '_casescope_resolved_function', function))
+    raw_payload = _raw_text_payload(prompt=prompt, system=system)
+    _e2_proof, e2_privacy = _strict_e2_preflight(
+        function=function,
+        mode="text",
+        provider=resolved_provider,
+        privacy_context=privacy_context,
+        raw_payload=raw_payload,
+    )
     prompt, prompt_privacy = _sanitize_for_provider(prompt, privacy_context=privacy_context, provider=resolved_provider)
     system, system_privacy = _sanitize_for_provider(system, privacy_context=privacy_context, provider=resolved_provider)
     request_payload = _audit_request_payload(
@@ -514,7 +629,17 @@ def invoke_text(
         )
         raise
     raw_result = dict(result or {})
-    result = _merge_privacy_metadata(result, prompt_privacy, system_privacy)
+    result = _merge_privacy_metadata(
+        result,
+        prompt_privacy,
+        system_privacy,
+        _finalize_e2_privacy_metadata(
+            e2_privacy,
+            prompt_privacy,
+            system_privacy,
+            outbound_payload={"prompt": prompt, "system": system},
+        ),
+    )
     audit_status, response_complete = _result_audit_status(result)
     _record_ai_audit(
         function=function,
@@ -556,6 +681,14 @@ def invoke_json(
     )
     if provider is not None:
         _mark_resolved_provider(resolved_provider, function=getattr(resolved_provider, '_casescope_resolved_function', function))
+    raw_payload = _raw_text_payload(prompt=prompt, system=system)
+    _e2_proof, e2_privacy = _strict_e2_preflight(
+        function=function,
+        mode="json",
+        provider=resolved_provider,
+        privacy_context=privacy_context,
+        raw_payload=raw_payload,
+    )
     prompt, prompt_privacy = _sanitize_for_provider(prompt, privacy_context=privacy_context, provider=resolved_provider)
     system, system_privacy = _sanitize_for_provider(system, privacy_context=privacy_context, provider=resolved_provider)
     prompt, system = _apply_ioc_gemma_prompt_directives(
@@ -593,7 +726,17 @@ def invoke_json(
         )
         raise
     raw_result = dict(result or {})
-    result = _merge_privacy_metadata(result, prompt_privacy, system_privacy)
+    result = _merge_privacy_metadata(
+        result,
+        prompt_privacy,
+        system_privacy,
+        _finalize_e2_privacy_metadata(
+            e2_privacy,
+            prompt_privacy,
+            system_privacy,
+            outbound_payload={"prompt": prompt, "system": system},
+        ),
+    )
     audit_status, response_complete = _result_audit_status(result)
     _record_ai_audit(
         function=function,
@@ -635,7 +778,22 @@ def stream_chat(
     )
     if provider is not None:
         _mark_resolved_provider(resolved_provider, function=getattr(resolved_provider, '_casescope_resolved_function', function))
+    raw_payload = _raw_chat_payload(messages=messages, tools=tools)
+    _e2_proof, e2_privacy = _strict_e2_preflight(
+        function=function,
+        mode="stream_chat",
+        provider=resolved_provider,
+        privacy_context=privacy_context,
+        raw_payload=raw_payload,
+    )
     messages, messages_privacy = _sanitize_for_provider(messages, privacy_context=privacy_context, provider=resolved_provider)
+    tools, tools_privacy = _sanitize_for_provider(tools, privacy_context=privacy_context, provider=resolved_provider)
+    messages_privacy = _finalize_e2_privacy_metadata(
+        e2_privacy,
+        messages_privacy,
+        tools_privacy,
+        outbound_payload={"messages": messages, "tools": tools},
+    )
     request_payload = _audit_request_payload(
         messages=messages,
         tools=tools,

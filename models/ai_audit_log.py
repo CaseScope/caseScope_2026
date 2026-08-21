@@ -17,6 +17,7 @@ class AIAuditStatus:
     STREAM_INTERRUPTED = "stream_interrupted"
     CLIENT_DISCONNECTED = "client_disconnected"
     AUDIT_WRITE_FAILED = "audit_write_failed"
+    PRIVACY_PREFLIGHT_FAILED = "privacy_preflight_failed"
 
     @classmethod
     def all(cls):
@@ -26,6 +27,7 @@ class AIAuditStatus:
             cls.STREAM_INTERRUPTED,
             cls.CLIENT_DISCONNECTED,
             cls.AUDIT_WRITE_FAILED,
+            cls.PRIVACY_PREFLIGHT_FAILED,
         ]
 
 

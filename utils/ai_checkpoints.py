@@ -51,12 +51,13 @@ class AICheckpoint:
         """
         for attempt in range(max_retries):
             try:
+                privacy_context = getattr(self, 'privacy_context', None) or AIPrivacyContext.case_content(self.case_id)
                 result = invoke_json(
                     function='case_review',
                     prompt=prompt,
                     system=system,
                     temperature=CHECKPOINT_TEMPERATURE,
-                    privacy_context=AIPrivacyContext.case_content(self.case_id),
+                    privacy_context=privacy_context,
                 )
                 
                 if result.get('success') and result.get('data'):
@@ -64,6 +65,7 @@ class AICheckpoint:
                         function='case_review',
                         payload=result['data'],
                         case_id=self.case_id,
+                        privacy_context=privacy_context,
                         review_focus=(
                             "Review the JSON as a CaseScope case-review pass. Preserve "
                             "schema shape, actionable prioritization, and evidence-grounded wording."

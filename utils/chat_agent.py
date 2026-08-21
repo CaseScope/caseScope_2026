@@ -853,26 +853,28 @@ def get_case_context(case_id: int) -> Dict:
     return context
 
 
-def _stream_llm_chat(messages: List[Dict], tools: List[Dict] = None, case_id: int = None) -> Generator:
+def _stream_llm_chat(
+    messages: List[Dict],
+    tools: List[Dict] = None,
+    case_id: int = None,
+    privacy_context=None,
+) -> Generator:
     """Stream response from the configured LLM provider.
-    
-    Yields dicts with 'message' containing the delta.
-    When a tool_call is present, yields the full tool_call object.
-    
-    Args:
-        messages: Chat messages
-        tools: Tool definitions (optional)
-        
-    Yields:
-        Dict chunks from the provider's streaming response
+
+    In strict E2 mode each provider round that includes newly retrieved case
+    evidence must carry a new freeze/verify proof. A prior round's verified
+    proof must not be reused after a tool fetches additional events.
     """
+    context = privacy_context
+    if context is None and AIPrivacyContext and case_id:
+        context = AIPrivacyContext.case_content(case_id)
     yield from stream_chat(
         function='chat',
         messages=messages,
         tools=tools,
         temperature=0.3,
         max_tokens=MAX_RESPONSE_TOKENS,
-        privacy_context=AIPrivacyContext.case_content(case_id) if AIPrivacyContext and case_id else None,
+        privacy_context=context,
     )
 
 

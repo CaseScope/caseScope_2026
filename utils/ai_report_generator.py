@@ -238,13 +238,14 @@ class AIReportGenerator:
         effective_system = system or self._get_system_prompt()
 
         try:
+            privacy_context = getattr(self, 'privacy_context', None) or AIPrivacyContext.case_content(self.case.id)
             result = invoke_text(
                 function='report',
                 prompt=prompt,
                 system=effective_system,
                 temperature=effective_temp,
                 max_tokens=effective_max_tokens,
-                privacy_context=AIPrivacyContext.case_content(self.case.id),
+                privacy_context=privacy_context,
             )
             self._last_runtime = result.get('runtime', {})
             if result.get('success'):
@@ -260,6 +261,7 @@ class AIReportGenerator:
                         ),
                         max_tokens=min(3000, effective_max_tokens),
                         case_id=self.case.id,
+                        privacy_context=privacy_context,
                     )
                     cleaned = _strip_llm_artifacts(cleaned)
                 return rehydrate_for_display(self.case.id, cleaned)
