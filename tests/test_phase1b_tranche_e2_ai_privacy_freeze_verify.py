@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import sys
 import tempfile
 import time
 import unittest
@@ -39,10 +40,18 @@ from models.privacy_alias import PrivacyAlias, PrivacyAliasCounter
 
 _MAPPER_RELATIONSHIP_IMPORTS = (GraphSavedView, InvestigationThread)
 from parsers.log_parsers import IISLogParser
-from utils.ai.router import invoke_json, invoke_text, stream_chat
+from utils.ai.router import (
+    REASON_E2_ENFORCEMENT_UNAVAILABLE,
+    REASON_PREFLIGHT_INFRASTRUCTURE_FAILURE,
+    StrictE2PreflightUnavailable,
+    invoke_json,
+    invoke_text,
+    stream_chat,
+)
 from utils.ai_privacy_freeze import (
     REASON_CROSS_CASE_OR_MALFORMED,
     REASON_EMPTY_FORENSIC_BYPASS,
+    REASON_FOLLOWON_NEW_EVIDENCE,
     REASON_GENERATION_AUTHORITY_CHANGED,
     REASON_GENERATION_FAILED,
     REASON_GENERATION_INVALIDATED,
@@ -182,6 +191,15 @@ class UncertainLocalityProvider(CapturingRemoteProvider):
         return "openai_compatible"
 
 
+class UnknownTypeProvider(CapturingRemoteProvider):
+    def provider_type(self):
+        return ""
+
+
+def _simulate_e2_module_import_failure():
+    return patch.dict(sys.modules, {"utils.ai_privacy_freeze": None})
+
+
 class Phase1BE2ContractUnitTestCase(unittest.TestCase):
     def setUp(self):
         self._old_flag = Config.PHASE1B_AI_PRIVACY_FREEZE_VERIFY_ENABLED
@@ -318,6 +336,193 @@ class Phase1BE2ContractUnitTestCase(unittest.TestCase):
         self.assertNotIn("events_current", source)
         self.assertNotIn("completion-tail", source)
         self.assertNotIn("readiness UI", source)
+
+    def test_e2_import_failure_blocks_remote_invoke_text(self):
+        Config.PHASE1B_AI_PRIVACY_FREEZE_VERIFY_ENABLED = True
+        provider = CapturingRemoteProvider()
+        with _simulate_e2_module_import_failure():
+            with self.assertRaises(StrictE2PreflightUnavailable) as raised:
+                invoke_text(
+                    function="report",
+                    prompt="Investigate HOST1 user1@client.example",
+                    provider=provider,
+                    privacy_context=AIPrivacyContext.case_content(7),
+                )
+        self.assertEqual(raised.exception.reason, REASON_E2_ENFORCEMENT_UNAVAILABLE)
+        self.assertEqual(len(provider.calls), 0)
+
+    def test_e2_import_failure_blocks_remote_invoke_json(self):
+        Config.PHASE1B_AI_PRIVACY_FREEZE_VERIFY_ENABLED = True
+        provider = CapturingRemoteProvider()
+        with _simulate_e2_module_import_failure():
+            with self.assertRaises(StrictE2PreflightUnavailable) as raised:
+                invoke_json(
+                    function="report",
+                    prompt="Investigate HOST1 user1@client.example",
+                    provider=provider,
+                    privacy_context=AIPrivacyContext.case_content(7),
+                )
+        self.assertEqual(raised.exception.reason, REASON_E2_ENFORCEMENT_UNAVAILABLE)
+        self.assertEqual(len(provider.calls), 0)
+        self.assertEqual(sum(1 for name, _kwargs in provider.calls if name == "generate_json"), 0)
+
+    def test_e2_import_failure_blocks_remote_stream_chat(self):
+        Config.PHASE1B_AI_PRIVACY_FREEZE_VERIFY_ENABLED = True
+        provider = CapturingRemoteProvider()
+        with _simulate_e2_module_import_failure():
+            with self.assertRaises(StrictE2PreflightUnavailable) as raised:
+                list(stream_chat(
+                    function="chat",
+                    messages=[{"role": "user", "content": "show HOST1 events"}],
+                    provider=provider,
+                    privacy_context=AIPrivacyContext.case_content(7),
+                ))
+        self.assertEqual(raised.exception.reason, REASON_E2_ENFORCEMENT_UNAVAILABLE)
+        self.assertEqual(len(provider.calls), 0)
+        self.assertEqual(len(provider.stream_calls), 0)
+
+    def test_e2_import_failure_does_not_treat_none_context_as_non_case(self):
+        Config.PHASE1B_AI_PRIVACY_FREEZE_VERIFY_ENABLED = True
+        provider = CapturingRemoteProvider()
+        with _simulate_e2_module_import_failure():
+            with self.assertRaises(StrictE2PreflightUnavailable) as raised:
+                invoke_text(
+                    function="report",
+                    prompt="Investigate HOST1",
+                    provider=provider,
+                    privacy_context=None,
+                )
+        self.assertEqual(raised.exception.reason, REASON_E2_ENFORCEMENT_UNAVAILABLE)
+        self.assertEqual(len(provider.calls), 0)
+
+    def test_preflight_infrastructure_failure_does_not_disable_gate(self):
+        Config.PHASE1B_AI_PRIVACY_FREEZE_VERIFY_ENABLED = True
+        provider = CapturingRemoteProvider()
+        with patch(
+            "utils.ai_privacy_freeze.require_remote_case_content_preflight",
+            side_effect=RuntimeError("authoritative preflight lookup failed"),
+        ):
+            with self.assertRaises(Exception) as raised:
+                invoke_text(
+                    function="report",
+                    prompt="Investigate HOST1",
+                    provider=provider,
+                    privacy_context=AIPrivacyContext.case_content(7),
+                )
+        self.assertEqual(getattr(raised.exception, "reason", None), REASON_PREFLIGHT_INFRASTRUCTURE_FAILURE)
+        self.assertEqual(len(provider.calls), 0)
+
+    def test_get_preflight_session_failure_does_not_disable_gate(self):
+        Config.PHASE1B_AI_PRIVACY_FREEZE_VERIFY_ENABLED = True
+        provider = CapturingRemoteProvider()
+        with patch(
+            "utils.ai_privacy_freeze.get_preflight_session",
+            side_effect=RuntimeError("authority session lookup failed"),
+        ):
+            with self.assertRaises(Exception) as raised:
+                invoke_text(
+                    function="report",
+                    prompt="Investigate HOST1",
+                    provider=provider,
+                    privacy_context=AIPrivacyContext.case_content(7),
+                )
+        self.assertEqual(getattr(raised.exception, "reason", None), REASON_PREFLIGHT_INFRASTRUCTURE_FAILURE)
+        self.assertEqual(len(provider.calls), 0)
+
+    def test_unknown_provider_type_fails_closed(self):
+        Config.PHASE1B_AI_PRIVACY_FREEZE_VERIFY_ENABLED = True
+        provider = UnknownTypeProvider()
+        with self.assertRaises(Exception) as raised:
+            invoke_text(
+                function="report",
+                prompt="Investigate HOST1",
+                provider=provider,
+                privacy_context=AIPrivacyContext.case_content(7),
+            )
+        self.assertEqual(getattr(raised.exception, "reason", None), REASON_PROVIDER_LOCALITY_UNCERTAIN)
+        self.assertEqual(len(provider.calls), 0)
+
+    def test_e2_import_failure_preserves_local_provider(self):
+        Config.PHASE1B_AI_PRIVACY_FREEZE_VERIFY_ENABLED = True
+        provider = LocalCapturingProvider()
+        with _simulate_e2_module_import_failure():
+            result = invoke_text(
+                function="report",
+                prompt="local case text",
+                provider=provider,
+                privacy_context=AIPrivacyContext.case_content(7),
+            )
+        self.assertTrue(result["success"])
+        self.assertEqual(len(provider.calls), 1)
+
+    def test_non_content_admin_remote_without_case_payload(self):
+        Config.PHASE1B_AI_PRIVACY_FREEZE_VERIFY_ENABLED = True
+        provider = CapturingRemoteProvider()
+        result = invoke_text(
+            function="model_health",
+            prompt="list available models",
+            provider=provider,
+            privacy_context=AIPrivacyContext.non_content_admin(),
+        )
+        self.assertTrue(result["success"])
+        self.assertEqual(len(provider.calls), 1)
+
+    def test_non_content_admin_is_not_a_case_content_bypass(self):
+        Config.PHASE1B_AI_PRIVACY_FREEZE_VERIFY_ENABLED = True
+        provider = CapturingRemoteProvider()
+        with self.assertRaises(Exception) as raised:
+            invoke_text(
+                function="report",
+                prompt="Investigate HOST1 and alice@client.example",
+                provider=provider,
+                privacy_context=AIPrivacyContext.case_content(7),
+            )
+        self.assertEqual(getattr(raised.exception, "reason", None), REASON_MISSING_FROZEN_PROOF)
+        self.assertEqual(len(provider.calls), 0)
+
+    def test_e2_import_failure_preserves_non_content_admin(self):
+        Config.PHASE1B_AI_PRIVACY_FREEZE_VERIFY_ENABLED = True
+        provider = CapturingRemoteProvider()
+        with _simulate_e2_module_import_failure():
+            result = invoke_text(
+                function="model_health",
+                prompt="list available models",
+                provider=provider,
+                privacy_context=AIPrivacyContext.non_content_admin(),
+            )
+        self.assertTrue(result["success"])
+        self.assertEqual(len(provider.calls), 1)
+
+    def test_sanitizer_unavailable_still_blocks_remote_under_strict_e2_off(self):
+        provider = CapturingRemoteProvider()
+        with patch.dict(sys.modules, {"utils.privacy_aliases": None}):
+            with self.assertRaises(RuntimeError) as raised:
+                invoke_text(
+                    function="report",
+                    prompt="Investigate HOST1",
+                    provider=provider,
+                    privacy_context=None,
+                )
+        self.assertIn("privacy sanitizer unavailable", str(raised.exception))
+        self.assertEqual(len(provider.calls), 0)
+
+    def test_inherit_helper_is_not_used_by_chat_or_retrieval_paths(self):
+        production_paths = [
+            Path("utils/chat_agent.py"),
+            Path("routes/rag.py"),
+            Path("utils/ai_report_generator.py"),
+            Path("utils/ai_timeline_generator.py"),
+            Path("utils/ai_correlation_analyzer.py"),
+            Path("utils/ai_event_summary.py"),
+            Path("utils/ai_subagents.py"),
+            Path("utils/ai_checkpoints.py"),
+        ]
+        for path in production_paths:
+            source = path.read_text()
+            self.assertNotIn("inherit_verified_proof_for_followon_payload", source, path)
+        review_source = Path("utils/ai_review.py").read_text()
+        self.assertIn("inherit_verified_proof_for_followon_payload", review_source)
+        self.assertIn('followon_kind="second_pass_review"', review_source)
 
 
 @unittest.skipUnless(PG_URL and CH_DB, "PHASE1B_PG_TEST_DATABASE_URL and PHASE1B_CH_TEST_DATABASE are required")
@@ -885,6 +1090,128 @@ class Phase1BE2RealPGCHTestCase(unittest.TestCase):
         self.assertTrue(result["success"])
         self.assertEqual(len(provider.calls), 1)
 
+    def test_forensic_evidence_missing_batch_provenance_is_blocked(self):
+        frozen = freeze_selected_observations(
+            db.session,
+            case_id=self.case.id,
+            observations=[{
+                "case_id": self.case.id,
+                "evidence_record_key": "forensic-without-batch",
+                "ingest_batch_id": None,
+                "managed": False,
+                "payload_excerpt": "source_host=HOST1 | username=alice | erk=forensic-without-batch",
+            }],
+        )
+        provider = CapturingRemoteProvider()
+        with self.assertRaises(AIPrivacyPreflightError) as raised:
+            prepare_verified_case_content(
+                db.session,
+                frozen,
+                raw_payload=self._payload_for(frozen),
+            )
+        self.assertEqual(raised.exception.reason, REASON_LEGACY_UNPROVABLE)
+        self.assertEqual(len(provider.calls), 0)
+
+    def test_user_text_flag_cannot_launder_forensic_evidence_without_batches(self):
+        frozen = freeze_selected_observations(
+            db.session,
+            case_id=self.case.id,
+            observations=[{
+                "case_id": self.case.id,
+                "evidence_record_key": "forensic-launder",
+                "ingest_batch_id": None,
+                "managed": False,
+                "payload_excerpt": "source_host=HOST1 | username=alice | erk=forensic-launder",
+            }],
+            user_text_present=True,
+        )
+        with self.assertRaises(AIPrivacyPreflightError) as raised:
+            prepare_verified_case_content(
+                db.session,
+                frozen,
+                raw_payload={"prompt": frozen.payload_from_frozen_excerpts(), "system": None},
+            )
+        self.assertEqual(raised.exception.reason, REASON_LEGACY_UNPROVABLE)
+
+    def test_inherit_cannot_bind_new_forensic_identities_to_old_proof(self):
+        generation = self._generation()
+        batch0, _ = self._ingest_batch(generation, self.events[0:4], batch_ordinal=0)
+        batch1, _ = self._ingest_batch(generation, self.events[4:8], batch_ordinal=1)
+        self._derive(batch0)
+        self._derive(batch1)
+        first, _ = self._select_freeze(keys=[event.evidence_record_key for event in self.events[0:4]])
+        second, _ = self._select_freeze(keys=[event.evidence_record_key for event in self.events[4:8]])
+        raw_payload = self._payload_for(first)
+        _context, proof = prepare_verified_case_content(
+            db.session,
+            first,
+            raw_payload=raw_payload,
+            privacy_level="basic",
+        )
+        poisoned = {
+            "prompt": f"{raw_payload['prompt']}\n{second.payload_from_frozen_excerpts()}",
+            "system": raw_payload["system"],
+        }
+        provider = CapturingRemoteProvider()
+        with self.assertRaises(AIPrivacyPreflightError) as raised:
+            inherit_verified_proof_for_followon_payload(
+                db.session,
+                proof,
+                raw_payload=poisoned,
+                followon_kind="second_pass_review",
+            )
+        self.assertEqual(raised.exception.reason, REASON_FOLLOWON_NEW_EVIDENCE)
+        self.assertEqual(len(provider.calls), 0)
+
+    def test_inherit_rejects_tool_retrieval_payloads(self):
+        generation = self._generation()
+        batch0, _ = self._ingest_batch(generation, self.events[0:4], batch_ordinal=0)
+        self._derive(batch0)
+        frozen, _ = self._select_freeze(keys=[event.evidence_record_key for event in self.events[0:4]])
+        raw_payload = self._payload_for(frozen)
+        _context, proof = prepare_verified_case_content(
+            db.session,
+            frozen,
+            raw_payload=raw_payload,
+            privacy_level="basic",
+        )
+        tool_payload = {
+            "messages": [
+                {"role": "user", "content": frozen.payload_from_frozen_excerpts()},
+                {"role": "tool", "content": "new retrieval"},
+            ],
+            "tools": None,
+        }
+        with self.assertRaises(AIPrivacyPreflightError) as raised:
+            inherit_verified_proof_for_followon_payload(
+                db.session,
+                proof,
+                raw_payload=tool_payload,
+                followon_kind="second_pass_review",
+            )
+        self.assertEqual(raised.exception.reason, REASON_FOLLOWON_NEW_EVIDENCE)
+
+    def test_inherit_rejects_unknown_followon_kind(self):
+        generation = self._generation()
+        batch0, _ = self._ingest_batch(generation, self.events[0:4], batch_ordinal=0)
+        self._derive(batch0)
+        frozen, _ = self._select_freeze(keys=[event.evidence_record_key for event in self.events[0:4]])
+        raw_payload = self._payload_for(frozen)
+        _context, proof = prepare_verified_case_content(
+            db.session,
+            frozen,
+            raw_payload=raw_payload,
+            privacy_level="basic",
+        )
+        with self.assertRaises(AIPrivacyPreflightError) as raised:
+            inherit_verified_proof_for_followon_payload(
+                db.session,
+                proof,
+                raw_payload=raw_payload,
+                followon_kind="chat_tool_reuse",
+            )
+        self.assertEqual(raised.exception.reason, REASON_FOLLOWON_NEW_EVIDENCE)
+
     def test_empty_forensic_without_user_text_is_not_a_bypass(self):
         frozen = freeze_selected_observations(db.session, case_id=self.case.id, observations=[])
         with self.assertRaises(AIPrivacyPreflightError) as raised:
@@ -941,7 +1268,12 @@ class Phase1BE2RealPGCHTestCase(unittest.TestCase):
         raw_payload = self._payload_for(frozen)
         _context, proof = prepare_verified_case_content(db.session, frozen, raw_payload=raw_payload, privacy_level="basic")
         followon = {"prompt": f"Review this draft:\n{raw_payload['prompt']}", "system": "review"}
-        inherited = inherit_verified_proof_for_followon_payload(db.session, proof, raw_payload=followon)
+        inherited = inherit_verified_proof_for_followon_payload(
+            db.session,
+            proof,
+            raw_payload=followon,
+            followon_kind="second_pass_review",
+        )
         self.assertEqual(inherited.frozen.identity_fingerprint, proof.frozen.identity_fingerprint)
         self.assertNotEqual(inherited.raw_payload_fingerprint, proof.raw_payload_fingerprint)
         provider = CapturingRemoteProvider()
@@ -993,6 +1325,14 @@ class Phase1BE2RealPGCHTestCase(unittest.TestCase):
             ))
         self.assertEqual(raised.exception.reason, REASON_PAYLOAD_FINGERPRINT_MISMATCH)
         self.assertEqual(len(provider.stream_calls), 1)
+        with self.assertRaises(AIPrivacyPreflightError) as inherit_raised:
+            inherit_verified_proof_for_followon_payload(
+                db.session,
+                proof,
+                raw_payload=second_messages,
+                followon_kind="second_pass_review",
+            )
+        self.assertEqual(inherit_raised.exception.reason, REASON_FOLLOWON_NEW_EVIDENCE)
         new_context, _new_proof = prepare_verified_case_content(
             db.session,
             second,

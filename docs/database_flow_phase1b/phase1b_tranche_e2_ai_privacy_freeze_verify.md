@@ -108,6 +108,91 @@ A route that forgets to verify cannot bypass this gate.
 
 **Can a remote CASE-CONTENT call reach the provider in strict E2 mode without a valid frozen/verified evidence context? NO.**
 
+## E2 CLOSURE — FAIL-CLOSED PRECHECK INFRASTRUCTURE
+
+Independent review found a real fail-open defect after the original `PHASE1B_TRANCHE_E2_PASS` report.
+
+### Original fail-open defect
+
+`utils/ai/router.py` `_strict_e2_preflight()` wrapped the enforcement import in:
+
+```text
+try:
+    from utils.ai_privacy_freeze import (...)
+except Exception:
+    return None, {}
+```
+
+If strict E2 was enabled and `utils.ai_privacy_freeze` could not be imported, the router treated the result as "no proof required" and continued toward sanitizer/provider invocation.
+
+### Root cause
+
+The router learned `PHASE1B_AI_PRIVACY_FREEZE_VERIFY_ENABLED` only after a successful import of the enforcement module. Import failure therefore disabled the gate.
+
+### Corrected router behavior
+
+The router now reads `Config.PHASE1B_AI_PRIVACY_FREEZE_VERIFY_ENABLED` directly. It does not import `utils.ai_privacy_freeze` to decide whether strict mode is on.
+
+- STRICT OFF: accepted pre-E2 behavior is preserved.
+- STRICT ON + provably local (`provider_type() == local` under the trusted fallback): local policy is preserved even if the E2 module cannot load.
+- STRICT ON + explicit `non_content_admin` / `test_only`: no forensic E2 proof is required. `privacy_context=None` is not treated as non-case.
+- STRICT ON + remote / openai / claude / unproven openai-compatible / unknown / uncertain + CASE CONTENT: any inability to import or run E2 preflight BLOCKS. Unknown locality never fails open.
+
+There is no `except Exception: return None, {}` path that disables the gate.
+
+### Import failure behavior
+
+`StrictE2PreflightUnavailable` / `e2_enforcement_unavailable` is raised before `generate`, `generate_json`, or `stream_chat`. Provider invocation count is 0. No raw prompt leaves the process.
+
+### Internal preflight infrastructure failure
+
+If the module imports but `get_preflight_session`, `require_remote_case_content_preflight`, or an equivalent authoritative lookup fails, the failure becomes `preflight_infrastructure_failure`. It is never converted into "no proof required."
+
+### Follow-on proof inheritance audit
+
+Repo-wide, `inherit_verified_proof_for_followon_payload()` is called only from `utils/ai_review.py` second-pass review (`review_text_output`, `review_structured_output`). It is not used by:
+
+- chat tool results
+- RAG retrieval
+- report/timeline first-pass retrieval
+- correlation / event-summary / subagent / checkpoint retrieval
+
+The helper now constrains inheritance to `followon_kind=second_pass_review` only. It re-runs exact coverage/state validation, binds the new payload fingerprint, and BLOCKS when the follow-on payload:
+
+- has a tool/function retrieval shape
+- introduces ERK / `ingest_batch_id` identities outside the frozen set
+- uses any other follow-on kind
+
+**Can newly retrieved forensic evidence be sent by merely rebinding an older proof? NO.**
+
+### User-text / zero-batch audit
+
+Zero batches is not a universal bypass.
+
+- Genuine `user_text` only may proceed under current sanitizer policy.
+- Non-event case metadata is blocked (`non_event_metadata_unsupported`).
+- Forensic evidence with missing batch provenance is `legacy_unprovable_evidence`.
+- Empty static payload is `empty_forensic_universal_bypass`.
+- Setting `user_text_present=True` while including forensic observations does not convert those observations into a user-text proof.
+
+**Can an empty/user_text proof bypass forensic or non-event metadata policy? NO.**
+
+### New closure tests
+
+- E2 module import failure for `invoke_text`, `invoke_json`, and `stream_chat`
+- `privacy_context=None` is not non-case under import failure
+- authoritative preflight / session infrastructure failure
+- unknown provider type / uncertain locality
+- local-provider and non-case admin regressions, including under import failure
+- sanitizer-unavailable remote block retained
+- inherit cannot bind new forensic identities or tool retrievals
+- multi-round chat: proof A cannot cover newly retrieved evidence B; a new freeze may proceed
+- user-text / missing-batch / metadata audits
+
+### Real PostgreSQL / ClickHouse rerun
+
+Closure re-runs the original disposable PG/CH success and failure matrix: certified managed IIS fixture → generation → DURABLE batches → `privacy-aliases:v1` → watermark → select → freeze → exact verify → alias → capturing remote provider. TOCTOU activation/invalidation and new-ingest-after-freeze remain 0-expansion / 0-call gates.
+
 ## Freeze → Verify → Alias → Send Ordering
 
 1. Select evidence
@@ -199,6 +284,9 @@ Rehydrate only for authorized local display after provider response.
 - `payload_fingerprint_mismatch`
 - `empty_forensic_universal_bypass`
 - `non_event_metadata_unsupported`
+- `e2_enforcement_unavailable`
+- `preflight_infrastructure_failure`
+- `followon_new_forensic_evidence`
 
 Messages do not include raw case content.
 

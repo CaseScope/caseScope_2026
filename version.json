@@ -1,6 +1,14 @@
 {
-  "version": "4.20.0",
+  "version": "4.20.1",
   "changelog": [
+    {
+      "version": "4.20.1",
+      "date": "2026-08-20",
+      "changes": [
+        "Closed the Phase 1B Tranche E2 fail-open: strict remote case-content egress now blocks when the privacy-freeze module cannot import or preflight infrastructure fails",
+        "Hardened follow-on proof inheritance so newly retrieved forensic identities cannot reuse an older freeze; did not start Tranche F or G"
+      ]
+    },
     {
       "version": "4.20.0",
       "date": "2026-08-20",

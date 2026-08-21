@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 import time
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
@@ -58,6 +59,14 @@ REASON_EMPTY_FORENSIC_BYPASS = "empty_forensic_universal_bypass"
 REASON_NON_EVENT_UNSUPPORTED = "non_event_metadata_unsupported"
 REASON_MIXED_GENERATIONS = "mixed_generations"
 REASON_ERK_BATCH_INCONSISTENT = "erk_batch_inconsistent"
+REASON_E2_ENFORCEMENT_UNAVAILABLE = "e2_enforcement_unavailable"
+REASON_PREFLIGHT_INFRASTRUCTURE_FAILURE = "preflight_infrastructure_failure"
+REASON_FOLLOWON_NEW_EVIDENCE = "followon_new_forensic_evidence"
+
+FOLLOWON_KIND_SECOND_PASS_REVIEW = "second_pass_review"
+_ALLOWED_FOLLOWON_KINDS = frozenset({FOLLOWON_KIND_SECOND_PASS_REVIEW})
+_ERK_MARK_RE = re.compile(r"(?:^|[|\s])erk=([^\s|]+)")
+_TOOL_MESSAGE_ROLES = frozenset({"tool", "function"})
 
 _PROOF_TOKEN = object()
 
@@ -709,20 +718,74 @@ def verify_frozen_privacy_coverage(
     )
 
 
+def _walk_payload_forensic_identities(value: Any) -> tuple[set[str], set[str], bool]:
+    """Collect ERK / ingest_batch_id identities and tool-retrieval shape."""
+    erks: set[str] = set()
+    batches: set[str] = set()
+    has_tool_retrieval = False
+
+    def walk(item: Any) -> None:
+        nonlocal has_tool_retrieval
+        if isinstance(item, dict):
+            role = str(item.get("role") or "").strip().lower()
+            if role in _TOOL_MESSAGE_ROLES:
+                has_tool_retrieval = True
+            erk = item.get("evidence_record_key")
+            if erk:
+                erks.add(str(erk))
+            batch_id = item.get("ingest_batch_id")
+            if batch_id:
+                batches.add(str(batch_id))
+            for child in item.values():
+                walk(child)
+            return
+        if isinstance(item, (list, tuple)):
+            for child in item:
+                walk(child)
+            return
+        if isinstance(item, str):
+            for match in _ERK_MARK_RE.finditer(item):
+                erks.add(match.group(1))
+
+    walk(value)
+    return erks, batches, has_tool_retrieval
+
+
 def inherit_verified_proof_for_followon_payload(
     session,
     proof: VerifiedFrozenEgressProof,
     *,
     raw_payload: Any,
+    followon_kind: str = FOLLOWON_KIND_SECOND_PASS_REVIEW,
 ) -> VerifiedFrozenEgressProof:
     """Bind a later provider payload to the same frozen evidence identity.
 
-    Used for review/report follow-on calls that send already-selected (or
-    already-aliased) content. Does not retrieve new evidence. New forensic
-    evidence from a later tool call must create a new freeze instead.
+    Production use is second-pass review of a draft derived from the same
+    frozen set. This helper does not retrieve evidence and must not be used
+    to attach newly retrieved forensic identities to an older proof.
     """
     if not is_verified_egress_proof(proof):
         raise AIPrivacyPreflightError(REASON_MISSING_FROZEN_PROOF)
+    if str(followon_kind or "") not in _ALLOWED_FOLLOWON_KINDS:
+        raise AIPrivacyPreflightError(
+            REASON_FOLLOWON_NEW_EVIDENCE,
+            detail="unsupported_followon_kind",
+        )
+    payload_erks, payload_batches, has_tool_retrieval = _walk_payload_forensic_identities(raw_payload)
+    if has_tool_retrieval:
+        raise AIPrivacyPreflightError(
+            REASON_FOLLOWON_NEW_EVIDENCE,
+            detail="tool_retrieval_requires_new_freeze",
+        )
+    frozen_erks = {str(erk) for erk in proof.frozen.selected_erks if erk}
+    frozen_batches = {str(batch_id) for batch_id in proof.frozen.selected_ingest_batch_ids if batch_id}
+    extra_erks = payload_erks - frozen_erks
+    extra_batches = payload_batches - frozen_batches
+    if extra_erks or extra_batches:
+        raise AIPrivacyPreflightError(
+            REASON_FOLLOWON_NEW_EVIDENCE,
+            detail="new_forensic_identity_requires_new_freeze",
+        )
     return verify_frozen_privacy_coverage(
         session,
         proof.frozen,

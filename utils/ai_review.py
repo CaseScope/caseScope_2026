@@ -3,9 +3,12 @@
 from __future__ import annotations
 
 import json
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from utils.ai.router import invoke_json, invoke_text
+
+if TYPE_CHECKING:
+    from utils.privacy_aliases import AIPrivacyContext
 
 try:
     from utils.ai_training import build_role_system_prompt
@@ -36,6 +39,7 @@ def _followon_privacy_context(privacy_context, raw_payload):
         db.session,
         proof,
         raw_payload=raw_payload,
+        followon_kind="second_pass_review",
     )
     return build_verified_privacy_context(privacy_context.case_id, inherited)
 

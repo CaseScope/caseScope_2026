@@ -332,20 +332,77 @@ def _raw_chat_payload(*, messages, tools) -> dict[str, Any]:
     return {"messages": messages, "tools": tools}
 
 
+REASON_E2_ENFORCEMENT_UNAVAILABLE = "e2_enforcement_unavailable"
+REASON_PREFLIGHT_INFRASTRUCTURE_FAILURE = "preflight_infrastructure_failure"
+_EXPLICIT_NON_CASE_SCOPES = frozenset({"non_content_admin", "test_only"})
+
+
+class StrictE2PreflightUnavailable(RuntimeError):
+    """Strict E2 is on but enforcement cannot run for remote/uncertain case content."""
+
+    def __init__(self, reason: str, *, detail: str = ""):
+        self.reason = str(reason)
+        self.detail = str(detail or "")
+        message = f"AI privacy preflight blocked remote egress: {self.reason}"
+        if self.detail:
+            message = f"{message} ({self.detail})"
+        super().__init__(message)
+
+
+def _strict_e2_enabled_from_config() -> bool:
+    """Read the E2 flag at the router boundary without importing enforcement."""
+    from config import Config
+    return bool(getattr(Config, "PHASE1B_AI_PRIVACY_FREEZE_VERIFY_ENABLED", False))
+
+
+def _explicit_non_case_scope(privacy_context) -> bool:
+    if privacy_context is None:
+        return False
+    return getattr(privacy_context, "content_scope", None) in _EXPLICIT_NON_CASE_SCOPES
+
+
+def _import_failure_metadata(*, provider, privacy_context, reason: str) -> dict[str, Any]:
+    locality = "local" if _is_local_provider_fallback(provider) else "uncertain"
+    return {
+        "strict_e2_enabled": True,
+        "provider_locality": locality,
+        "verification_passed": False,
+        "failure_reason": reason,
+        "provider_invoked": False,
+        "content_scope": None if privacy_context is None else getattr(privacy_context, "content_scope", None),
+    }
+
+
 def _strict_e2_preflight(*, function: str, mode: str, provider, privacy_context, raw_payload):
-    """Fail closed for remote case-content before any provider method is called."""
+    """Fail closed for remote case-content before any provider method is called.
+
+    Strict-off preserves pre-E2 behavior. Strict-on must not depend on a
+    successful ``utils.ai_privacy_freeze`` import to decide that the gate is
+    required. Import or infrastructure failure is fail-open only for a
+    provably local provider or an explicit non-case admin/test scope.
+    """
+    if not _strict_e2_enabled_from_config():
+        return None, {}
+
     try:
         from utils.ai_privacy_freeze import (
             AIPrivacyPreflightError,
-            freeze_verify_enabled,
             get_preflight_session,
             privacy_audit_metadata,
             require_remote_case_content_preflight,
         )
-    except Exception:
-        return None, {}
-    if not freeze_verify_enabled():
-        return None, {}
+    except Exception as exc:
+        if _is_local_provider_fallback(provider) or _explicit_non_case_scope(privacy_context):
+            return None, _import_failure_metadata(
+                provider=provider,
+                privacy_context=privacy_context,
+                reason=REASON_E2_ENFORCEMENT_UNAVAILABLE,
+            )
+        raise StrictE2PreflightUnavailable(
+            REASON_E2_ENFORCEMENT_UNAVAILABLE,
+            detail="enforcement_module_import_failed",
+        ) from exc
+
     try:
         session = get_preflight_session()
         proof = require_remote_case_content_preflight(
@@ -365,17 +422,23 @@ def _strict_e2_preflight(*, function: str, mode: str, provider, privacy_context,
         )
         return proof, metadata
     except Exception as exc:
-        from utils.ai_privacy_freeze import privacy_audit_metadata
-
-        reason = getattr(exc, "reason", None) or "preflight_error"
-        metadata = privacy_audit_metadata(
-            privacy_context=privacy_context,
-            provider=provider,
-            strict_enabled=True,
-            verification_passed=False,
-            failure_reason=reason,
-            provider_invoked=False,
-        )
+        reason = getattr(exc, "reason", None) or REASON_PREFLIGHT_INFRASTRUCTURE_FAILURE
+        try:
+            metadata = privacy_audit_metadata(
+                privacy_context=privacy_context,
+                provider=provider,
+                strict_enabled=True,
+                verification_passed=False,
+                failure_reason=reason,
+                provider_invoked=False,
+            )
+        except Exception:
+            metadata = {
+                "strict_e2_enabled": True,
+                "verification_passed": False,
+                "failure_reason": reason,
+                "provider_invoked": False,
+            }
         try:
             _record_ai_audit(
                 function=function,
