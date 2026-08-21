@@ -287,23 +287,32 @@ def classify_case_ingest_composition(
     *,
     case_id: int,
     case_uuid: Optional[str] = None,
+    generations: Optional[list[EvidenceSourceGeneration]] = None,
 ) -> str:
     """Classify a case as legacy-only, managed-only, or mixed from PG authority.
 
     Returns only a proven composition. Authority-read failure raises
     ``CompletionCompositionUnknown``. Query failure is never treated as
     an empty result or as ``legacy_only``.
+
+    ``generations`` may be supplied by a caller that already loaded the
+    case's ``EvidenceSourceGeneration`` rows in the same session. Passing
+    a successful load is equivalent to querying again; it is not a way to
+    skip a failed authority read.
     """
-    generations = _require_composition_rows(
-        session,
-        case_id=case_id,
-        description="evidence_source_generations query failed",
-        query_fn=lambda: (
-            session.query(EvidenceSourceGeneration)
-            .filter_by(case_id=int(case_id))
-            .all()
-        ),
-    )
+    if generations is None:
+        generations = _require_composition_rows(
+            session,
+            case_id=case_id,
+            description="evidence_source_generations query failed",
+            query_fn=lambda: (
+                session.query(EvidenceSourceGeneration)
+                .filter_by(case_id=int(case_id))
+                .all()
+            ),
+        )
+    else:
+        generations = list(generations)
     has_managed = bool(generations)
     managed_file_ids = {
         str(row.source_ref_id)
@@ -389,6 +398,34 @@ def _generation_fingerprint(generation: EvidenceSourceGeneration) -> dict[str, A
     }
 
 
+def default_generation_ids_from_rows(
+    generations: list[EvidenceSourceGeneration],
+) -> set[int]:
+    """Compute default-authority generation ids from an already-loaded row set.
+
+    Semantics match ``resolve_default_capability_generation``: ACTIVE wins;
+    BUILDING_INITIAL is used only when no ACTIVE and no BUILDING_REPLACEMENT
+    exist for that source. No extra PostgreSQL queries.
+    """
+    by_source: dict[tuple[str, str], list[EvidenceSourceGeneration]] = {}
+    for row in generations:
+        by_source.setdefault((row.source_ref_type, str(row.source_ref_id)), []).append(row)
+    ids: set[int] = set()
+    for rows in by_source.values():
+        active = [row for row in rows if row.visibility_state == EvidenceGenerationState.ACTIVE]
+        if active:
+            ids.add(int(active[0].id))
+            continue
+        initial = [
+            row for row in rows if row.visibility_state == EvidenceGenerationState.BUILDING_INITIAL
+        ]
+        if initial and not any(
+            row.visibility_state == EvidenceGenerationState.BUILDING_REPLACEMENT for row in rows
+        ):
+            ids.add(int(initial[0].id))
+    return ids
+
+
 def _is_default_authority(session, generation: EvidenceSourceGeneration) -> bool:
     default = resolve_default_capability_generation(
         session,
@@ -441,7 +478,7 @@ def snapshot_case_completion_authority(
     )
     watermarks = (
         session.query(CaseCapabilitySourceState)
-        .filter_by(case_id=int(case_id))
+        .filter_by(case_id=int(case_id), capability=CapabilityName.PRIVACY_ALIASES)
         .all()
     )
     batches_by_generation: dict[int, list[IngestBatch]] = {}
@@ -462,7 +499,7 @@ def snapshot_case_completion_authority(
         "case_id": int(case_id),
         "case_uuid": case_uuid,
         "composition": classify_case_ingest_composition(
-            session, case_id=case_id, case_uuid=case_uuid
+            session, case_id=case_id, case_uuid=case_uuid, generations=generations
         ),
         "generations": generations,
         "batches": batches,
@@ -475,11 +512,7 @@ def snapshot_case_completion_authority(
         "privacy_completion_keys": completion_ids,
         "watermarks": watermarks,
         "pg_rows_loaded": len(generations) + len(batches) + len(completions) + len(watermarks),
-        "default_ids": {
-            int(row.id)
-            for row in generations
-            if _is_default_authority(session, row)
-        },
+        "default_ids": default_generation_ids_from_rows(generations),
         "generation_versions": {
             (row.source_ref_type, str(row.source_ref_id), int(row.source_generation)): (
                 row.visibility_state,

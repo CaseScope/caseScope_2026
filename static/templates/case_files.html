@@ -43,7 +43,39 @@
     </div>
 </div>
 
-<!-- Statistics Tile -->
+<div class="tile-row" id="readiness-strip-row">
+    <div class="tile tile-stats">
+        <div class="tile-header">
+            <h3 class="tile-title">Case Readiness</h3>
+            <span class="tile-refresh" id="readiness-refresh">PostgreSQL authority</span>
+        </div>
+        <div class="tile-body">
+            <div class="readiness-strip" id="readiness-strip" role="status" aria-live="polite">
+                <div class="readiness-item" id="readiness-evidence">
+                    <span class="readiness-label">Evidence</span>
+                    <span class="readiness-value" id="readiness-evidence-value">Loading</span>
+                    <span class="readiness-detail" id="readiness-evidence-detail">Reading current published evidence status.</span>
+                </div>
+                <div class="readiness-item" id="readiness-privacy">
+                    <span class="readiness-label">Privacy</span>
+                    <span class="readiness-value" id="readiness-privacy-value">Loading</span>
+                    <span class="readiness-detail" id="readiness-privacy-detail">Informational privacy-alias coverage only.</span>
+                </div>
+                <div class="readiness-item" id="readiness-reconciliation">
+                    <span class="readiness-label">Reconciliation</span>
+                    <span class="readiness-value" id="readiness-reconciliation-value">Loading</span>
+                    <span class="readiness-detail" id="readiness-reconciliation-detail">Reading durable completion status.</span>
+                </div>
+                <div class="readiness-item" id="readiness-live">
+                    <span class="readiness-label">Live Activity</span>
+                    <span class="readiness-value" id="readiness-live-value">Loading</span>
+                    <span class="readiness-detail" id="readiness-live-detail">Reading ephemeral worker activity.</span>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
 <div class="tile-row">
     <div class="tile tile-stats">
         <div class="tile-header">
@@ -135,10 +167,10 @@
         </div>
     </div>
     <div class="alert-banner-actions">
-        <button class="btn btn-warning btn-sm" id="completion-repair-btn" onclick="repairCompletion()">
+        <button type="button" class="btn btn-warning btn-sm" id="completion-repair-btn" onclick="repairCompletion()" aria-label="Resume completion repair">
             🔧 Resume Completion
         </button>
-        <button class="btn btn-secondary btn-sm" onclick="dismissCompletionBanner()">
+        <button type="button" class="btn btn-secondary btn-sm" onclick="dismissCompletionBanner()">
             ✕ Ignore
         </button>
     </div>
@@ -300,10 +332,14 @@ let fileScope = 'all';
 let searchTimeout = null;
 let statsInterval = null;
 let progressInterval = null;
+let readinessInterval = null;
 let lastProcessedCount = -1;  // Track for detecting file completions
 let wasProcessing = false;    // Track if we were previously processing
 let deleteFileId = null;      // Track file to delete
 let completionBannerDismissed = false;
+let lastStatsCompletion = {};
+let lastLatestIngestAt = null;
+let lastReadiness = null;
 
 // Format file size
 function formatSize(bytes) {
@@ -404,10 +440,113 @@ function loadStats() {
                 document.getElementById('review-archived').textContent =
                     (review.archived || 0).toLocaleString();
 
-                updateCompletionBanner(data.completion || {}, data.latest_ingest_at);
+                lastStatsCompletion = data.completion || {};
+                lastLatestIngestAt = data.latest_ingest_at;
+                updateCompletionFromCurrentState();
             }
         })
         .catch(err => console.error('Error loading stats:', err));
+}
+
+function readinessToneClass(code) {
+    if (code === 'unavailable' || code === 'failed' || code === 'stale' || code === 'blocked') {
+        return 'readiness-' + (code === 'blocked' ? 'stale' : code);
+    }
+    if (code === 'processing') {
+        return 'readiness-processing';
+    }
+    return '';
+}
+
+function renderReadinessItem(name, dimension) {
+    const item = document.getElementById('readiness-' + name);
+    const value = document.getElementById('readiness-' + name + '-value');
+    const detail = document.getElementById('readiness-' + name + '-detail');
+    if (!item || !value || !detail) {
+        return;
+    }
+    const code = (dimension && dimension.code) || 'unavailable';
+    value.textContent = (dimension && dimension.label) || 'Unavailable';
+    detail.textContent = (dimension && dimension.detail) || 'Status is unavailable.';
+    item.className = 'readiness-item ' + readinessToneClass(code);
+}
+
+function unavailableReadiness() {
+    return {
+        success: false,
+        authority_available: false,
+        composition: 'unknown',
+        dimensions: {
+            evidence: {code: 'unavailable', label: 'Unavailable', detail: 'Evidence status cannot be read from PostgreSQL.'},
+            privacy: {code: 'unavailable', label: 'Unavailable', detail: 'Privacy status cannot be read from PostgreSQL. This status does not authorize AI sending.'},
+            reconciliation: {code: 'unavailable', label: 'Unavailable', detail: 'Completion status cannot be read from PostgreSQL.'},
+            live_activity: {code: 'unavailable', label: 'Unavailable', detail: 'Live worker status is unavailable.'}
+        },
+        completion: {repair_available: false, fail_closed: true}
+    };
+}
+
+function renderReadinessStrip(readiness) {
+    const dims = (readiness && readiness.dimensions) || {};
+    renderReadinessItem('evidence', dims.evidence);
+    renderReadinessItem('privacy', dims.privacy);
+    renderReadinessItem('reconciliation', dims.reconciliation);
+    renderReadinessItem('live', dims.live_activity);
+    const refresh = document.getElementById('readiness-refresh');
+    if (refresh) {
+        refresh.textContent = readiness && readiness.authority_available
+            ? 'PostgreSQL authority'
+            : 'Authority unavailable';
+    }
+}
+
+function loadReadiness() {
+    fetch('/api/case/readiness/' + caseUuid)
+        .then(response => response.json().then(data => ({ok: response.ok, data: data})))
+        .then(result => {
+            lastReadiness = result.data && result.data.dimensions ? result.data : unavailableReadiness();
+            if (!lastReadiness.authority_available && lastReadiness.composition !== 'unknown') {
+                lastReadiness.composition = lastReadiness.composition || 'unknown';
+            }
+            renderReadinessStrip(lastReadiness);
+            updateCompletionFromCurrentState();
+        })
+        .catch(err => {
+            console.error('Error loading readiness:', err);
+            lastReadiness = unavailableReadiness();
+            renderReadinessStrip(lastReadiness);
+            updateCompletionFromCurrentState();
+        });
+}
+
+function updateCompletionFromCurrentState() {
+    if (!lastReadiness) {
+        return;
+    }
+    if (lastReadiness.composition === 'legacy_only') {
+        updateCompletionBanner(lastStatsCompletion, lastLatestIngestAt);
+        return;
+    }
+    updateCompletionFromReadiness(lastReadiness);
+}
+
+function updateCompletionFromReadiness(readiness) {
+    const banner = document.getElementById('completion-banner');
+    const title = document.getElementById('completion-banner-title');
+    const text = document.getElementById('completion-banner-text');
+    const repairBtn = document.getElementById('completion-repair-btn');
+    const completion = (readiness && readiness.completion) || {};
+
+    if (completionBannerDismissed || !completion.repair_available) {
+        banner.style.display = 'none';
+        return;
+    }
+
+    title.textContent = completion.banner_title || 'Completion Needs Attention';
+    text.textContent = completion.banner_text || 'Durable reconciliation needs attention.';
+    repairBtn.disabled = false;
+    repairBtn.innerHTML = '🔧 Resume Completion';
+    banner.style.display = 'flex';
 }
 
 function updateCompletionBanner(completion, latestIngestAt) {
@@ -472,6 +611,7 @@ function repairCompletion() {
             loadProgress();
             setTimeout(() => {
                 loadStats();
+                loadReadiness();
                 loadFiles();
             }, 1500);
         })
@@ -794,18 +934,21 @@ function debounceSearch() {
 document.addEventListener('DOMContentLoaded', function() {
     // Initial loads
     loadStats();
+    loadReadiness();
     loadProgress();
     loadFiles();
     checkStagingOrphans();  // Check for orphan files
     
     // Set up auto-refresh intervals
     statsInterval = setInterval(loadStats, 5000);
+    readinessInterval = setInterval(loadReadiness, 5000);
     progressInterval = setInterval(loadProgress, 2000);
 });
 
 // Cleanup on page leave
 window.addEventListener('beforeunload', function() {
     clearInterval(statsInterval);
+    clearInterval(readinessInterval);
     clearInterval(progressInterval);
 });
 

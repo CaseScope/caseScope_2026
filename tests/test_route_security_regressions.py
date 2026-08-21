@@ -807,6 +807,9 @@ class RouteSecurityRegressionTestCase(unittest.TestCase):
                     content_type=route_case['content_type'],
                 )
 
+    def test_case_readiness_route_requires_login(self):
+        self.assertTrue(hasattr(case_files_routes.get_case_readiness, '__wrapped__'))
+
     def test_case_file_write_routes_reject_viewers(self):
         route_cases = [
             {

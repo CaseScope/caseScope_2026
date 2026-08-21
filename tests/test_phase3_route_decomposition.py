@@ -142,6 +142,7 @@ class Phase3RouteDecompositionTestCase(unittest.TestCase):
             ("routes/case_files.py", "case_files_bp", {
                 "/files/stats/<case_uuid>",
                 "/case/statistics/<case_uuid>",
+                "/case/readiness/<case_uuid>",
                 "/files/list/<case_uuid>",
                 "/files/progress/<case_uuid>",
                 "/files/reindex/<case_uuid>",

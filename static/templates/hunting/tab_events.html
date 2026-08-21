@@ -497,6 +497,14 @@
         <code>eventid:4624</code> <code>host:DC01</code> <code>user:admin</code> <code>process:powershell</code> <code>cmd:encoded</code> <code>LogonType:3</code> <code>KeyLength:0</code>
     </div>
     <div class="tile-body">
+        <div class="alert-banner alert-banner-info hunt-coverage-note" id="hunt-coverage-note" style="display: none;" role="status" aria-live="polite">
+            <div class="alert-banner-content">
+                <div class="alert-banner-text">
+                    <strong id="hunt-coverage-note-title">Search coverage</strong>
+                    <span id="hunt-coverage-note-text"></span>
+                </div>
+            </div>
+        </div>
         <div class="search-row">
             <input type="text" class="form-input events-search-input" id="events-search" placeholder="Search across all events...">
             <button class="btn btn-primary" id="events-search-btn" onclick="searchEvents()">

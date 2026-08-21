@@ -1,6 +1,14 @@
 {
-  "version": "4.21.2",
+  "version": "4.22.0",
   "changelog": [
+    {
+      "version": "4.22.0",
+      "date": "2026-08-21",
+      "changes": [
+        "Completed Phase 1B Tranche F2 PostgreSQL-authoritative readiness UI: one case-scoped readiness DTO/API, Case Files readiness strip, F1-consistent completion/repair presentation, and a non-blocking Hunt Artifacts coverage note",
+        "Redis remains live-activity decoration only; durable Evidence, Privacy, and Reconciliation do not fall back to Redis or ClickHouse; did not start Phase 1B exit acceptance or Phase 2"
+      ]
+    },
     {
       "version": "4.21.2",
       "date": "2026-08-21",

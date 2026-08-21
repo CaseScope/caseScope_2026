@@ -3101,6 +3101,8 @@ document.addEventListener('DOMContentLoaded', function() {
     
     // Load events on page load
     loadEvents();
+    loadHuntCoverageNote();
+    setInterval(loadHuntCoverageNote, 5000);
     if (selectorKeyParam) {
         openEventDetailBySelectorKey(selectorKeyParam);
     }
@@ -3408,6 +3410,52 @@ function loadEvents() {
         .catch(err => {
             console.error('Error loading events:', err);
             showEventsError('Error loading events');
+        });
+    loadHuntCoverageNote();
+}
+
+function applyHuntCoverageNote(readiness) {
+    const note = document.getElementById('hunt-coverage-note');
+    const text = document.getElementById('hunt-coverage-note-text');
+    if (!note || !text) {
+        return;
+    }
+    const coverage = (readiness && readiness.hunt_coverage) || {};
+    const searchInput = document.getElementById('events-search');
+    const searchBtn = document.getElementById('events-search-btn');
+    const resetBtn = document.getElementById('events-reset-btn');
+    if (searchInput) searchInput.disabled = false;
+    if (searchBtn) searchBtn.disabled = false;
+    if (resetBtn) resetBtn.disabled = false;
+    if (coverage.show && coverage.text) {
+        text.textContent = coverage.text;
+        note.style.display = 'flex';
+    } else {
+        text.textContent = '';
+        note.style.display = 'none';
+    }
+}
+
+function loadHuntCoverageNote() {
+    fetch('/api/case/readiness/' + caseUuid)
+        .then(response => response.json())
+        .then(data => {
+            applyHuntCoverageNote(data && data.dimensions ? data : {
+                hunt_coverage: {
+                    show: true,
+                    search_enabled: true,
+                    text: 'Evidence status is unavailable. Search remains enabled for currently published results.'
+                }
+            });
+        })
+        .catch(() => {
+            applyHuntCoverageNote({
+                hunt_coverage: {
+                    show: true,
+                    search_enabled: true,
+                    text: 'Evidence status is unavailable. Search remains enabled for currently published results.'
+                }
+            });
         });
 }
 

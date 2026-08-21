@@ -93,6 +93,30 @@ def get_file_stats(case_uuid):
         return jsonify({"success": False, "error": str(e)}), 500
 
 
+@case_files_bp.route("/case/readiness/<case_uuid>")
+@login_required
+def get_case_readiness(case_uuid):
+    """Cheap PostgreSQL-authoritative case readiness DTO.
+
+    Redis may decorate live activity. Durable Evidence, Privacy, and
+    Reconciliation never fall back to Redis or ClickHouse.
+    """
+    from models.database import db
+    from utils.case_readiness import build_case_readiness_dto
+
+    case = Case.get_by_uuid(case_uuid)
+    if not case:
+        return jsonify({"success": False, "error": "Case not found"}), 404
+
+    dto = build_case_readiness_dto(
+        db.session,
+        case_id=case.id,
+        case_uuid=case.uuid,
+    )
+    dto["success"] = True
+    return jsonify(dto)
+
+
 @case_files_bp.route("/case/statistics/<case_uuid>")
 @login_required
 def get_case_statistics(case_uuid):
@@ -739,9 +763,21 @@ def reindex_case_files(case_uuid):
 @case_files_bp.route("/files/repair-completion/<case_uuid>", methods=["POST"])
 @login_required
 def repair_case_completion(case_uuid):
-    """Re-run post-ingest completion tasks for a finished case."""
+    """Re-run post-ingest completion tasks for a finished case.
+
+    Composition is classified from PostgreSQL before any Redis trigger is
+    cleared. Unknown composition fails closed. Managed and mixed cases use
+    the accepted F1 durable reconciliation path; proven legacy-only may use
+    the accepted legacy repair route.
+    """
     try:
+        from models.database import db
         from tasks.celery_tasks import case_indexing_complete_task
+        from utils.completion_reconciler import (
+            CaseIngestComposition,
+            CompletionCompositionUnknown,
+            resolve_case_completion_route,
+        )
         from utils.progress import clear_completion_trigger, get_progress, set_phase
 
         case = Case.get_by_uuid(case_uuid)
@@ -765,7 +801,50 @@ def repair_case_completion(case_uuid):
                 }
             ), 409
 
+        try:
+            composition = resolve_case_completion_route(
+                db.session, case_id=case.id, case_uuid=case_uuid
+            )
+        except CompletionCompositionUnknown:
+            logger.error(
+                "Completion repair blocked for case %s: PostgreSQL composition unknown",
+                case_uuid,
+            )
+            return jsonify(
+                {
+                    "success": False,
+                    "error": "Case completion authority is unavailable; repair cannot proceed",
+                    "composition": "unknown",
+                    "repair_route": None,
+                }
+            ), 409
+
         progress = get_progress(case_uuid) or {}
+        if composition in {CaseIngestComposition.MANAGED_ONLY, CaseIngestComposition.MIXED}:
+            set_phase(case_uuid, "completion_reconciliation")
+            task = case_indexing_complete_task.delay(case_id=case.id, case_uuid=case_uuid)
+            return jsonify(
+                {
+                    "success": True,
+                    "task_id": task.id,
+                    "case_uuid": case_uuid,
+                    "composition": composition,
+                    "repair_route": "f1",
+                    "previous_progress_status": progress.get("status", "idle"),
+                    "message": "Durable completion reconciliation queued",
+                }
+            )
+
+        if composition != CaseIngestComposition.LEGACY_ONLY:
+            return jsonify(
+                {
+                    "success": False,
+                    "error": "Case completion authority is unavailable; repair cannot proceed",
+                    "composition": "unknown",
+                    "repair_route": None,
+                }
+            ), 409
+
         clear_completion_trigger(case_uuid)
         set_phase(case_uuid, "waiting_for_completion")
         task = case_indexing_complete_task.delay(case_id=case.id, case_uuid=case_uuid)
@@ -775,6 +854,8 @@ def repair_case_completion(case_uuid):
                 "success": True,
                 "task_id": task.id,
                 "case_uuid": case_uuid,
+                "composition": composition,
+                "repair_route": "legacy",
                 "previous_progress_status": progress.get("status", "idle"),
                 "message": "Post-ingest completion queued",
             }
