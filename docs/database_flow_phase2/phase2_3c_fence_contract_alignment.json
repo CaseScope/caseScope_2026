@@ -1,0 +1,145 @@
+{
+  "tranche": "phase2_3c_fence_contract_alignment",
+  "recorded_at": "2026-08-22T18:14:31Z",
+  "dated": "2026-08-22",
+  "version": "4.26.2",
+  "version_bumped": false,
+  "version_policy": "unchanged: contract/document alignment for already-deployed accepted Phase 2.3 behavior",
+  "verdict": "PHASE2_3C_PASS",
+  "phase2_3_state": "PHASE2_3_CLOSED_PENDING_INDEPENDENT_REVIEW",
+  "runtime_behavior_changed": false,
+  "baseline": {
+    "repository": "/opt/casescope",
+    "python": "/opt/casescope/venv/bin/python",
+    "head": "2e4817cfc6040fbe047ffe544664836ece7d80d4",
+    "origin_main": "2e4817cfc6040fbe047ffe544664836ece7d80d4",
+    "head_equals_origin_main": true,
+    "working_tree_clean_at_start": true,
+    "expected_head": "2e4817cfc6040fbe047ffe544664836ece7d80d4",
+    "expected_version": "4.26.2",
+    "ok": true
+  },
+  "discovered_gap": {
+    "runtime_shared_writers": [
+      "physical INSERT into events via shared_ingest_admission (events_insert)",
+      "Phase 2.3 bounded lightweight events UPDATE via run_events_lightweight_update / shared_ingest_admission (events_lightweight_update)"
+    ],
+    "contract_before": "Normal writer example described INSERT only",
+    "runtime_accepted": true,
+    "contract_incomplete": true
+  },
+  "historical_preservation": {
+    "phase0b_model_rewritten": false,
+    "current_baseline_rewritten": false,
+    "fail_closed_rule_rewritten": false,
+    "lease_semantics_rewritten": false,
+    "contract_status_edited": false,
+    "master_plan_edited": false,
+    "retained_historical_baseline_snippet": "`delete_file_events`, `run_events_update`, and normal inserts do not use a shared writer lease."
+  },
+  "addendum": {
+    "heading": "## Implemented Extensions / Phase 2.3",
+    "dated": "2026-08-22",
+    "shared_writer_classes": [
+      "physical INSERT into events",
+      "bounded Phase 2.3 lightweight SQL UPDATE of events"
+    ],
+    "lightweight_writer": "utils.clickhouse.run_events_lightweight_update",
+    "structural_limits": ["case_id", "selector_key set", "optional artifact_type"],
+    "accepts_caller_supplied_predicates": false,
+    "arbitrary_predicate_lightweight_update": false
+  },
+  "lightweight_boundary": {
+    "LIGHTWEIGHT_UPDATE_MAX_SELECTOR_KEYS": 1000,
+    "kind": "CaseScope Phase 2.3 measurement-derived bridge boundary",
+    "universal_clickhouse_limit": false,
+    "permission_for_arbitrary_predicate_updates": false,
+    "change_requires_measurement_review": true
+  },
+  "admission": {
+    "lightweight": "shared_ingest_admission('events_lightweight_update', case_id=case_id)",
+    "physical_insert": "shared_ingest_admission(..., operation events_insert)",
+    "classic_update": "exclusive_ingest_fence('events_alter_update')",
+    "exclusive_blocks_new_shared_insert": true,
+    "exclusive_blocks_new_shared_lightweight_update": true,
+    "exclusive_drains_active_shared_insert_and_update": true,
+    "exclusive_proceeds_only_after_drain": true,
+    "predicate_or_case_wide_remain_classic_exclusive": true
+  },
+  "fail_closed": {
+    "lightweight_refuses_when_shared_admission_unavailable": true,
+    "exclusive_remains_fail_closed": true,
+    "historical_fail_closed_rule_retained": true
+  },
+  "runtime_verification": {
+    "run_events_lightweight_update_exists": true,
+    "LIGHTWEIGHT_UPDATE_MAX_SELECTOR_KEYS": 1000,
+    "lightweight_uses_shared_ingest_admission_events_lightweight_update": true,
+    "run_events_update_uses_exclusive_ingest_fence_events_alter_update": true,
+    "physical_event_insert_uses_shared_admission": true,
+    "mismatch_stop": false,
+    "runtime_files_edited": false
+  },
+  "core_fence_model_unchanged": {
+    "lease_ownership": true,
+    "epochs": true,
+    "ttl": true,
+    "renewal": true,
+    "nested_scope_semantics": true,
+    "redis_authority": true,
+    "exclusive_acquisition": true,
+    "shared_acquisition": true,
+    "timeout_behavior": true
+  },
+  "regression_tests": {
+    "passed": 72,
+    "failed": 0,
+    "skipped": 0,
+    "files": [
+      "tests/test_phase2_3_lightweight_update_bridge.py",
+      "tests/test_ingest_fence.py",
+      "tests/test_phase2_3c_fence_contract_alignment.py"
+    ],
+    "py_compile": "pass",
+    "pyflakes": "pass",
+    "git_diff_check": "pass"
+  },
+  "files_changed": [
+    "docs/database_flow_contracts/INGEST_FENCE_CONTRACT.md",
+    "tests/test_phase2_3c_fence_contract_alignment.py",
+    "docs/database_flow_phase2/phase2_3c_fence_contract_alignment.md",
+    "docs/database_flow_phase2/phase2_3c_fence_contract_alignment.json"
+  ],
+  "production_mutation_audit": {
+    "evidence": "NONE",
+    "clickhouse_update": false,
+    "alter_update": false,
+    "insert": false,
+    "index": false,
+    "server_settings": false,
+    "service_restart": false,
+    "redis": false
+  },
+  "no_later_phase_audit": {
+    "phase_2_4": false,
+    "retry_collapse": false,
+    "generation_accounting": false,
+    "hunt_reader": false,
+    "dedup": false,
+    "erk_api": false,
+    "lek": false,
+    "events_current": false,
+    "event_observations_current": false,
+    "overlay_authority_migration": false,
+    "master_plan_amendment": false
+  },
+  "git": {
+    "tranche_spec": "leave uncommitted, do not push",
+    "operator_instruction": "commit all and push to main when done",
+    "baseline_head": "2e4817cfc6040fbe047ffe544664836ece7d80d4"
+  },
+  "remaining_work": [
+    "Independent contract-alignment review",
+    "Phase 2.4 generation-aware accounting + deterministic-batch retry exclusion only after independent acceptance"
+  ]
+}

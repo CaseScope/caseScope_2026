@@ -98,3 +98,98 @@ From Phase 0A write inventory:
 
 - OPEN — ADDITIONAL MEASUREMENT REQUIRED: drain timing and contention behavior during Phase 1.4a implementation.
 - NOT APPLICABLE: Phase 0B does not change `utils.clickhouse` behavior.
+
+## Implemented Extensions / Phase 2.3
+
+Dated: 2026-08-22
+
+This addendum records the current contract meaning after accepted Phase 2.3
+runtime. It does not rewrite the Phase 0B historical Model, Current Baseline,
+Fail-Closed Rule, Lease Semantics, or Explicit Open Items above. The Phase 0B
+"Normal writer" INSERT-only diagram remains the historical illustration.
+
+### Current shared-admission events writers
+
+Normal shared-admission events writers now include:
+
+- physical INSERT into `events`
+- bounded Phase 2.3 lightweight SQL UPDATE of `events`
+
+Physical INSERT continues to acquire `shared_ingest_admission` (operation
+`events_insert`) on the canonical events insert paths.
+
+### Bounded lightweight writer
+
+The bounded lightweight writer is `utils.clickhouse.run_events_lightweight_update`.
+
+It is structurally limited to explicit:
+
+- `case_id`
+- selector_key set
+- optional `artifact_type`
+
+The helper builds its own WHERE clause from those fields. It does not accept
+caller-supplied predicates. It is not permission for arbitrary predicate
+UPDATEs. Predicate-driven/case-wide updates remain classic/exclusive.
+
+### Implementation boundary
+
+`LIGHTWEIGHT_UPDATE_MAX_SELECTOR_KEYS = 1000`
+
+This is a CaseScope Phase 2.3 measurement-derived bridge boundary.
+It is NOT a universal ClickHouse limit.
+It is NOT permission for arbitrary predicate UPDATEs.
+Changing it requires measurement/review.
+
+### Shared admission and fail-closed
+
+Bounded lightweight UPDATE acquires `shared_ingest_admission`:
+
+```text
+shared_ingest_admission(
+    "events_lightweight_update",
+    case_id=case_id
+)
+```
+
+and FAILS CLOSED when shared-admission authority is unavailable.
+
+### Exclusive classic rewrites
+
+Existing broad/classic events rewrites continue to acquire
+`exclusive_ingest_fence` via `utils.clickhouse.run_events_update`:
+
+```text
+exclusive_ingest_fence(
+    "events_alter_update"
+)
+```
+
+The exclusive path:
+
+- blocks new shared INSERT writers
+- blocks new shared lightweight UPDATE writers
+- drains active shared INSERT/UPDATE writers
+- proceeds only after drain
+- remains fail closed
+
+Predicate-driven/case-wide updates remain classic/exclusive.
+
+### Unchanged authorities
+
+The Phase 2.3 extension does NOT change:
+
+- ERK identity
+- selector API identity
+- publication authority
+- generation authority
+- analyst/noise authority
+- LEK
+- logical dedup
+- Phase 3+
+- Phase 4+
+
+This addendum does not implement Phase 2.4, does not introduce ERK API
+cutover, and does not introduce `events_current` or
+`event_observations_current`. Those names appear here only as explicit
+exclusions.
