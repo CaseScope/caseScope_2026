@@ -1,0 +1,76 @@
+{
+  "tranche": "phase2_4b1_retry_unique_durable",
+  "recorded_at": "2026-08-22T20:20:00+00:00",
+  "starting_head": "0937e42cb242b20053dd7f200a066e5ba6b3d6e2",
+  "starting_version": "4.26.2",
+  "candidate_version": "4.26.3",
+  "clickhouse_version": "26.7.3.19",
+  "locked_phase_24_sentence": "Dedup: no engine decision (RMT Option A remains removed). Interim = generation-aware accounting + deterministic-batch retry exclusion. Real design = Phase 4.",
+  "tokens": {
+    "PRODUCTION_PHASE1B_SCHEMA_ALIGNED": true,
+    "LOST_ACK_SECOND_INSERT_PREVENTED": true,
+    "DUPLICATE_IDENTICAL_STAGED_NORMALIZATION_ENFORCED": true,
+    "DURABLE_RETRY_UNIQUENESS_ENFORCED": true,
+    "PHASE2_4B_CORE_READY_PENDING_INDEPENDENT_REVIEW": true,
+    "PHASE2_4B1_RUNTIME_ACTIVATION_PENDING_INDEPENDENT_REVIEW": true,
+    "PHASE2_4B1_PASS": true
+  },
+  "production_census_after_schema": {
+    "generations": 0,
+    "batches": 0,
+    "attempts": 0,
+    "visible_evidence_generations": 0,
+    "durable_ingest_batches": 0,
+    "existing_durable_retry_copies": 0
+  },
+  "postgres_backup": {
+    "path": "/opt/casescope/backups/casescope-postgres-phase2-4b1-20260822-193511.dump",
+    "bytes": 2062852638
+  },
+  "normalization": "whole_batch_staged_purge_reinsert",
+  "shared_writer": "commit_managed_batch_exactly_once",
+  "writers": [
+    "_process_managed_initial_case_file",
+    "_process_managed_evtx_directory_group",
+    "recover_staged_ingest_batch_task"
+  ],
+  "performance_disposable": {
+    "fresh_2_row_commit_ms": 800.28,
+    "fresh_inserts": 1,
+    "live_module_seconds": 5.306,
+    "production_scan": false
+  },
+  "consumer_consequence_matrix": [
+    {"path": "Hunt Events count/list", "classification": "SAFE_BY_DURABLE_RETRY_UNIQUENESS"},
+    {"path": "Hunt detail/raw", "classification": "SAFE_BY_DURABLE_RETRY_UNIQUENESS"},
+    {"path": "Hunt exports using publication bridge", "classification": "SAFE_BY_DURABLE_RETRY_UNIQUENESS"},
+    {"path": "Case/file product event counts", "classification": "CAN_READ_STAGED_OR_UNPUBLISHED_MANAGED_ROWS"},
+    {"path": "Analyst selector state accounting", "classification": "CAN_READ_STAGED_OR_UNPUBLISHED_MANAGED_ROWS"},
+    {"path": "Manual-noise selector state accounting", "classification": "CAN_READ_STAGED_OR_UNPUBLISHED_MANAGED_ROWS"},
+    {"path": "Noise scan accounting", "classification": "CAN_READ_STAGED_OR_UNPUBLISHED_MANAGED_ROWS"},
+    {"path": "IOC accounting", "classification": "CAN_READ_STAGED_OR_UNPUBLISHED_MANAGED_ROWS"},
+    {"path": "MITRE accounting", "classification": "CAN_READ_STAGED_OR_UNPUBLISHED_MANAGED_ROWS"},
+    {"path": "Privacy-alias batch derivation", "classification": "SAFE_BY_DURABLE_RETRY_UNIQUENESS"},
+    {"path": "AI freeze-then-verify", "classification": "CAN_READ_STAGED_OR_UNPUBLISHED_MANAGED_ROWS"},
+    {"path": "Ingest verify / duplicate_identical", "classification": "SAFE_BY_DURABLE_RETRY_UNIQUENESS"},
+    {"path": "Generation landed_rows / expected_rows", "classification": "SAFE_BY_DURABLE_RETRY_UNIQUENESS"},
+    {"path": "Activation completeness row sums", "classification": "SAFE_BY_DURABLE_RETRY_UNIQUENESS"},
+    {"path": "Capability watermarks", "classification": "SAFE_BY_DURABLE_RETRY_UNIQUENESS"},
+    {"path": "Case readiness Evidence dimension", "classification": "SAFE_BY_DURABLE_RETRY_UNIQUENESS"},
+    {"path": "Completion reconciliation PG batch counts", "classification": "SAFE_BY_DURABLE_RETRY_UNIQUENESS"},
+    {"path": "Graph extraction (F1 transitional)", "classification": "CAN_READ_STAGED_OR_UNPUBLISHED_MANAGED_ROWS"},
+    {"path": "Event embeddings (F1 transitional)", "classification": "CAN_READ_STAGED_OR_UNPUBLISHED_MANAGED_ROWS"},
+    {"path": "Known-principal discovery (F1 transitional)", "classification": "CAN_READ_STAGED_OR_UNPUBLISHED_MANAGED_ROWS"},
+    {"path": "Legacy-only completion dedup", "classification": "LEGACY_ONLY_OUT_OF_SCOPE"},
+    {"path": "Phase 4 logical/events_current dedup", "classification": "PHASE4_LOGICAL_DEDUP_OUT_OF_SCOPE"},
+    {"path": "Managed destructive case-wide dedup", "classification": "INTEGRITY_FAIL_CLOSED"}
+  ],
+  "tests": {
+    "phase2_4b1": "25 passed",
+    "required_suite_without_dedup_module_pollution": "294 passed, 0 skipped",
+    "clickhouse_delete_dedup_isolated": "35 passed, 0 skipped",
+    "pyflakes": "clean",
+    "git_diff_check": "clean"
+  },
+  "git_operator_override": "commit and push to main as instructed; spec asked to leave uncommitted"
+}

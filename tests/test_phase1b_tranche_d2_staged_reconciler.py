@@ -406,18 +406,25 @@ class Phase1BD2RealPGCHTestCase(unittest.TestCase):
         self.assertEqual(self.session.get(IngestBatch, batch_a.id).state, IngestBatchState.STAGED)
         self.assertEqual(scheduled, [(manifest_a.ingest_batch_id, result.recovery_attempt_id)])
 
-    def test_duplicate_identical_collapsed_proof_promotes_without_purge(self):
+    def test_duplicate_identical_is_normalized_not_marked_durable(self):
         generation = self._initial_generation()
         _attempt, manifest, batch = self._staged_batch(generation, [self._event(1, 1), self._event(1, 2)])
         self._insert_rows(manifest.clickhouse_rows)
         self._insert_rows(manifest.clickhouse_rows)
 
-        result = reconcile_staged_batch(session=self.session, clickhouse_client=self.ch, ingest_batch_id=manifest.ingest_batch_id)
+        scheduled, schedule = self._schedule_recorder()
+        result = reconcile_staged_batch(
+            session=self.session,
+            clickhouse_client=self.ch,
+            ingest_batch_id=manifest.ingest_batch_id,
+            retry_scheduler=schedule,
+        )
 
         self.assertEqual(result.classification, "duplicate_identical")
-        self.assertEqual(result.action_taken, "mark_durable")
-        self.assertEqual(self.session.get(IngestBatch, batch.id).state, IngestBatchState.DURABLE)
-        self.assertEqual(self._row_count(manifest.ingest_batch_id), manifest.row_count * 2)
+        self.assertEqual(result.action_taken, "normalize_staged_purge_and_retry")
+        self.assertEqual(self.session.get(IngestBatch, batch.id).state, IngestBatchState.STAGED)
+        self.assertEqual(self._row_count(manifest.ingest_batch_id), 0)
+        self.assertEqual(scheduled, [(manifest.ingest_batch_id, result.recovery_attempt_id)])
 
     def _assert_fail_closed_scenario(self, scenario, mutate):
         generation = self._initial_generation()

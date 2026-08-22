@@ -522,12 +522,11 @@ def source_starting_facts() -> Dict[str, Any]:
         ),
         "E_classify_batch_accepts_duplicate_identical": '"duplicate_identical"' in classify_src
         and "True" in classify_src,
-        "F_reconcile_marks_durable_without_purge": (
-            '{"exact", "duplicate_identical"}' in reconcile_src
-            and "mark_durable" in reconcile_src
-            and "purge_ingest_batch_rows" not in reconcile_src.split("if classification.classification in")[1].split("if classification.classification")[0]
-            if "if classification.classification in" in reconcile_src
-            else False
+        "F_reconcile_marks_durable_without_purge": False,
+        "F_reconcile_exact_only_marks_durable": (
+            'if classification.classification == "exact":' in reconcile_src
+            and "normalize_staged_purge_and_retry" in reconcile_src
+            and "mark_batch_durable" in reconcile_src
         ),
         "G_landed_rows_from_pg_durable_row_count": (
             "func.sum(IngestBatch.row_count)" in accounting_src
@@ -548,13 +547,6 @@ def source_starting_facts() -> Dict[str, Any]:
             and "allow_managed_evidence = True" not in celery_text
         ),
     }
-    # F: confirm success branch does not call purge. Broader file may still have purge for partial.
-    reconcile_success = False
-    if "if classification.classification in" in reconcile_src:
-        after = reconcile_src.split("if classification.classification in", 1)[1]
-        block = after.split("\n    if classification.classification", 1)[0]
-        reconcile_success = "mark_batch_durable" in block and "purge" not in block.lower()
-    facts["F_reconcile_marks_durable_without_purge"] = reconcile_success
     facts["all_starting_facts_match_prompt"] = all(
         [
             facts["A_ingest_batch_id_deterministic_excludes_attempt"],
@@ -562,7 +554,7 @@ def source_starting_facts() -> Dict[str, Any]:
             facts["C_row_hash_frozen_allowlist"]["excludes_selector_indexed_attempt_overlays"],
             facts["D_verify_duplicate_identical_success"],
             facts["E_classify_batch_accepts_duplicate_identical"],
-            facts["F_reconcile_marks_durable_without_purge"],
+            facts["F_reconcile_exact_only_marks_durable"],
             facts["G_landed_rows_from_pg_durable_row_count"],
             facts["H_hunt_publication_no_retry_collapse"],
             facts["I_managed_dedup_blocked_default"],
@@ -1288,8 +1280,10 @@ def hunt_detail(client, case_id: int, selector_key: str) -> Tuple[Optional[dict]
 
 def insert_retry_copies(ch, db, *, generation, attempt, events, lost_ack: bool = True):
     from utils.manifest_protocol import (
+        DurableRetryUniquenessError,
         construct_managed_batch,
         create_ingest_attempt,
+        finish_ingest_attempt,
         insert_managed_batch,
         mark_batch_durable,
         reserve_staged_batch,
@@ -1319,6 +1313,8 @@ def insert_retry_copies(ch, db, *, generation, attempt, events, lost_ack: bool =
         verify_after_loss = verify_ingest_batch(ch, manifest)
         lost = None
 
+    finish_ingest_attempt(db.session, attempt, status="FAILED", error="p24a lost ack")
+    db.session.commit()
     attempt2 = create_ingest_attempt(session=db.session, generation=generation, celery_task_id="p24a-retry")
     db.session.commit()
     retry_manifest = construct_managed_batch(
@@ -1334,11 +1330,24 @@ def insert_retry_copies(ch, db, *, generation, attempt, events, lost_ack: bool =
     db.session.commit()
     insert_managed_batch(ch, retry_manifest)
     verification = verify_ingest_batch(ch, retry_manifest)
-    if verification.success:
+    durable_refused = False
+    durable_error = None
+    if verification.outcome == "exact":
         mark_batch_durable(session=db.session, batch=batch_row, verification=verification)
         update_generation_ingest_accounting(session=db.session, generation=generation)
         db.session.commit()
         project_generation_control_state(ch, db.session, generation)
+    elif verification.success:
+        try:
+            mark_batch_durable(session=db.session, batch=batch_row, verification=verification)
+        except DurableRetryUniquenessError as exc:
+            from models.database_flow import IngestBatch
+
+            durable_refused = True
+            durable_error = str(exc)
+            batch_id = batch_row.id
+            db.session.rollback()
+            batch_row = db.session.get(IngestBatch, batch_id)
     db.session.refresh(batch_row)
     db.session.refresh(generation)
     physical, _ = scalar(
@@ -1369,6 +1378,8 @@ def insert_retry_copies(ch, db, *, generation, attempt, events, lost_ack: bool =
         "pg_row_count": int(batch_row.row_count),
         "pg_landed_rows": int(generation.landed_rows or 0),
         "physical_rows": int(physical or 0),
+        "durable_refused": durable_refused,
+        "durable_error": durable_error,
         "same_batch_id": retry_manifest.ingest_batch_id == manifest.ingest_batch_id,
         "different_attempt_id": retry_manifest.ingest_attempt_id != manifest.ingest_attempt_id,
     }

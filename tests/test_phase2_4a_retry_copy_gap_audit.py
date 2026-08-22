@@ -226,10 +226,10 @@ class Phase24AClassificationTests(unittest.TestCase):
 
 
 class Phase24ASourceInspectionTests(unittest.TestCase):
-    def test_version_remains_4_26_2(self):
+    def test_version_is_candidate_4_26_3(self):
         with open(os.path.join(REPO_ROOT, "version.json"), encoding="utf-8") as handle:
             payload = json.load(handle)
-        self.assertEqual(payload["version"], "4.26.2")
+        self.assertEqual(payload["version"], "4.26.3")
 
     def test_batch_identity_excludes_attempt_id(self):
         source = inspect.getsource(canonical_ingest_batch_identity)
@@ -255,13 +255,14 @@ class Phase24ASourceInspectionTests(unittest.TestCase):
         self.assertIn("duplicate_identical", inspect.getsource(verify_ingest_batch))
         self.assertIn("duplicate_identical", inspect.getsource(classify_batch))
 
-    def test_reconcile_marks_duplicate_identical_durable_without_purge(self):
+    def test_reconcile_normalizes_duplicate_identical_instead_of_marking_durable(self):
         source = inspect.getsource(reconcile_staged_batch)
+        durable_arm = source.split('if classification.classification == "exact":', 1)[1]
+        durable_arm = durable_arm.split("if classification.classification in", 1)[0]
+        self.assertIn("mark_batch_durable", durable_arm)
+        self.assertNotIn("duplicate_identical", durable_arm)
+        self.assertIn("normalize_staged_purge_and_retry", source)
         self.assertIn('"duplicate_identical"', source)
-        success = source.split("if classification.classification in", 1)[1]
-        success = success.split("\n    if classification.classification", 1)[0]
-        self.assertIn("mark_batch_durable", success)
-        self.assertNotIn("purge", success.lower())
 
     def test_landed_rows_use_pg_durable_row_count(self):
         source = inspect.getsource(update_generation_ingest_accounting)
@@ -348,10 +349,12 @@ class LivePhase24ATests(unittest.TestCase):
             excl_n, _ = AUDIT.hunt_count_excluded(ch, case.id)
             self.assertEqual(lost["verify_after_retry"]["outcome"], "duplicate_identical")
             self.assertTrue(lost["verify_after_retry"]["success"])
-            self.assertEqual(lost["pg_landed_rows"], n)
+            self.assertTrue(lost["durable_refused"])
+            self.assertEqual(lost["pg_state"], "STAGED")
+            self.assertEqual(lost["pg_landed_rows"], 0)
             self.assertEqual(lost["physical_rows"], n * 2)
-            self.assertEqual(hunt_n, n * 2)
-            self.assertEqual(excl_n, n)
+            self.assertEqual(hunt_n, 0)
+            self.assertEqual(excl_n, 0)
             self.assertFalse(
                 AUDIT.is_deterministic_retry_equivalent(
                     ingest_batch_id_a=lost["manifest"].ingest_batch_id,

@@ -33,6 +33,21 @@ A `git pull` moves to the newest commit on the branch, so you land on the curren
 
 Use this path for installs already on 4.3.0 or newer, including 4.14.1. The older 4.0 audit immutability, alias vault rebuild, and chat transcript conversion sections do not need to be rerun as part of this path. The normal update still needs backups, dependency refreshes, current ClickHouse table migrations, ownership checks, and service restarts.
 
+### Version 4.26.3 / Current Phase 1B D1 And D2 PostgreSQL Requirement
+
+A current 4.3+-to-current update must apply the already-accepted Phase 1B Tranche D1 and D2 PostgreSQL migrations before CaseScope application services restart. Version 4.26.2 could reach runtime while production PostgreSQL was still missing those additive D1/D2 columns because the supported update sequence named Tranche A-C1 migrations and left later Phase 1B D1/D2 scripts to an unstated `git diff migrations` review.
+
+Do not invent an automatic migration framework. Do not rewrite historical 4.19.0 notes. Run these idempotent accepted migrations on the current code after services are stopped and PostgreSQL is backed up, then verify schema, then restart:
+
+```bash
+sudo -u casescope bash -lc 'cd /opt/casescope && set -a && source /etc/casescope/casescope.env && set +a && /opt/casescope/venv/bin/python migrations/add_phase1b_tranche_d1_generation_lifecycle.py'
+sudo -u casescope bash -lc 'cd /opt/casescope && set -a && source /etc/casescope/casescope.env && set +a && /opt/casescope/venv/bin/python migrations/add_phase1b_tranche_d2_staged_reconciler.py'
+```
+
+Required verification before restart: `evidence_source_generations` has `final_batch_ordinal`, `activated_at`, `superseded_at`, and `superseded_by_generation`; `ingest_attempts` has `heartbeat_at`, `lease_expires_at`, and `updated_at`; `ingest_batches` has `reconcile_owner`, `reconcile_lease_expires_at`, `reconcile_attempt_count`, `last_reconcile_at`, `last_reconcile_outcome`, `last_reconcile_error`, and `updated_at`. These migrations also create or verify `evidence_generation_audit` and `ingest_batch_reconciliation_audit`. They are additive PostgreSQL only. They do not mutate ClickHouse evidence and do not require a destructive evidence migration.
+
+The 4.26.3 application runtime also prevents a second physical INSERT of an already-exact deterministic managed batch and requires an exact physical manifest before DURABLE. Candidate runtime activation is separate from this schema requirement.
+
 Start with backups and a clean tree:
 
 ```bash
@@ -64,6 +79,15 @@ sudo -u casescope /opt/casescope/venv/bin/pip install --upgrade pip
 sudo -u casescope /opt/casescope/venv/bin/pip install -r /opt/casescope/requirements.txt
 sudo -u casescope /opt/casescope/venv/bin/pip install volatility3
 ```
+
+After the current code is on disk, apply the accepted Phase 1B D1 and D2 PostgreSQL migrations and verify schema before restarting application services:
+
+```bash
+sudo -u casescope bash -lc 'cd /opt/casescope && set -a && source /etc/casescope/casescope.env && set +a && /opt/casescope/venv/bin/python migrations/add_phase1b_tranche_d1_generation_lifecycle.py'
+sudo -u casescope bash -lc 'cd /opt/casescope && set -a && source /etc/casescope/casescope.env && set +a && /opt/casescope/venv/bin/python migrations/add_phase1b_tranche_d2_staged_reconciler.py'
+```
+
+Confirm `evidence_source_generations` has `final_batch_ordinal`, `activated_at`, `superseded_at`, and `superseded_by_generation`; `ingest_attempts` has `heartbeat_at`, `lease_expires_at`, and `updated_at`; `ingest_batches` has `reconcile_owner`, `reconcile_lease_expires_at`, `reconcile_attempt_count`, `last_reconcile_at`, `last_reconcile_outcome`, `last_reconcile_error`, and `updated_at`. Do not restart application services until that verification succeeds.
 
 ### Version 4.19.0 / Phase 1B Tranche A-C1 Inactive Foundation
 
@@ -473,6 +497,13 @@ Run any migration scripts required by the release notes or update instructions. 
 
 ```bash
 sudo -u casescope bash -lc 'cd /opt/casescope && set -a && source /etc/casescope/casescope.env && set +a && /opt/casescope/venv/bin/python migrations/add_events_table.py'
+```
+
+A current 4.3+-to-current update must also run the accepted Phase 1B D1 and D2 PostgreSQL migrations before restarting application services. See [Version 4.26.3 / Current Phase 1B D1 And D2 PostgreSQL Requirement](#version-4263--current-phase-1b-d1-and-d2-postgresql-requirement).
+
+```bash
+sudo -u casescope bash -lc 'cd /opt/casescope && set -a && source /etc/casescope/casescope.env && set +a && /opt/casescope/venv/bin/python migrations/add_phase1b_tranche_d1_generation_lifecycle.py'
+sudo -u casescope bash -lc 'cd /opt/casescope && set -a && source /etc/casescope/casescope.env && set +a && /opt/casescope/venv/bin/python migrations/add_phase1b_tranche_d2_staged_reconciler.py'
 ```
 
 Hosts using PCAP workflows should also have the network log table migration applied:

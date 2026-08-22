@@ -356,13 +356,20 @@ class RecoveryRetryAndIsolationUnitTests(unittest.TestCase):
             ("_process_managed_initial_case_file", initial_src),
             ("_process_managed_evtx_directory_group", directory_src),
         ):
-            self.assertIn("insert_managed_batch", source, msg=name)
+            self.assertIn("_commit_reserved_managed_batch", source, msg=name)
             self.assertNotIn("async_insert", source, msg=name)
             self.assertNotIn("wait_for_async_insert", source, msg=name)
             self.assertNotIn("event_insert_settings", source, msg=name)
             self.assertNotIn("materialize_skip_indexes_on_insert", source, msg=name)
+        helper_src = inspect.getsource(celery_tasks._commit_reserved_managed_batch)
+        self.assertIn("commit_managed_batch_exactly_once", helper_src)
+        from utils.manifest_protocol import commit_managed_batch_exactly_once
+        commit_src = inspect.getsource(commit_managed_batch_exactly_once)
+        self.assertIn("insert_managed_batch", commit_src)
+        self.assertIn("verify_ingest_batch", commit_src)
+        self.assertIn("mark_batch_durable", commit_src)
         self.assertIn("MANAGED_REPLACEMENT", initial_src)
-        self.assertIn("insert_managed_batch", initial_src)
+        self.assertIn("_commit_reserved_managed_batch", initial_src)
         self.assertIn("_schedule_staged_batch_recovery", reconciler_src)
         self.assertIn("recover_staged_ingest_batch_task.delay", schedule_src)
         self.assertNotIn("async_insert", reconciler_src)
@@ -374,12 +381,14 @@ class RecoveryRetryAndIsolationUnitTests(unittest.TestCase):
         self.assertNotIn("async_insert", recon_src)
         self.assertNotIn("event_insert_settings", recon_src)
 
-    def test_publication_order_insert_then_verify_then_durable_then_project(self):
+    def test_publication_order_uses_shared_exact_durable_commit(self):
         from tasks.celery_tasks import (
+            _commit_reserved_managed_batch,
             _process_managed_evtx_directory_group,
             _process_managed_initial_case_file,
             recover_staged_ingest_batch_task,
         )
+        from utils.manifest_protocol import commit_managed_batch_exactly_once, insert_managed_batch
 
         for fn in (
             _process_managed_initial_case_file,
@@ -387,24 +396,19 @@ class RecoveryRetryAndIsolationUnitTests(unittest.TestCase):
             recover_staged_ingest_batch_task,
         ):
             source = inspect.getsource(fn)
-            self.assertLess(
-                source.index("insert_managed_batch("),
-                source.index("verify_ingest_batch("),
-                msg=fn.__name__,
-            )
-            self.assertLess(
-                source.index("verify_ingest_batch("),
-                source.index("mark_batch_durable("),
-                msg=fn.__name__,
-            )
-            self.assertLess(
-                source.index("mark_batch_durable("),
-                source.index("project_generation_control_state("),
-                msg=fn.__name__,
-            )
+            self.assertIn("_commit_reserved_managed_batch", source, msg=fn.__name__)
+            self.assertIn("project_generation_control_state(", source, msg=fn.__name__)
+        helper_src = inspect.getsource(_commit_reserved_managed_batch)
+        self.assertIn("commit_managed_batch_exactly_once", helper_src)
+        commit_src = inspect.getsource(commit_managed_batch_exactly_once)
+        self.assertIn("verify_ingest_batch", commit_src)
+        self.assertIn("insert_managed_batch", commit_src)
+        self.assertIn("mark_batch_durable", commit_src)
         insert_src = inspect.getsource(insert_managed_batch)
         self.assertNotIn("mark_batch_durable", insert_src)
         self.assertNotIn("verify_ingest_batch", insert_src)
+        from utils.manifest_protocol import mark_batch_durable
+        self.assertIn('verification.outcome != "exact"', inspect.getsource(mark_batch_durable))
 
     def test_control_projection_does_not_inherit_event_settings(self):
         install_memory_backend()

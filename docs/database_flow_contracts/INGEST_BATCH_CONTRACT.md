@@ -281,3 +281,17 @@ All outcomes fail closed except CH exact and explicitly proven retry-equivalent 
 
 - OPEN — ADDITIONAL MEASUREMENT REQUIRED: later batch-size benchmarking.
 - NOT APPLICABLE: Phase 0B does not add manifest tables or ClickHouse columns.
+
+## Implemented Extensions / Phase 2.4
+
+Dated 2026-08-22. This addendum records current Phase 2.4B1 runtime. It does not rewrite the locked identity rules above.
+
+- Phase 2.4 uses deterministic retry preflight against the frozen PostgreSQL manifest before a second physical INSERT.
+- An existing STAGED physical batch that verifies `exact` is not reinserted. Lost-acknowledgement recovery marks that batch DURABLE.
+- Current Phase 2.4 runtime requires an exact physical manifest before DURABLE. `DURABLE => EXACT PHYSICAL MANIFEST`, not exact-after-collapse.
+- `duplicate_identical` remains a recognized retry-equivalence classification from `verify_ingest_batch` / D2 `classify_batch`.
+- `duplicate_identical` STAGED rows are normalized/recovered before publication. They must not be marked DURABLE while extra physical copies remain.
+- Current implementation uses whole-batch STAGED purge/reinsert through the accepted exclusive-fence purge helper, then one deterministic INSERT, then `exact` verification. Targeted extra-copy deletion is not used.
+- Batch identity remains unchanged: deterministic `ingest_batch_id` over frozen generation/batch identity. `ingest_attempt_id` remains execution-only.
+- No semantic or logical dedup, no LEK, no ReplacingMergeTree engine change, and no same-ERK / cross-source collapse. Real logical dedup remains Phase 4.
+- Historical D2 evidence that accepted collapsed `duplicate_identical` as DURABLE remains historical. Current runtime does not preserve that publication action.

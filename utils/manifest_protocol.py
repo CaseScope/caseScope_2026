@@ -25,7 +25,7 @@ from models.database_flow import (
 )
 from parsers.base import ParsedEvent
 from utils.clickhouse import event_insert_settings
-from utils.ingest_fence import exclusive_ingest_fence, shared_ingest_admission
+from utils.ingest_fence import IngestFenceUnavailable, exclusive_ingest_fence, shared_ingest_admission
 from utils.ingest_identity import (
     BATCHING_CONTRACT_VERSION,
     batch_content_hash,
@@ -85,6 +85,45 @@ DURABLE_INGEST_BATCHES_COLUMNS = (
 
 class ManifestProtocolError(RuntimeError):
     """Base error for managed manifest protocol failures."""
+
+
+ATTEMPT_TERMINAL_STATUSES = frozenset({"SUCCEEDED", "FAILED", "CANCELLED", "REVOKED"})
+FAIL_CLOSED_RECONCILE_OUTCOMES = frozenset({
+    "malformed_manifest",
+    "duplicate_different",
+    "hash_mismatch",
+    "extra_ordinal",
+    "aggregate_mismatch",
+    "active_generation_invariant_violation",
+    "generation_not_recoverable",
+    "manifest_changed",
+})
+FAIL_CLOSED_PREFLIGHT_OUTCOMES = frozenset({
+    "extra_ordinal",
+    "duplicate_different",
+    "hash_mismatch",
+    "aggregate_mismatch",
+    "malformed_manifest",
+})
+
+
+class BatchOwnershipError(ManifestProtocolError):
+    """Fail-closed when a live attempt still owns a STAGED deterministic batch."""
+
+
+class DurableRetryUniquenessError(ManifestProtocolError):
+    """Fail-closed when DURABLE would publish a non-exact physical manifest."""
+
+
+class ManagedBatchVerificationError(ManifestProtocolError):
+    """Fail-closed preflight/post-insert verification that must not become DURABLE."""
+
+    def __init__(self, verification: "BatchVerificationResult", ingest_batch_id: str):
+        super().__init__(
+            f"managed batch verification failed: {verification.outcome}: {verification.message}"
+        )
+        self.verification = verification
+        self.ingest_batch_id = ingest_batch_id
 
 
 def _utcnow() -> datetime:
@@ -186,6 +225,17 @@ class BatchVerificationResult:
     physical_rows: int = 0
     duplicate_physical_rows: int = 0
     message: str = ""
+
+
+@dataclass(frozen=True)
+class ManagedBatchCommitResult:
+    action: str
+    batch: IngestBatch
+    verification: BatchVerificationResult
+    inserted: bool
+    normalized: bool
+    physical_rows: int
+    ingest_batch_id: str
 
 
 @dataclass(frozen=True)
@@ -719,6 +769,43 @@ def _manifest_matches(existing: IngestBatch, manifest: ManagedBatch) -> bool:
     )
 
 
+def ingest_attempt_writer_is_stale(attempt: Optional[IngestAttempt], *, now: Optional[datetime] = None) -> Tuple[bool, str]:
+    """Return whether PostgreSQL proves the producing attempt is no longer entitled to write."""
+    now = now or _utcnow()
+    if attempt is None:
+        return True, "STAGED batch has no producing attempt"
+    status = str(attempt.status or "").upper()
+    if status in ATTEMPT_TERMINAL_STATUSES:
+        return True, f"producing attempt is terminal: {status}"
+    if status == "STARTED" and attempt.lease_expires_at is not None and attempt.lease_expires_at <= now:
+        return True, "producing attempt lease expired"
+    return False, "producing attempt is still live or cannot be proven stale"
+
+
+def transfer_staged_batch_ownership(*, session, batch: IngestBatch, new_attempt: IngestAttempt) -> IngestBatch:
+    """Rebind a STAGED batch only after the prior attempt is proven terminal or expired."""
+    if batch.state != IngestBatchState.STAGED:
+        raise BatchOwnershipError(
+            f"cannot transfer ownership of {batch.state} batch {batch.ingest_batch_id}"
+        )
+    if batch.ingest_attempt_id == new_attempt.ingest_attempt_id:
+        return batch
+    if batch.last_reconcile_outcome in FAIL_CLOSED_RECONCILE_OUTCOMES:
+        raise BatchOwnershipError(
+            f"prior fail-closed outcome requires explicit recovery: {batch.last_reconcile_outcome}"
+        )
+    stale, reason = ingest_attempt_writer_is_stale(batch.latest_attempt)
+    if not stale:
+        raise BatchOwnershipError(
+            f"STAGED batch {batch.ingest_batch_id} is owned by live attempt "
+            f"{batch.ingest_attempt_id}: {reason}"
+        )
+    batch.ingest_attempt_id = new_attempt.ingest_attempt_id
+    batch.updated_at = _utcnow()
+    session.flush()
+    return batch
+
+
 def reserve_staged_batch(*, session, manifest: ManagedBatch) -> IngestBatch:
     existing = (
         session.query(IngestBatch)
@@ -729,9 +816,20 @@ def reserve_staged_batch(*, session, manifest: ManagedBatch) -> IngestBatch:
     if existing:
         if not _manifest_matches(existing, manifest):
             raise ManifestMismatchError(f"existing manifest differs for {manifest.ingest_batch_id}")
-        existing.ingest_attempt_id = manifest.ingest_attempt_id
-        session.flush()
-        return existing
+        if existing.state == IngestBatchState.DURABLE:
+            return existing
+        if existing.state != IngestBatchState.STAGED:
+            raise BatchOwnershipError(
+                f"existing batch {manifest.ingest_batch_id} is in unexpected state {existing.state}"
+            )
+        if existing.ingest_attempt_id == manifest.ingest_attempt_id:
+            return existing
+        new_attempt = (
+            session.query(IngestAttempt)
+            .filter_by(ingest_attempt_id=manifest.ingest_attempt_id)
+            .one()
+        )
+        return transfer_staged_batch_ownership(session=session, batch=existing, new_attempt=new_attempt)
 
     batch = IngestBatch(
         ingest_batch_id=manifest.ingest_batch_id,
@@ -886,20 +984,158 @@ def purge_ingest_batch_rows(clickhouse_client, ingest_batch_id: str) -> None:
         wait_for_mutation_completion("events", command_fragment, client=clickhouse_client)
 
 
+def count_physical_ingest_batch_rows(clickhouse_client, ingest_batch_id: str) -> int:
+    grouped = _grouped_batch_rows(clickhouse_client, ingest_batch_id)
+    return sum(row[2] for row in grouped)
+
+
+def normalize_duplicate_identical_staged_batch(
+    *,
+    session,
+    clickhouse_client,
+    manifest: ManagedBatch,
+    batch: IngestBatch,
+) -> BatchVerificationResult:
+    """Purge a still-STAGED duplicate-identical batch and insert the frozen rows once."""
+    if batch.state != IngestBatchState.STAGED:
+        raise DurableRetryUniquenessError(
+            f"cannot normalize {batch.state} batch {manifest.ingest_batch_id}"
+        )
+    if batch.ingest_attempt_id != manifest.ingest_attempt_id:
+        raise BatchOwnershipError(
+            f"current attempt {manifest.ingest_attempt_id} does not own STAGED batch "
+            f"{manifest.ingest_batch_id}"
+        )
+    try:
+        purge_ingest_batch_rows(clickhouse_client, manifest.ingest_batch_id)
+    except IngestFenceUnavailable as exc:
+        raise DurableRetryUniquenessError(
+            f"fence unavailable; refusing STAGED duplicate_identical purge for "
+            f"{manifest.ingest_batch_id}"
+        ) from exc
+    remaining = count_physical_ingest_batch_rows(clickhouse_client, manifest.ingest_batch_id)
+    if remaining != 0:
+        raise DurableRetryUniquenessError(
+            f"staged purge did not prove zero physical rows for {manifest.ingest_batch_id}: {remaining}"
+        )
+    insert_managed_batch(clickhouse_client, manifest)
+    verification = verify_ingest_batch(clickhouse_client, manifest)
+    if verification.outcome != "exact" or not verification.success:
+        raise DurableRetryUniquenessError(
+            f"normalization did not yield exact for {manifest.ingest_batch_id}: "
+            f"{verification.outcome}"
+        )
+    return verification
+
+
+def commit_managed_batch_exactly_once(
+    *,
+    session,
+    clickhouse_client,
+    manifest: ManagedBatch,
+    batch: Optional[IngestBatch] = None,
+) -> ManagedBatchCommitResult:
+    """Shared Phase 2.4B1 writer: preflight, at most one INSERT, exact-only DURABLE."""
+    batch = reserve_staged_batch(session=session, manifest=manifest)
+    session.flush()
+    if batch.state == IngestBatchState.DURABLE:
+        existing = verify_ingest_batch(clickhouse_client, manifest)
+        return ManagedBatchCommitResult(
+            action="already_durable",
+            batch=batch,
+            verification=existing,
+            inserted=False,
+            normalized=False,
+            physical_rows=existing.physical_rows,
+            ingest_batch_id=manifest.ingest_batch_id,
+        )
+
+    preflight = verify_ingest_batch(clickhouse_client, manifest)
+    if preflight.outcome in FAIL_CLOSED_PREFLIGHT_OUTCOMES or preflight.outcome == "partial":
+        raise ManagedBatchVerificationError(preflight, manifest.ingest_batch_id)
+    if preflight.outcome == "exact":
+        mark_batch_durable(session=session, batch=batch, verification=preflight)
+        return ManagedBatchCommitResult(
+            action="preflight_exact",
+            batch=batch,
+            verification=preflight,
+            inserted=False,
+            normalized=False,
+            physical_rows=preflight.physical_rows,
+            ingest_batch_id=manifest.ingest_batch_id,
+        )
+    if preflight.outcome == "duplicate_identical":
+        verification = normalize_duplicate_identical_staged_batch(
+            session=session,
+            clickhouse_client=clickhouse_client,
+            manifest=manifest,
+            batch=batch,
+        )
+        mark_batch_durable(session=session, batch=batch, verification=verification)
+        return ManagedBatchCommitResult(
+            action="normalized_exact",
+            batch=batch,
+            verification=verification,
+            inserted=True,
+            normalized=True,
+            physical_rows=verification.physical_rows,
+            ingest_batch_id=manifest.ingest_batch_id,
+        )
+    if preflight.outcome != "absent":
+        raise ManagedBatchVerificationError(preflight, manifest.ingest_batch_id)
+
+    insert_managed_batch(clickhouse_client, manifest)
+    post = verify_ingest_batch(clickhouse_client, manifest)
+    if post.outcome == "exact":
+        mark_batch_durable(session=session, batch=batch, verification=post)
+        return ManagedBatchCommitResult(
+            action="inserted_exact",
+            batch=batch,
+            verification=post,
+            inserted=True,
+            normalized=False,
+            physical_rows=post.physical_rows,
+            ingest_batch_id=manifest.ingest_batch_id,
+        )
+    if post.outcome == "duplicate_identical":
+        verification = normalize_duplicate_identical_staged_batch(
+            session=session,
+            clickhouse_client=clickhouse_client,
+            manifest=manifest,
+            batch=batch,
+        )
+        mark_batch_durable(session=session, batch=batch, verification=verification)
+        return ManagedBatchCommitResult(
+            action="normalized_exact",
+            batch=batch,
+            verification=verification,
+            inserted=True,
+            normalized=True,
+            physical_rows=verification.physical_rows,
+            ingest_batch_id=manifest.ingest_batch_id,
+        )
+    raise ManagedBatchVerificationError(post, manifest.ingest_batch_id)
+
+
 def mark_batch_durable(*, session, batch: IngestBatch, verification: BatchVerificationResult) -> IngestBatch:
-    if not verification.success:
-        raise ManifestProtocolError(f"verification did not authorize DURABLE: {verification.outcome}")
-    if batch.state != IngestBatchState.DURABLE:
+    if verification.outcome != "exact" or not verification.success:
+        raise DurableRetryUniquenessError(
+            f"verification did not authorize DURABLE: {verification.outcome}"
+        )
+    already_durable = batch.state == IngestBatchState.DURABLE
+    if not already_durable:
         batch.state = IngestBatchState.DURABLE
         batch.state_version = int(batch.state_version or 0) + 1
         batch.durable_at = _utcnow()
-    session.flush()
-    from utils.row_local_derivations import maybe_queue_row_local_derivations_for_durable_batch
-    maybe_queue_row_local_derivations_for_durable_batch(session=session, batch=batch)
-    generation = batch.generation
-    if generation is None:
-        generation = session.query(EvidenceSourceGeneration).filter_by(id=batch.generation_id).one()
-    _schedule_completion_reconciliation(session, generation, reason="batch_durable")
+        session.flush()
+        from utils.row_local_derivations import maybe_queue_row_local_derivations_for_durable_batch
+        maybe_queue_row_local_derivations_for_durable_batch(session=session, batch=batch)
+        generation = batch.generation
+        if generation is None:
+            generation = session.query(EvidenceSourceGeneration).filter_by(id=batch.generation_id).one()
+        _schedule_completion_reconciliation(session, generation, reason="batch_durable")
+    else:
+        session.flush()
     return batch
 
 

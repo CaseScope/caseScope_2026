@@ -316,12 +316,12 @@ class Phase23ContractTests(unittest.TestCase):
             for token in LATER_PHASE_TOKENS:
                 self.assertNotIn(token, text, msg=f"{os.path.basename(path)} {token}")
 
-    def test_version_is_patch_4_26_2(self):
+    def test_version_records_phase23_and_current_candidate(self):
         with open(os.path.join(REPO_ROOT, "version.json"), encoding="utf-8") as handle:
             payload = json.load(handle)
-        self.assertEqual(payload["version"], "4.26.2")
-        self.assertEqual(payload["changelog"][0]["version"], "4.26.2")
-        joined = " ".join(payload["changelog"][0]["changes"]).lower()
+        self.assertEqual(payload["version"], "4.26.3")
+        phase23 = next(item for item in payload["changelog"] if item["version"] == "4.26.2")
+        joined = " ".join(phase23["changes"]).lower()
         self.assertIn("lightweight", joined)
         self.assertIn("classic", joined)
         self.assertIn("audit", joined)

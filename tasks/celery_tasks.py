@@ -1071,6 +1071,53 @@ def _is_managed_ingest_mode(ingest_mode: str) -> bool:
     return ingest_mode in {'MANAGED_INITIAL', 'MANAGED_REPLACEMENT'}
 
 
+def _commit_reserved_managed_batch(
+    *,
+    clickhouse_client,
+    manifest,
+    batch_row,
+    attempt,
+    fail_label: str,
+):
+    """Shared CASE_FILE / EVTX / D2 recovery commit through the Phase 2.4B1 writer."""
+    from models.database import db
+    from utils.ingest_fence import IngestFenceUnavailable
+    from utils.manifest_protocol import (
+        BatchOwnershipError,
+        DurableRetryUniquenessError,
+        ManagedBatchVerificationError,
+        commit_managed_batch_exactly_once,
+        finish_ingest_attempt,
+        handle_failed_verification,
+    )
+
+    try:
+        return commit_managed_batch_exactly_once(
+            session=db.session,
+            clickhouse_client=clickhouse_client,
+            manifest=manifest,
+            batch=batch_row,
+        )
+    except ManagedBatchVerificationError as exc:
+        handle_failed_verification(
+            clickhouse_client=clickhouse_client,
+            verification=exc.verification,
+            manifest=manifest,
+        )
+        finish_ingest_attempt(
+            db.session,
+            attempt,
+            status='FAILED',
+            error=f'Verification failed: {exc.verification.outcome}',
+        )
+        db.session.commit()
+        raise RuntimeError(f'{fail_label}: {exc.verification.outcome}') from exc
+    except (BatchOwnershipError, DurableRetryUniquenessError, IngestFenceUnavailable) as exc:
+        finish_ingest_attempt(db.session, attempt, status='FAILED', error=str(exc))
+        db.session.commit()
+        raise RuntimeError(f'{fail_label}: {exc}') from exc
+
+
 def _process_managed_initial_case_file(
     *,
     parser,
@@ -1097,16 +1144,12 @@ def _process_managed_initial_case_file(
         create_ingest_attempt,
         declare_generation_ingest_complete,
         finish_ingest_attempt,
-        handle_failed_verification,
-        insert_managed_batch,
-        mark_batch_durable,
         project_generation_authority_swap,
         project_generation_control_state,
         refresh_ingest_attempt_lease,
         reserve_staged_batch,
         select_case_file_ingest_mode,
         update_generation_ingest_accounting,
-        verify_ingest_batch,
     )
 
     def _producer_version_for_managed_parser():
@@ -1194,23 +1237,13 @@ def _process_managed_initial_case_file(
                 batch_row = reserve_staged_batch(session=db.session, manifest=manifest)
                 db.session.commit()
 
-            insert_managed_batch(clickhouse_client, manifest)
-            verification = verify_ingest_batch(clickhouse_client, manifest)
-            if not verification.success:
-                handle_failed_verification(
-                    clickhouse_client=clickhouse_client,
-                    verification=verification,
-                    manifest=manifest,
-                )
-                finish_ingest_attempt(
-                    db.session,
-                    attempt,
-                    status='FAILED',
-                    error=f'Verification failed: {verification.outcome}',
-                )
-                db.session.commit()
-                raise RuntimeError(f"Managed batch verification failed: {verification.outcome}")
-
+            _commit_reserved_managed_batch(
+                clickhouse_client=clickhouse_client,
+                manifest=manifest,
+                batch_row=batch_row,
+                attempt=attempt,
+                fail_label='Managed batch verification failed',
+            )
             with timed_stage(
                 "phase1b_pg_durable_transition",
                 case_id=case_id,
@@ -1219,7 +1252,6 @@ def _process_managed_initial_case_file(
             ):
                 refresh_ingest_attempt_lease(session=db.session, attempt=attempt)
                 batch_row = db.session.get(IngestBatch, batch_row.id)
-                mark_batch_durable(session=db.session, batch=batch_row, verification=verification)
                 update_generation_ingest_accounting(
                     session=db.session,
                     generation=generation,
@@ -1365,14 +1397,10 @@ def _process_managed_evtx_directory_group(
         create_ingest_attempt,
         declare_generation_ingest_complete,
         finish_ingest_attempt,
-        handle_failed_verification,
-        insert_managed_batch,
-        mark_batch_durable,
         project_generation_control_state,
         refresh_ingest_attempt_lease,
         reserve_staged_batch,
         update_generation_ingest_accounting,
-        verify_ingest_batch,
     )
 
     if parser is None or not hasattr(parser, 'parse_directory_group'):
@@ -1455,26 +1483,15 @@ def _process_managed_evtx_directory_group(
                 batch_row = reserve_staged_batch(session=db.session, manifest=manifest)
                 db.session.commit()
 
-            insert_managed_batch(clickhouse_client, manifest)
-            verification = verify_ingest_batch(clickhouse_client, manifest)
-            if not verification.success:
-                handle_failed_verification(
-                    clickhouse_client=clickhouse_client,
-                    verification=verification,
-                    manifest=manifest,
-                )
-                finish_ingest_attempt(
-                    db.session,
-                    state['attempt'],
-                    status='FAILED',
-                    error=f'Verification failed: {verification.outcome}',
-                )
-                db.session.commit()
-                raise RuntimeError(f"Managed EVTX directory batch verification failed: {verification.outcome}")
-
+            _commit_reserved_managed_batch(
+                clickhouse_client=clickhouse_client,
+                manifest=manifest,
+                batch_row=batch_row,
+                attempt=state['attempt'],
+                fail_label='Managed EVTX directory batch verification failed',
+            )
             refresh_ingest_attempt_lease(session=db.session, attempt=state['attempt'])
             batch_row = db.session.get(IngestBatch, batch_row.id)
-            mark_batch_durable(session=db.session, batch=batch_row, verification=verification)
             state['events_count'] += len(events)
             update_generation_ingest_accounting(
                 session=db.session,
@@ -1984,13 +2001,10 @@ def recover_staged_ingest_batch_task(self, ingest_batch_id: str, recovery_attemp
         construct_managed_batch,
         contract_from_parser,
         finish_ingest_attempt,
-        insert_managed_batch,
-        mark_batch_durable,
         project_generation_control_state,
         refresh_ingest_attempt_lease,
         reserve_staged_batch,
         update_generation_ingest_accounting,
-        verify_ingest_batch,
     )
 
     app = get_flask_app()
@@ -2093,21 +2107,14 @@ def recover_staged_ingest_batch_task(self, ingest_batch_id: str, recovery_attemp
 
         client = get_fresh_client()
         try:
-            insert_managed_batch(client, manifest)
-            verification = verify_ingest_batch(client, manifest)
-            if not verification.success:
-                finish_ingest_attempt(
-                    db.session,
-                    attempt,
-                    status='FAILED',
-                    error=f'Recovery batch verification failed: {verification.outcome}',
-                )
-                batch_row.last_reconcile_error = f'Recovery batch verification failed: {verification.outcome}'
-                db.session.commit()
-                raise RuntimeError(f"Recovery batch verification failed: {verification.outcome}")
-
+            _commit_reserved_managed_batch(
+                clickhouse_client=client,
+                manifest=manifest,
+                batch_row=batch_row,
+                attempt=attempt,
+                fail_label='Recovery batch verification failed',
+            )
             batch_row = db.session.get(IngestBatch, batch_row.id)
-            mark_batch_durable(session=db.session, batch=batch_row, verification=verification)
             update_generation_ingest_accounting(session=db.session, generation=generation)
             finish_ingest_attempt(db.session, attempt, status='SUCCEEDED')
             db.session.commit()

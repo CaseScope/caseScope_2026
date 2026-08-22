@@ -1,6 +1,17 @@
 {
-  "version": "4.26.2",
+  "version": "4.26.3",
   "changelog": [
+    {
+      "version": "4.26.3",
+      "date": "2026-08-22",
+      "changes": [
+        "closes production Phase 1B D1/D2 schema deployment drift",
+        "prevents deterministic managed batch retries from issuing a second INSERT when exact physical rows already exist",
+        "enforces exact physical manifest before current DURABLE publication",
+        "normalizes duplicate-identical STAGED copies before publication",
+        "does not implement semantic dedup / LEK / Phase 3 / Phase 4"
+      ]
+    },
     {
       "version": "4.26.2",
       "date": "2026-08-22",

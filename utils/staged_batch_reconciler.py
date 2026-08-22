@@ -17,31 +17,24 @@ from models.database_flow import (
     IngestBatchReconciliationAudit,
     IngestBatchState,
 )
+from utils.ingest_fence import IngestFenceUnavailable
 from utils.ingest_identity import batch_content_hash_for_ordinals, validate_sha256_hex
 from utils.manifest_protocol import (
+    FAIL_CLOSED_RECONCILE_OUTCOMES,
     BatchVerificationResult,
+    count_physical_ingest_batch_rows,
     create_ingest_attempt,
+    ingest_attempt_writer_is_stale,
     mark_batch_durable,
     project_generation_control_state,
     purge_ingest_batch_rows,
+    transfer_staged_batch_ownership,
     update_generation_ingest_accounting,
 )
 
-
-ATTEMPT_TERMINAL_STATUSES = {"SUCCEEDED", "FAILED", "CANCELLED", "REVOKED"}
 RECOVERABLE_GENERATION_STATES = {
     EvidenceGenerationState.BUILDING_INITIAL,
     EvidenceGenerationState.BUILDING_REPLACEMENT,
-}
-FAIL_CLOSED_RECONCILE_OUTCOMES = {
-    "malformed_manifest",
-    "duplicate_different",
-    "hash_mismatch",
-    "extra_ordinal",
-    "aggregate_mismatch",
-    "active_generation_invariant_violation",
-    "generation_not_recoverable",
-    "manifest_changed",
 }
 DEFAULT_RECONCILE_LEASE_SECONDS = 900
 DEFAULT_MAX_AUTO_RECOVERY_ATTEMPTS = 3
@@ -283,14 +276,10 @@ def staged_batch_stale_eligibility(batch: IngestBatch, *, now: Optional[datetime
     if batch.last_reconcile_outcome in FAIL_CLOSED_RECONCILE_OUTCOMES:
         return StaleEligibility(False, f"prior fail-closed outcome requires explicit recovery: {batch.last_reconcile_outcome}")
     attempt = batch.latest_attempt
-    if attempt is None:
-        return StaleEligibility(True, "STAGED batch has no producing attempt")
-    status = str(attempt.status or "").upper()
-    if status in ATTEMPT_TERMINAL_STATUSES:
-        return StaleEligibility(True, f"producing attempt is terminal: {status}")
-    if status == "STARTED" and attempt.lease_expires_at is not None and attempt.lease_expires_at <= now:
-        return StaleEligibility(True, "producing attempt lease expired")
-    return StaleEligibility(False, "producing attempt is still live or cannot be proven stale")
+    stale, reason = ingest_attempt_writer_is_stale(attempt, now=now)
+    if stale:
+        return StaleEligibility(True, reason)
+    return StaleEligibility(False, reason)
 
 
 def discover_stale_staged_batch_ids(
@@ -422,15 +411,7 @@ def _audit(
 
 
 def _count_batch_rows(clickhouse_client, ingest_batch_id: str) -> int:
-    result = clickhouse_client.query(
-        """
-        SELECT count()
-        FROM events
-        WHERE ingest_batch_id = {id:String}
-        """,
-        parameters={"id": ingest_batch_id},
-    )
-    return int(result.result_rows[0][0]) if result.result_rows else 0
+    return count_physical_ingest_batch_rows(clickhouse_client, ingest_batch_id)
 
 
 def _classification_as_verification(classification: BatchClassification) -> BatchVerificationResult:
@@ -557,7 +538,7 @@ def reconcile_staged_batch(
         )
         return _fail_closed_result(session, batch=batch, classification=replacement, owner=owner, reason=replacement.reason)
 
-    if classification.classification in {"exact", "duplicate_identical"}:
+    if classification.classification == "exact":
         transition_started = time.perf_counter()
         mark_batch_durable(session=session, batch=batch, verification=_classification_as_verification(classification))
         update_generation_ingest_accounting(session=session, generation=generation)
@@ -589,10 +570,26 @@ def reconcile_staged_batch(
             timings_ms=timings,
         )
 
-    if classification.classification == "partial":
+    if classification.classification in {"partial", "duplicate_identical"}:
         session.commit()
         purge_started = time.perf_counter()
-        purge_ingest_batch_rows(clickhouse_client, ingest_batch_id)
+        try:
+            purge_ingest_batch_rows(clickhouse_client, ingest_batch_id)
+        except IngestFenceUnavailable as exc:
+            batch, _invalid_reason = _claim_still_valid(session, ingest_batch_id, owner=owner, snapshot=snapshot, now=_utcnow())
+            if batch is None:
+                session.rollback()
+                return ReconcileResult(ingest_batch_id=ingest_batch_id, action_taken="skipped", reason="batch disappeared")
+            replacement = BatchClassification(
+                classification.classification,
+                False,
+                classification.physical_row_count,
+                classification.collapsed_row_count,
+                duplicate_physical_rows=classification.duplicate_physical_rows,
+                missing_ordinals=classification.missing_ordinals,
+                reason=f"fence unavailable; refusing STAGED purge: {exc}",
+            )
+            return _fail_closed_result(session, batch=batch, classification=replacement, owner=owner, reason=replacement.reason)
         remaining = _count_batch_rows(clickhouse_client, ingest_batch_id)
         timings["ch_targeted_purge_ms"] = (time.perf_counter() - purge_started) * 1000.0
         if remaining != 0:
@@ -601,7 +598,7 @@ def reconcile_staged_batch(
                 session.rollback()
                 return ReconcileResult(ingest_batch_id=ingest_batch_id, action_taken="skipped", reason="batch disappeared")
             replacement = BatchClassification(
-                "partial",
+                classification.classification,
                 False,
                 remaining,
                 0,
@@ -614,7 +611,7 @@ def reconcile_staged_batch(
             session.rollback()
             return ReconcileResult(ingest_batch_id=ingest_batch_id, action_taken="skipped", reason=invalid_reason)
 
-    if classification.classification in {"absent", "partial"}:
+    if classification.classification in {"absent", "partial", "duplicate_identical"}:
         if int(batch.reconcile_attempt_count or 0) >= int(max_auto_recovery_attempts):
             return _fail_closed_result(
                 session,
@@ -626,14 +623,18 @@ def reconcile_staged_batch(
         transition_started = time.perf_counter()
         attempt = create_ingest_attempt(session=session, generation=generation)
         batch.state = IngestBatchState.STAGED
-        batch.ingest_attempt_id = attempt.ingest_attempt_id
+        transfer_staged_batch_ownership(session=session, batch=batch, new_attempt=attempt)
         batch.reconcile_attempt_count = int(batch.reconcile_attempt_count or 0) + 1
         batch.state_version = int(batch.state_version or 0) + 1
         batch.last_reconcile_at = _utcnow()
         batch.last_reconcile_outcome = classification.classification
         batch.last_reconcile_error = None
         _clear_claim(batch)
-        action = "retry_same_batch" if classification.classification == "absent" else "purged_and_retry_same_batch"
+        action = {
+            "absent": "retry_same_batch",
+            "partial": "purged_and_retry_same_batch",
+            "duplicate_identical": "normalize_staged_purge_and_retry",
+        }[classification.classification]
         audit = _audit(
             session,
             batch=batch,
