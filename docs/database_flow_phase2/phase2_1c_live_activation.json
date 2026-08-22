@@ -1,0 +1,355 @@
+{
+  "tranche": "phase2_1c_live_activation",
+  "version": "4.25.1",
+  "version_bumped": false,
+  "baseline_commit": "c5a1926a2aafa7046c7e4f6753f7fdb57cf53c1f",
+  "baseline_commit_time": "2026-08-22T02:34:47+00:00",
+  "python": "/opt/casescope/venv/bin/python",
+  "clickhouse_version": "26.7.3.19",
+  "working_tree_clean_at_start": true,
+  "head_equals_origin_main": true,
+  "product_code_changed": false,
+  "text_index": {
+    "name": "idx_search_blob_text",
+    "expr": "search_blob",
+    "type_full": "text(tokenizer = 'splitByNonAlpha', preprocessor = lower(search_blob))",
+    "MATERIALIZED": 25,
+    "PARTIAL": 0,
+    "UNMATERIALIZED": 0,
+    "UNKNOWN": 0,
+    "rows": 745463991,
+    "partitions": 25,
+    "active_parts": 135,
+    "part_coverage": {
+      "MATERIALIZED": 135,
+      "PARTIAL": 0,
+      "UNMATERIALIZED": 0,
+      "UNKNOWN": 0
+    }
+  },
+  "blooms": {
+    "idx_search_ngram": "PRESENT",
+    "idx_search_token": "PRESENT",
+    "DROP_INDEX": false
+  },
+  "mutations": {
+    "in_progress": 0,
+    "failed_text_index": 0
+  },
+  "settings": {
+    "materialize_skip_indexes_on_insert": "1",
+    "query_plan_direct_read_from_text_index": "1",
+    "log_queries": "1",
+    "materialize_skip_indexes_on_insert_changed_here": false
+  },
+  "fresh_parts": {
+    "post_materialization_parts_existed": false,
+    "row_count_unchanged": true,
+    "active_parts_unchanged": true,
+    "newest_part_modification_time": "2026-08-21 20:58:00",
+    "materialization_window": {
+      "case_32_mutation_create_time": "2026-08-21 20:43:11",
+      "parts_min_modification_time": "2026-08-21 20:57:54",
+      "parts_max_modification_time": "2026-08-21 20:58:00"
+    },
+    "fresh_insert_coverage": "N/A_NO_NEW_INGEST",
+    "verdict": "PASS"
+  },
+  "helper_contract_pre_activation": {
+    "ascii_ordinary": "hasAllTokens(search_blob, {simple_0_txt:String})",
+    "ascii_compact_or": "hasAnyTokens(search_blob, {simple_0_any_0:String})",
+    "unicode": "search_blob ilike",
+    "quoted": "search_blob ilike",
+    "punctuation_path_ip": "search_blob ilike",
+    "negative": "NOT search_blob ilike",
+    "numeric_bare": "event_id =",
+    "mapped_eventid": "event_id =",
+    "publication_bridge": true,
+    "all_ok": true
+  },
+  "web_activation": {
+    "unit": "casescope-web",
+    "workers_restarted": false,
+    "workers_MainPID": 251661,
+    "workers_ExecMainStartTimestamp": "Fri 2026-08-21 20:52:30 UTC",
+    "before": {
+      "MainPID": 279132,
+      "ExecMainStartTimestamp": "Fri 2026-08-21 21:29:57 UTC",
+      "ActiveState": "active",
+      "login_http": 200,
+      "unauth_hunt_http": 302
+    },
+    "restart_command": "sudo -n /usr/bin/systemctl restart casescope-web",
+    "after": {
+      "MainPID": 479860,
+      "ExecMainStartTimestamp": "Sat 2026-08-22 02:42:23 UTC",
+      "ActiveState": "active",
+      "listen": "https://0.0.0.0:443",
+      "startup_exception": false,
+      "migration_schema_exception": false,
+      "clickhouse_index_exception": false
+    },
+    "start_after_c5a1926": true
+  },
+  "running_version": "4.25.1",
+  "authenticated_smoke": {
+    "method": "existing_env_admin_login",
+    "new_user_created": false,
+    "credentials_recorded": false,
+    "logged_in": true,
+    "hunting_ui_http": 200,
+    "hunting_ui_version": "4.25.1",
+    "grid_endpoint": "GET /api/hunting/events/<case_id>",
+    "detail_endpoint": "GET /api/hunting/event/detail/<case_id>",
+    "export_endpoint": "GET /api/hunting/events/export-view/<case_id>"
+  },
+  "token_safe_live": {
+    "case_id": 14,
+    "search": "sonicwall",
+    "http": 200,
+    "grid_total": 13,
+    "returned_rows": 13,
+    "http_ms": 231.0,
+    "detail_ok": true,
+    "product_sql_contains": "hasAllTokens(search_blob, 'sonicwall')",
+    "old_ilike_absent": true,
+    "publication_bridge": true,
+    "query_log": {
+      "count_ms": 54,
+      "grid_ms": 126,
+      "count_result_rows": 1,
+      "grid_result_rows": 13
+    },
+    "explain": {
+      "uses_idx_search_blob_text": true,
+      "hasAllTokens_prewhere": true,
+      "scan_lower": false,
+      "skip_name": "idx_search_blob_text",
+      "prewhere": "__text_index_idx_search_blob_text_hasAllTokens_4968337be4750de62cc3715836e51ab3"
+    }
+  },
+  "large_bounded_search": [
+    {
+      "case_id": 10,
+      "search": "powershell",
+      "http": 200,
+      "total": 17311,
+      "returned_rows": 50,
+      "http_ms": 775.8,
+      "query_log_count_ms": 62,
+      "query_log_page_ms": 690,
+      "product_sql": "hasAllTokens(search_blob, 'powershell')",
+      "publication_bridge": true,
+      "timeout": false,
+      "isolated_token_count": 19455,
+      "delta_reason": "existing show_noise=false / noise_matched=false"
+    },
+    {
+      "case_id": 7,
+      "search": "powershell",
+      "http": 200,
+      "total": 518829,
+      "returned_rows": 50,
+      "http_ms": 27166.1,
+      "query_log_count_ms": 525,
+      "query_log_page_ms": 26622,
+      "product_sql": "hasAllTokens(search_blob, 'powershell')",
+      "publication_bridge": true,
+      "timeout": false,
+      "isolated_token_count": 705353,
+      "delta_reason": "existing show_noise=false / noise_matched=false"
+    },
+    {
+      "case_id": 32,
+      "search": "powershell",
+      "http": 200,
+      "total": 940117,
+      "returned_rows": 50,
+      "http_ms": 37088.6,
+      "query_log_count_ms": 819,
+      "query_log_page_ms": 36245,
+      "product_sql": "hasAllTokens(search_blob, 'powershell')",
+      "publication_bridge": true,
+      "timeout": false,
+      "isolated_token_count": 940117
+    }
+  ],
+  "substring_live": [
+    {
+      "case_id": 10,
+      "search": "cmd.exe",
+      "http": 200,
+      "total": 993,
+      "product_sql": "search_blob ILIKE '%cmd.exe%'",
+      "hasAllTokens": false
+    },
+    {
+      "case_id": 10,
+      "search": "10.0.0.1",
+      "http": 200,
+      "total": 0,
+      "product_sql": "search_blob ILIKE '%10.0.0.1%'",
+      "hasAllTokens": false,
+      "note": "case 10 has no matches; case 7 first page used as match fixture"
+    },
+    {
+      "case_id": 7,
+      "search": "10.0.0.1",
+      "http": 200,
+      "total": 3162,
+      "returned_rows": 10,
+      "http_ms": 10508.9,
+      "product_sql": "search_blob ILIKE '%10.0.0.1%'",
+      "hasAllTokens": false
+    },
+    {
+      "case_id": 10,
+      "search": "\"Windows PowerShell\"",
+      "http": 200,
+      "total": 11641,
+      "product_sql": "search_blob ILIKE '%Windows PowerShell%'",
+      "hasAllTokens": false
+    }
+  ],
+  "unicode_live": [
+    {
+      "case_id": 14,
+      "search": "münchen",
+      "http": 200,
+      "total": 0,
+      "product_sql": "search_blob ILIKE '%münchen%'",
+      "hasAllTokens": false,
+      "hasAnyTokens": false
+    },
+    {
+      "case_id": 14,
+      "search": "用户",
+      "http": 200,
+      "total": 0,
+      "product_sql": "search_blob ILIKE '%用户%'",
+      "hasAllTokens": false,
+      "hasAnyTokens": false
+    }
+  ],
+  "structured_live": [
+    {
+      "case_id": 10,
+      "search": "4688",
+      "http": 200,
+      "total": 0,
+      "product_sql": "event_id = '4688'",
+      "hasAllTokens": false,
+      "note": "case 10 has no 4688 rows"
+    },
+    {
+      "case_id": 10,
+      "search": "eventid:4688",
+      "http": 200,
+      "total": 0,
+      "product_sql": "event_id = '4688'",
+      "hasAllTokens": false
+    },
+    {
+      "case_id": 10,
+      "search": "eventid:1",
+      "http": 200,
+      "total": 13610,
+      "product_sql": "event_id = '1'",
+      "hasAllTokens": false
+    },
+    {
+      "case_id": 10,
+      "search": "eventid:4799",
+      "http": 200,
+      "total": 14214,
+      "product_sql": "event_id = '4799'",
+      "hasAllTokens": false
+    }
+  ],
+  "exclusion_live": {
+    "case_id": 14,
+    "search": "-powershell",
+    "http": 200,
+    "total": 1341,
+    "product_sql": "NOT (search_blob ILIKE '%powershell%')",
+    "not_hasAllTokens": true
+  },
+  "grid_count_consistency": {
+    "token_safe_same_clause": true,
+    "case14_sonicwall_count": 13,
+    "case14_sonicwall_grid_rows": 13
+  },
+  "pagination": {
+    "classification": "PRE_EXISTING_PAGINATION_ORDERING_DEFECT",
+    "case_id": 10,
+    "search": "powershell",
+    "page1_rows": 50,
+    "page2_rows": 50,
+    "same_total": true,
+    "total": 17311,
+    "overlap_count_this_pair": 0,
+    "prior_2_1c_overlap": 5,
+    "fixed_here": false
+  },
+  "export": {
+    "case_id": 14,
+    "search": "sonicwall",
+    "http": 200,
+    "data_rows": 13,
+    "grid_total": 13,
+    "count_match": true,
+    "product_sql": "hasAllTokens(search_blob, 'sonicwall')",
+    "token_vs_ilike_split": false,
+    "publication_join": false,
+    "publication_join_note": "pre-existing export_view_events omits the Phase 1B publication join; legacy-null fixture counts still match"
+  },
+  "publication": {
+    "live_grid_contains_bridge": true,
+    "production_publication_state_altered": false,
+    "f2": {
+      "database": "phase2_1c_test",
+      "tests": "tests/test_phase1b_tranche_f2_product_search_publication_gate.py",
+      "result": "8 passed",
+      "token_safe_term": "alpha"
+    }
+  },
+  "error_review": {
+    "web_traceback": false,
+    "web_500": false,
+    "unknown_function": false,
+    "clickhouse_exception": false,
+    "query_log_exceptions_in_smoke_window": false,
+    "unrelated_preexisting": "older SSL certificate-unknown client warnings exist before this restart"
+  },
+  "regression": {
+    "pytest": "97 passed",
+    "skipped_without_f2_env": 7,
+    "with_disposable_f2_env": "97 passed, 0 skipped"
+  },
+  "no_later_phase": {
+    "bloom_drop": false,
+    "command_line_index": false,
+    "other_search_blob_migration": false,
+    "phase_2_2": false,
+    "phase_2_3": false,
+    "phase_2_4": false,
+    "phase_3": false,
+    "phase_4": false,
+    "LEK": false,
+    "events_current": false,
+    "event_observations_current": false,
+    "pagination_redesign": false
+  },
+  "files_changed": [
+    "docs/database_flow_phase2/phase2_1c_live_activation.md",
+    "docs/database_flow_phase2/phase2_1c_live_activation.json"
+  ],
+  "git": {
+    "expected_after_docs": "committed_and_pushed_per_user_request"
+  },
+  "remaining_work": [
+    "Independent review of live activation",
+    "Phase 2.1D bloom-index retirement / final Phase 2.1 exit only after that review"
+  ],
+  "verdict": "PHASE2_1C_LIVE_PASS"
+}
