@@ -1,6 +1,14 @@
 {
-  "version": "4.25.0",
+  "version": "4.25.1",
   "changelog": [
+    {
+      "version": "4.25.1",
+      "date": "2026-08-21",
+      "changes": [
+        "Narrowed Hunt TOKEN_SAFE to ASCII alphanumeric atoms so non-ASCII input stays on existing parameterized search_blob ILIKE rather than the unproven Unicode token path",
+        "Did not restart production services, drop bloom indexes, rematerialize, or change the locked lower(search_blob) text-index definition"
+      ]
+    },
     {
       "version": "4.25.0",
       "date": "2026-08-21",

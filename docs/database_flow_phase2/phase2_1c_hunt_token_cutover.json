@@ -2756,5 +2756,135 @@
     "Phase 1B publication bridge unchanged"
   ],
   "token_false_negative": false,
-  "final_verdict": "PHASE2_1C_PASS"
+  "final_verdict": "PHASE2_1C_PASS",
+  "ascii_boundary_closure": {
+    "version": "4.25.1",
+    "ASCII_TOKEN_SAFE_ONLY": true,
+    "NON_ASCII": "SUBSTRING_REQUIRED",
+    "index_definition_unchanged": true,
+    "index_type_full": "text(tokenizer = 'splitByNonAlpha', preprocessor = lower(search_blob))",
+    "index_expr": "search_blob",
+    "no_rematerialization": true,
+    "services_not_restarted": true,
+    "reader_activated_by_restart": false,
+    "web": {
+      "unit": "casescope-web",
+      "MainPID": 279132,
+      "ExecMainStartTimestamp": "Fri 2026-08-21 21:29:57 UTC"
+    },
+    "workers": {
+      "unit": "casescope-workers",
+      "MainPID": 251661,
+      "ExecMainStartTimestamp": "Fri 2026-08-21 20:52:30 UTC"
+    },
+    "cutover_commit": "bad5d3c928dc862f927437c6df5021f0f990ea79",
+    "cutover_commit_time": "2026-08-21T23:57:01+00:00",
+    "pagination": {
+      "classification": "PRE_EXISTING_PAGINATION_ORDERING_DEFECT",
+      "case_10_page_overlap": 5,
+      "hunting_py_changed_in_2_1c": false,
+      "hunting_py_changed_in_closure": false,
+      "order_by": "COALESCE(e.timestamp_utc, e.timestamp) DESC, e.record_id DESC",
+      "paging": "LIMIT/OFFSET"
+    },
+    "blooms": {
+      "idx_search_ngram": "PRESENT",
+      "idx_search_token": "PRESENT",
+      "DROP_INDEX": false
+    },
+    "rows": 745463991,
+    "partitions": 25,
+    "active_parts": 135,
+    "classifier": {
+      "TOKEN_SAFE": "unquoted positive free-text; not digit-only; no LIKE wildcards; exactly one tokenizer token equal to input; complete atom matches [A-Za-z0-9]+",
+      "SUBSTRING_REQUIRED": "quoted, wildcards, punctuation splits, blob/unknown field, any non-ASCII code point",
+      "STRASSE": "TOKEN_SAFE because ASCII alphanumeric",
+      "Straße": "SUBSTRING_REQUIRED because U+00DF is non-ASCII"
+    },
+    "ascii_token_safe": [
+      "powershell",
+      "PowerShell",
+      "Administrator",
+      "PCLAPPVM",
+      "svchost",
+      "host01",
+      "vchos",
+      "STRASSE"
+    ],
+    "unicode_substring_required": [
+      "münchen",
+      "MÜNCHEN",
+      "Straße",
+      "用户",
+      "日本語",
+      "—",
+      "–",
+      "“quote”",
+      "🔥",
+      "hosté",
+      "powershell🔥"
+    ],
+    "indexed_vs_scan_reproof": {
+      "timestamp": "2026-08-22T02:30:56Z",
+      "samples": [
+        {"case_id": 14, "term": "sonicwall", "indexed_count": 13, "scan_count": 13, "erk_a_only": 0, "erk_b_only": 0},
+        {"case_id": 14, "term": "SonicWall", "indexed_count": 13, "scan_count": 13, "erk_a_only": 0, "erk_b_only": 0},
+        {"case_id": 10, "term": "powershell", "indexed_count": 19455, "scan_count": 19455, "erk_a_only": 0, "erk_b_only": 0},
+        {"case_id": 10, "term": "PowerShell", "indexed_count": 19455, "scan_count": 19455, "erk_a_only": 0, "erk_b_only": 0},
+        {"case_id": 10, "term": "Administrator", "indexed_count": 199, "scan_count": 199, "erk_a_only": 0, "erk_b_only": 0},
+        {"case_id": 7, "term": "powershell", "indexed_count": 705353, "scan_count": 705353, "erk_a_only": 0, "erk_b_only": 0},
+        {"case_id": 32, "term": "powershell", "indexed_count": 940117, "scan_count": 940117, "erk_a_only": 0, "erk_b_only": 0}
+      ]
+    },
+    "explain_reproof": {
+      "uses_idx_search_blob_text": true,
+      "uses_text_index_prewhere": true,
+      "has_lower_scan": false,
+      "cases": [14, 10, 7, 32]
+    },
+    "unicode_retained_search_blob": {
+      "14": {"hits": 0, "note": "no length!=lengthUTF8 rows in sample"},
+      "10": {"hits": 5, "helper_emits_ilike": true, "hasAllTokens": false, "hasAnyTokens": false},
+      "7": {"hits": 5, "helper_emits_ilike": true, "hasAllTokens": false, "hasAnyTokens": false},
+      "32": {"hits": 5, "helper_emits_ilike": true, "hasAllTokens": false, "hasAnyTokens": false}
+    },
+    "mixed_or": {
+      "powershell|münchen": "hasAllTokens OR ILIKE; not hasAnyTokens",
+      "powershell|用户": "hasAllTokens OR ILIKE; not hasAnyTokens",
+      "powershell|🔥": "hasAllTokens OR ILIKE; not hasAnyTokens",
+      "powershell|administrator": "hasAnyTokens"
+    },
+    "exclusions": {
+      "-münchen": "NOT search_blob ilike",
+      "-用户": "NOT search_blob ilike"
+    },
+    "quoted": {
+      "\"powershell\"": "search_blob ilike",
+      "\"münchen\"": "search_blob ilike",
+      "\"用户\"": "search_blob ilike"
+    },
+    "publication_f2": {
+      "database": "phase2_1c_test",
+      "tests": "tests/test_phase1b_tranche_f2_product_search_publication_gate.py",
+      "result": "8 passed",
+      "token_safe_term": "alpha",
+      "readiness_dtos_changed": false
+    },
+    "no_later_phase": [
+      "no production service activation",
+      "no bloom removal",
+      "no index redesign",
+      "no rematerialization",
+      "no command_line index",
+      "no other search_blob consumer migrations",
+      "no Phase 2.2",
+      "no Phase 2.3",
+      "no Phase 2.4",
+      "no Phase 3/4",
+      "no LEK",
+      "no events_current",
+      "no event_observations_current"
+    ],
+    "closure_verdict": "PHASE2_1C_CLOSURE_PASS"
+  }
 }

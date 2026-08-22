@@ -257,3 +257,123 @@ Do not drop bloom indexes automatically.
 Next possible Phase 2.1 tranche after review:
 
 Phase 2.1D — bloom-index retirement / final Phase 2.1 exit.
+
+## ASCII-boundary closure (4.25.1)
+
+Pre-activation semantic bugfix. TOKEN_SAFE is now deliberately conservative:
+ASCII alphanumeric atoms only. Production services were not restarted. The
+locked index definition was not changed. No rematerialization. Blooms remain.
+
+`ASCII_TOKEN_SAFE_ONLY = true`. Any atom containing a non-ASCII code point is
+`SUBSTRING_REQUIRED` and compiles to parameterized `search_blob ILIKE`.
+
+### Blocker
+
+The 4.25.0 classifier treated a `splitByNonAlpha` replica result of exactly
+one token as TOKEN_SAFE. The replica keeps every non-ASCII code point inside
+a token, so `münchen`, `用户`, `—`, emoji, and mixed ASCII+Unicode could emit
+`hasAllTokens` / compact `hasAnyTokens`. The production preprocessor remains
+`lower(search_blob)`, which is not a Unicode case-fold contract, and the
+accepted 2.1C indexed-vs-scan proof covered ASCII/DFIR terms only.
+
+### Classifier
+
+TOKEN_SAFE now requires all of:
+
+1. unquoted positive ordinary free-text
+2. not digit-only
+3. no wildcard
+4. tokenizer yields exactly one token equal to input
+5. the complete atom matches `[A-Za-z0-9]+`
+
+ASCII TOKEN_SAFE unchanged: powershell, PowerShell, Administrator, PCLAPPVM,
+svchost, host01, vchos, full ASCII SHA-256 hex. `STRASSE` is ASCII `[A-Za-z]+`
+and therefore TOKEN_SAFE; `Straße` (U+00DF) is SUBSTRING_REQUIRED.
+
+STRUCTURED unchanged: 4688, 7036.
+
+SUBSTRING_REQUIRED unchanged for punctuation splits, quotes, wildcards, plus
+every non-ASCII atom in the closure matrix:
+
+münchen, MÜNCHEN, Straße, 用户, 日本語, —, –, “quote”, 🔥, hosté, powershell🔥
+
+Helper SQL for those atoms: `search_blob ilike {param:String}` with the value
+bound as `%atom%`. No `hasAllTokens`. No `hasAnyTokens`.
+
+### Mixed OR / exclusions / quotes
+
+`powershell|münchen`, `powershell|用户`, `powershell|🔥` compile per branch:
+`hasAllTokens` OR `ILIKE`. Not one `hasAnyTokens` call.
+
+All-ASCII compact OR remains `hasAnyTokens`.
+
+`-münchen` and `-用户` remain `NOT search_blob ilike`.
+
+Quoted `"powershell"`, `"münchen"`, `"用户"` remain substring ILIKE.
+
+### ASCII indexed-vs-scan reproof
+
+Read-only production SQL, 2026-08-22T02:30:56Z. A =
+`hasAllTokens(search_blob, term)`. B =
+`hasAllTokens(lower(search_blob), lower(term))`. ERK EXCEPT both empty.
+
+| Case | Term | Indexed | Scan | A-only | B-only |
+|---|---|---:|---:|---:|---:|
+| 14 | sonicwall / SonicWall | 13 | 13 | 0 | 0 |
+| 10 | powershell / PowerShell | 19455 | 19455 | 0 | 0 |
+| 10 | Administrator | 199 | 199 | 0 | 0 |
+| 7 | powershell | 705353 | 705353 | 0 | 0 |
+| 32 | powershell | 940117 | 940117 | 0 | 0 |
+
+### EXPLAIN reproof
+
+`EXPLAIN indexes = 1` on 14/sonicwall and 10/7/32 powershell still uses Skip
+`Name: idx_search_blob_text` and Prewhere
+`__text_index_idx_search_blob_text_hasAllTokens_*`. No
+`hasAllTokens(lower(search_blob))` scan.
+
+Index type unchanged:
+`text(tokenizer = 'splitByNonAlpha', preprocessor = lower(search_blob))`.
+
+### Retained non-ASCII blobs
+
+Case 14: none in a `length != lengthUTF8` sample. Cases 10, 7, and 32 contain
+non-ASCII `search_blob` values (punctuation, replacement chars, CJK, mixed
+ASCII+Unicode). Representative extracted atoms all compiled to parameterized
+`search_blob ilike` with no token predicates. No Unicode corpus was required
+for closure; the ASCII-only classifier is the fail-safe.
+
+### Production service state
+
+Reader has NOT been activated by restart.
+
+- casescope-web MainPID 279132 started 2026-08-21 21:29:57 UTC
+- casescope-workers MainPID 251661 started 2026-08-21 20:52:30 UTC
+- 4.25.0 commit 2026-08-21 23:57:01 UTC, after that web start
+- this closure did not restart web or workers
+
+### Pagination observation
+
+`PRE_EXISTING_PAGINATION_ORDERING_DEFECT`. Case 10 page overlap of 5 keys was
+already recorded in the original 2.1C product measurements. The 2.1C commit
+did not touch `routes/hunting.py`. Grid ORDER BY remains timestamp plus
+`record_id` with OFFSET. This closure did not change ordering.
+
+### Blooms / publication / no later phase
+
+- `idx_search_ngram` PRESENT
+- `idx_search_token` PRESENT
+- no DROP INDEX
+- no rematerialization
+- Phase 1B F2 product publication gate: 8 passed on disposable
+  `phase2_1c_test` (`alpha` remains TOKEN_SAFE)
+- no command_line index, no other `search_blob` consumer migration, no Phase
+  2.2–2.4, no Phase 3/4, no LEK, no `events_current` /
+  `event_observations_current`
+
+### Regression
+
+Required suite plus Hunt helper/route tests. `py_compile`, `pyflakes`,
+`git diff --check` on changed Python.
+
+Closure version: 4.25.1. Original 2.1C measurements above are preserved.

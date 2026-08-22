@@ -121,6 +121,11 @@ _HUNT_LIKE_WILDCARD_CHARS = frozenset("%_*")
 # ASCII alphanumerics and every non-ASCII code point remain inside a token.
 _SPLIT_BY_NON_ALPHA = re.compile(r"[\x00-\x2F\x3A-\x40\x5B-\x60\x7B-\x7F]+")
 
+# Phase 2.1C claims indexed token semantics only for the proven ASCII
+# alphanumeric boundary. The deployed preprocessor is lower(search_blob),
+# not lowerUTF8/caseFoldUTF8, so any non-ASCII code point stays substring.
+_HUNT_ASCII_ALNUM_ATOM = re.compile(r"[A-Za-z0-9]+")
+
 
 def split_search_blob_tokens(text):
     """Return the ClickHouse 26.7.3.19 ``splitByNonAlpha`` token list."""
@@ -132,11 +137,12 @@ def split_search_blob_tokens(text):
 def classify_hunt_free_text_atom(term, *, quoted=False, exclusion=False):
     """Classify one Hunt free-text atom against the deployed tokenizer.
 
-    TOKEN_SAFE means an ordinary unquoted positive term that the deployed
-    tokenizer treats as exactly one intended token, so ``hasAllTokens`` on the
-    stored ``search_blob`` does not drop punctuation, adjacency, or wildcard
-    meaning. Digit-only terms are STRUCTURED (existing ``event_id =`` path).
-    Quoted strings, wildcards, and tokenizer splits stay SUBSTRING_REQUIRED.
+    TOKEN_SAFE means an ordinary unquoted positive ASCII-alphanumeric term
+    that the deployed tokenizer treats as exactly one intended token, so
+    ``hasAllTokens`` on the stored ``search_blob`` does not drop punctuation,
+    adjacency, wildcard, or unproven Unicode meaning. Digit-only terms are
+    STRUCTURED (existing ``event_id =`` path). Quoted strings, wildcards,
+    tokenizer splits, and any non-ASCII code point stay SUBSTRING_REQUIRED.
     Negative terms stay EXCLUSION_PRESERVE (existing ``NOT ILIKE``).
     """
     if exclusion:
@@ -151,6 +157,8 @@ def classify_hunt_free_text_atom(term, *, quoted=False, exclusion=False):
     if text.isdigit():
         return HUNT_ATOM_STRUCTURED
     if any(char in _HUNT_LIKE_WILDCARD_CHARS for char in text):
+        return HUNT_ATOM_SUBSTRING_REQUIRED
+    if _HUNT_ASCII_ALNUM_ATOM.fullmatch(text) is None:
         return HUNT_ATOM_SUBSTRING_REQUIRED
     tokens = split_search_blob_tokens(text)
     if len(tokens) == 1 and tokens[0].casefold() == text.casefold():
