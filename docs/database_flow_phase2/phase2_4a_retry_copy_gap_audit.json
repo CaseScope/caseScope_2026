@@ -1,0 +1,842 @@
+{
+  "tranche": "phase2_4a_retry_copy_gap_audit",
+  "recorded_at": "2026-08-22T19:05:29.031458+00:00",
+  "version": "4.26.2",
+  "version_bumped": false,
+  "locked_phase_24_sentence": "Dedup: no engine decision (RMT Option A remains removed). Interim = generation-aware accounting + deterministic-batch retry exclusion. Real design = Phase 4.",
+  "consumer_inventory": [
+    {
+      "path": "Hunt Events count/list",
+      "classification": "NEEDS_PHASE2_4_RETRY_EXCLUSION"
+    },
+    {
+      "path": "Hunt detail/raw",
+      "classification": "NEEDS_PHASE2_4_RETRY_EXCLUSION"
+    },
+    {
+      "path": "Hunt exports using publication bridge",
+      "classification": "NEEDS_PHASE2_4_RETRY_EXCLUSION"
+    },
+    {
+      "path": "Case/file product event counts",
+      "classification": "NEEDS_PHASE2_4_RETRY_EXCLUSION"
+    },
+    {
+      "path": "Analyst selector state accounting",
+      "classification": "NEEDS_PHASE2_4_RETRY_EXCLUSION"
+    },
+    {
+      "path": "Manual-noise selector state accounting",
+      "classification": "NEEDS_PHASE2_4_RETRY_EXCLUSION"
+    },
+    {
+      "path": "Noise scan accounting",
+      "classification": "NEEDS_PHASE2_4_RETRY_EXCLUSION"
+    },
+    {
+      "path": "IOC accounting",
+      "classification": "NEEDS_PHASE2_4_RETRY_EXCLUSION"
+    },
+    {
+      "path": "MITRE accounting",
+      "classification": "NEEDS_PHASE2_4_RETRY_EXCLUSION"
+    },
+    {
+      "path": "Privacy-alias batch derivation",
+      "classification": "NEEDS_PHASE2_4_RETRY_EXCLUSION"
+    },
+    {
+      "path": "AI freeze-then-verify",
+      "classification": "NEEDS_PHASE2_4_RETRY_EXCLUSION"
+    },
+    {
+      "path": "Ingest verify / duplicate_identical",
+      "classification": "ALREADY_RETRY_SAFE"
+    },
+    {
+      "path": "Generation landed_rows / expected_rows",
+      "classification": "ALREADY_RETRY_SAFE"
+    },
+    {
+      "path": "Activation completeness row sums",
+      "classification": "ALREADY_RETRY_SAFE"
+    },
+    {
+      "path": "Capability watermarks",
+      "classification": "ALREADY_RETRY_SAFE"
+    },
+    {
+      "path": "Case readiness Evidence dimension",
+      "classification": "ALREADY_RETRY_SAFE"
+    },
+    {
+      "path": "Completion reconciliation PG batch counts",
+      "classification": "ALREADY_RETRY_SAFE"
+    },
+    {
+      "path": "Graph extraction (F1 transitional)",
+      "classification": "NEEDS_PHASE2_4_RETRY_EXCLUSION"
+    },
+    {
+      "path": "Event embeddings (F1 transitional)",
+      "classification": "NEEDS_PHASE2_4_RETRY_EXCLUSION"
+    },
+    {
+      "path": "Known-principal discovery (F1 transitional)",
+      "classification": "NEEDS_PHASE2_4_RETRY_EXCLUSION"
+    },
+    {
+      "path": "Legacy-only completion dedup",
+      "classification": "LEGACY_ONLY_OUT_OF_SCOPE"
+    },
+    {
+      "path": "Phase 4 logical/events_current dedup",
+      "classification": "PHASE4_LOGICAL_DEDUP_OUT_OF_SCOPE"
+    },
+    {
+      "path": "Managed destructive case-wide dedup",
+      "classification": "INTEGRITY_FAIL_CLOSED"
+    }
+  ],
+  "production_mutation_audit": {
+    "production_insert": false,
+    "production_update": false,
+    "production_alter": false,
+    "production_delete": false,
+    "production_optimize": false,
+    "production_materialize": false,
+    "production_pg_manifest_mutation": false,
+    "production_redis_mutation": false,
+    "production_analyst_noise_mutation": false,
+    "production_test_ingest": false,
+    "service_restart": false,
+    "result": "NONE"
+  },
+  "no_later_phase_audit": {
+    "lek": false,
+    "events_current": false,
+    "event_observations_current": false,
+    "erk_api_migration": false,
+    "qdrant_identity_migration": false,
+    "ioc_overlay_pilot": false,
+    "semantic_dedup": false,
+    "cross_source_collapse": false,
+    "same_erk_collapse": false,
+    "rmt": false,
+    "new_clickhouse_engine": false,
+    "whole_case_dedup_redesign": false,
+    "legacy_dedup_removal": false,
+    "phase4_reader_cutover": false,
+    "phase4_canonical_representative": false,
+    "phase6_derivation_migration": false,
+    "phase2_exit_declared": false,
+    "master_plan_edited": false,
+    "version_bumped": false
+  },
+  "baseline": {
+    "ok": true,
+    "repository": "/opt/casescope",
+    "python": "/opt/casescope/venv/bin/python",
+    "head": "3ba6483287ae7a1771f3fd8cf9f67fbf7113e633",
+    "origin_main": "3ba6483287ae7a1771f3fd8cf9f67fbf7113e633",
+    "head_equals_origin_main": true,
+    "working_tree_clean_at_start": false,
+    "status_short": "?? docs/database_flow_phase2/phase2_4a_retry_copy_gap_audit.json\n?? docs/database_flow_phase2/phase2_4a_retry_copy_gap_audit.md\n?? scripts/phase2_4a_retry_copy_gap_audit.py\n?? tests/test_phase2_4a_retry_copy_gap_audit.py",
+    "unexpected_paths": [],
+    "expected_head": "3ba6483287ae7a1771f3fd8cf9f67fbf7113e633",
+    "expected_version": "4.26.2",
+    "version": "4.26.2"
+  },
+  "starting_facts": {
+    "A_ingest_batch_id_deterministic_excludes_attempt": true,
+    "B_ingest_attempt_id_not_in_batch_identity": true,
+    "C_row_hash_frozen_allowlist": {
+      "allowed": [
+        "case_id",
+        "artifact_type",
+        "source_ref_type",
+        "source_ref_id",
+        "source_generation",
+        "ingest_batch_id",
+        "ingest_row_ordinal",
+        "source_file",
+        "source_path",
+        "source_host",
+        "case_file_id",
+        "timestamp",
+        "timestamp_utc",
+        "timestamp_source_tz",
+        "event_id",
+        "channel",
+        "provider",
+        "record_id",
+        "level",
+        "username",
+        "domain",
+        "sid",
+        "logon_type",
+        "logon_id",
+        "remote_host",
+        "workstation_name",
+        "auth_package",
+        "logon_process",
+        "elevated_token",
+        "process_name",
+        "process_path",
+        "process_id",
+        "parent_process",
+        "parent_pid",
+        "command_line",
+        "thread_id",
+        "executable_info",
+        "payload_data1",
+        "payload_data2",
+        "payload_data3",
+        "payload_data4",
+        "payload_data5",
+        "payload_data6",
+        "target_path",
+        "file_hash_md5",
+        "file_hash_sha1",
+        "file_hash_sha256",
+        "file_size",
+        "src_ip",
+        "dst_ip",
+        "src_port",
+        "dst_port",
+        "reg_key",
+        "reg_value",
+        "reg_data",
+        "rule_title",
+        "rule_level",
+        "rule_file",
+        "mitre_tactics",
+        "mitre_tags",
+        "mitre_attack_ids",
+        "mitre_attack_tactics",
+        "mitre_attack_sources",
+        "mitre_mapping_max_confidence",
+        "raw_json",
+        "search_blob",
+        "evidence_record_key",
+        "evidence_identity_version",
+        "evidence_identity_quality"
+      ],
+      "excluded": [
+        "analyst_notes",
+        "analyst_tagged",
+        "analyst_tags",
+        "celery_task_id",
+        "extra_fields",
+        "indexed_at",
+        "ingest_attempt_id",
+        "ingest_row_hash",
+        "ioc_types",
+        "job_id",
+        "noise_matched",
+        "noise_rules",
+        "run_id",
+        "selector_key",
+        "task_id"
+      ],
+      "excludes_selector_indexed_attempt_overlays": true
+    },
+    "D_verify_duplicate_identical_success": true,
+    "E_classify_batch_accepts_duplicate_identical": true,
+    "F_reconcile_marks_durable_without_purge": true,
+    "G_landed_rows_from_pg_durable_row_count": true,
+    "H_hunt_publication_no_retry_collapse": true,
+    "I_managed_dedup_blocked_default": true,
+    "all_starting_facts_match_prompt": true
+  },
+  "managed_dedup_callers": {
+    "production_allow_managed_evidence_true": [],
+    "blocked_default": true
+  },
+  "clickhouse_version": "26.7.3.19",
+  "clickhouse_version_query": {
+    "query_id": "e8861c73-0863-492e-8487-38f73ca04d94",
+    "read_rows": 0,
+    "read_bytes": 0,
+    "duration_ms": 3.652,
+    "sql_preview": "SELECT version()"
+  },
+  "production_pg_census": {
+    "managed_cases": [],
+    "managed_case_count": 0,
+    "generation_count": 0,
+    "generations_by_visibility": {},
+    "batch_count": 0,
+    "batches_by_state": {},
+    "schema_lag": {
+      "evidence_source_generations_missing": [
+        "activated_at",
+        "final_batch_ordinal",
+        "superseded_at",
+        "superseded_by_generation"
+      ],
+      "ingest_batches_missing": [
+        "last_reconcile_at",
+        "reconcile_attempt_count",
+        "reconcile_lease_expires_at",
+        "reconcile_owner"
+      ],
+      "ingest_attempts_columns": [
+        "celery_task_id",
+        "error",
+        "finished_at",
+        "generation_id",
+        "id",
+        "ingest_attempt_id",
+        "started_at",
+        "status",
+        "worker_name"
+      ],
+      "evidence_source_generations_columns": [
+        "batching_contract_version",
+        "case_id",
+        "completed_at",
+        "configured_batch_size",
+        "created_at",
+        "expected_rows",
+        "failed_at",
+        "failure_reason",
+        "id",
+        "landed_rows",
+        "normalization_version",
+        "ordering_contract",
+        "parser_version",
+        "producer_version",
+        "source_generation",
+        "source_ref_id",
+        "source_ref_type",
+        "started_at",
+        "state_version",
+        "visibility_state"
+      ],
+      "ingest_batches_columns": [
+        "batch_content_hash",
+        "batch_ordinal",
+        "created_at",
+        "durable_at",
+        "expected_ingest_row_hashes",
+        "first_source_locator",
+        "generation_id",
+        "id",
+        "ingest_attempt_id",
+        "ingest_batch_id",
+        "last_source_locator",
+        "row_count",
+        "state",
+        "state_version"
+      ]
+    },
+    "generation_ids": [],
+    "batch_ids": []
+  },
+  "production_control_projections": {
+    "tables_present": [
+      "durable_ingest_batches",
+      "events",
+      "visible_evidence_generations"
+    ],
+    "counts": {
+      "visible_evidence_generations": 0,
+      "durable_ingest_batches": 0
+    },
+    "query_stats": [
+      {
+        "query_id": "6edc9487-a086-4c40-a682-8809987fec0c",
+        "read_rows": 0,
+        "read_bytes": 0,
+        "duration_ms": 6.947,
+        "sql_preview": "SELECT name FROM system.tables WHERE database = currentDatabase() AND name IN ('visible_evidence_generations', 'durable_ingest_batches', 'events') ORDER BY name"
+      },
+      {
+        "query_id": "887930b4-7f53-4e86-abf9-42ca13ff08e7",
+        "read_rows": 0,
+        "read_bytes": 0,
+        "duration_ms": 4.261,
+        "sql_preview": "SELECT count() FROM visible_evidence_generations"
+      },
+      {
+        "query_id": "65ad8162-332c-4d7c-b38b-9de2bb0e0fd3",
+        "read_rows": 0,
+        "read_bytes": 0,
+        "duration_ms": 4.44,
+        "sql_preview": "SELECT count() FROM durable_ingest_batches"
+      }
+    ],
+    "skipped_unbounded_events_scan": true
+  },
+  "production_ch_census": {
+    "query_stats": [],
+    "managed_cases_inspected": 0,
+    "managed_generations_inspected": 0,
+    "managed_batches_inspected": 0,
+    "protocol_complete_physical_rows": 0,
+    "ordinary_ordinals": 0,
+    "ordinals_containing_physical_retry_copies": 0,
+    "batches_containing_physical_retry_copies": 0,
+    "total_extra_physical_rows": 0,
+    "cases_affected": [],
+    "generations_affected": 0,
+    "maximum_copies_of_one_ordinal": 0,
+    "staged_duplicate_batches": 0,
+    "durable_duplicate_batches": 0,
+    "duplicates_by_generation_visibility": {},
+    "malformed_protocol_identity_rows": 0,
+    "retry_groups": [],
+    "integrity_conflicts": [],
+    "different_hash_conflicts": 0,
+    "wrong_hash_conflicts": 0,
+    "skipped_unbounded_legacy_scan": true,
+    "events_scan_limited_to_pg_managed_case_ids": true
+  },
+  "production_parity": {
+    "token": "CURRENT_RETRY_COPY_STATE_NOT_OBSERVED",
+    "groups_inspected": 0,
+    "parity_groups": 0,
+    "divergence_groups": 0,
+    "notes": "No production deterministic retry-copy groups to compare."
+  },
+  "disposable_proofs": {
+    "ok": true,
+    "lost_ack": {
+      "ack_error_present": true,
+      "stored_before_raise": true,
+      "verify_after_loss": {
+        "success": true,
+        "outcome": "exact",
+        "physical_rows": 8
+      },
+      "verify_after_retry": {
+        "success": true,
+        "outcome": "duplicate_identical",
+        "physical_rows": 16,
+        "duplicate_physical_rows": 8,
+        "retry_equivalent_duplicate": true
+      },
+      "same_batch_id": true,
+      "different_attempt_id": true,
+      "pg_state": "DURABLE"
+    },
+    "accounting": {
+      "pg_expected_rows_declared": 8,
+      "pg_batch_row_count": 8,
+      "pg_landed_rows": 8,
+      "clickhouse_physical_rows": 16,
+      "hunt_building_initial_count": 16,
+      "hunt_building_initial_excluded": 8,
+      "hunt_active_count": 16,
+      "hunt_active_excluded": 8,
+      "hunt_during_building_replacement": 16,
+      "one_ordinal_appears_once_in_current_hunt": false,
+      "one_ordinal_appears_once_per_physical_copy": true
+    },
+    "pagination": {
+      "page_size": 5,
+      "page1_rows": 5,
+      "page2_rows": 5,
+      "duplicate_selector_consumes_page_slot": true,
+      "same_selector_can_appear_twice": true,
+      "query_stats": {
+        "page1": {
+          "query_id": "03c278a1-9153-477e-9930-24ad91794118",
+          "read_rows": 0,
+          "read_bytes": 0,
+          "duration_ms": 24.334,
+          "sql_preview": "SELECT e.selector_key, e.ingest_batch_id, e.ingest_row_ordinal, e.ingest_attempt_id, e.evidence_record_key FROM events AS e LEFT JOIN ( SELECT case_id, source_ref_type, source_ref_id, source_generation, visibility_state, publishable FROM vi"
+        },
+        "page2": {
+          "query_id": "e02b41cb-7d7f-43d3-9a2d-9fb0ecf4f6f4",
+          "read_rows": 0,
+          "read_bytes": 0,
+          "duration_ms": 23.222,
+          "sql_preview": "SELECT e.selector_key, e.ingest_batch_id, e.ingest_row_ordinal, e.ingest_attempt_id, e.evidence_record_key FROM events AS e LEFT JOIN ( SELECT case_id, source_ref_type, source_ref_id, source_generation, visibility_state, publishable FROM vi"
+        },
+        "count": {
+          "query_id": "19ff5a44-0dde-4fed-a90a-fc426d036ac5",
+          "read_rows": 0,
+          "read_bytes": 0,
+          "duration_ms": 39.233,
+          "sql_preview": "SELECT count() AS n FROM events AS e LEFT JOIN ( SELECT case_id, source_ref_type, source_ref_id, source_generation, visibility_state, publishable FROM visible_evidence_generations FINAL WHERE case_id = {case_id:UInt32} ) AS veg ON veg.case_"
+        }
+      }
+    },
+    "detail_raw": {
+      "physical_copies_for_selector": 2,
+      "limit_1_returns_one_row": true,
+      "divergent_notes_present": true,
+      "limit_1_after_divergence_notes": "copy-a",
+      "order_dependent_when_diverged": true
+    },
+    "analyst_noise_accounting": {
+      "physical_copies_for_selector": 2,
+      "analyst_matched_count": 2,
+      "physical_rows_tagged": 2,
+      "event_change_audit_rows": 1,
+      "evidence_change_affected_counts": [
+        0
+      ],
+      "manual_noise_matched_count": 2,
+      "accounting_inflates_matched_count": true,
+      "event_change_is_per_selector": true
+    },
+    "privacy_aliases": {
+      "error": null,
+      "derive_result_keys": [
+        "batch_ordinal",
+        "capability",
+        "contiguous_batch_ordinal",
+        "derivation_version",
+        "ingest_batch_id",
+        "populate",
+        "source_generation",
+        "state_version",
+        "status"
+      ],
+      "alias_authority_rows": 0,
+      "populate_event_count": 16,
+      "physical_batch_rows": 16,
+      "count_inflates_when_copies_exist": true,
+      "needs_exclusion_for_counts": true
+    },
+    "ai_freeze": {
+      "error": null,
+      "selected_physical_rows": 16,
+      "frozen_observations": 16,
+      "selected_erks": 16,
+      "unique_erks": 8,
+      "managed_batch_ids": [
+        "ingest-batch:v1:19328c306ba20690a7af7e264f5d3acf1a8e65afc5311234d99ea94a306c0c43"
+      ],
+      "payload_lines": 16,
+      "duplicate_erks": true
+    },
+    "completion_readiness": {
+      "activation_complete": true,
+      "landed_rows": 8,
+      "readiness_clickhouse_calls": null,
+      "completion_ch_queries": 0,
+      "completion_batch_counts": {
+        "staged": 0,
+        "durable": 2,
+        "generations": 2
+      },
+      "already_retry_safe": true
+    },
+    "replacement": {
+      "replacement_verify_outcome": "duplicate_identical",
+      "hunt_still_active_generation_physical": 16,
+      "replacement_hidden_from_hunt": true
+    },
+    "negative_controls": {
+      "same_erk_different_batch_is_retry": false,
+      "same_erk_batch_diversity": [
+        {
+          "evidence_record_key": "erk-p24a-1-00000001",
+          "batches": 3,
+          "physical": 5
+        }
+      ],
+      "legacy_protocol_null_physical": 2,
+      "legacy_not_collapsed_by_retry_identity": true,
+      "different_hash_same_ordinal": "integrity_conflict",
+      "hunt_legacy_included_in_current_count": true,
+      "candidate_exclusion_keeps_legacy_physical": true
+    },
+    "query_stats": {
+      "hunt_building": {
+        "query_id": "19ff5a44-0dde-4fed-a90a-fc426d036ac5",
+        "read_rows": 0,
+        "read_bytes": 0,
+        "duration_ms": 39.233,
+        "sql_preview": "SELECT count() AS n FROM events AS e LEFT JOIN ( SELECT case_id, source_ref_type, source_ref_id, source_generation, visibility_state, publishable FROM visible_evidence_generations FINAL WHERE case_id = {case_id:UInt32} ) AS veg ON veg.case_"
+      },
+      "hunt_building_excluded": {
+        "query_id": "82ad850a-11a6-49f0-8019-2d3bfc91b3b3",
+        "read_rows": 0,
+        "read_bytes": 0,
+        "duration_ms": 23.319,
+        "sql_preview": "SELECT countIf(e.source_ref_type IS NULL AND e.source_ref_id IS NULL AND e.source_generation IS NULL AND e.ingest_batch_id IS NULL AND e.ingest_row_ordinal IS NULL AND e.ingest_row_hash IS NULL AND e.ingest_attempt_id IS NULL) AS legacy_n, "
+      },
+      "hunt_active": {
+        "query_id": "129cf46a-3568-438c-a5fe-cce1b23ff0c5",
+        "read_rows": 0,
+        "read_bytes": 0,
+        "duration_ms": 21.376,
+        "sql_preview": "SELECT count() AS n FROM events AS e LEFT JOIN ( SELECT case_id, source_ref_type, source_ref_id, source_generation, visibility_state, publishable FROM visible_evidence_generations FINAL WHERE case_id = {case_id:UInt32} ) AS veg ON veg.case_"
+      },
+      "hunt_replacement": {
+        "query_id": "8087984e-7079-4ba5-a80e-841b6cfdc296",
+        "read_rows": 0,
+        "read_bytes": 0,
+        "duration_ms": 22.404,
+        "sql_preview": "SELECT count() AS n FROM events AS e LEFT JOIN ( SELECT case_id, source_ref_type, source_ref_id, source_generation, visibility_state, publishable FROM visible_evidence_generations FINAL WHERE case_id = {case_id:UInt32} ) AS veg ON veg.case_"
+      },
+      "detail": {
+        "query_id": "a6211ad4-6c8d-4d28-8a80-44ca4ba990f2",
+        "read_rows": 0,
+        "read_bytes": 0,
+        "duration_ms": 26.733,
+        "sql_preview": "SELECT e.ingest_attempt_id, e.indexed_at, e.analyst_notes, e.selector_key FROM events AS e LEFT JOIN ( SELECT case_id, source_ref_type, source_ref_id, source_generation, visibility_state, publishable FROM visible_evidence_generations FINAL "
+      }
+    }
+  },
+  "performance": {
+    "ordinary_no_duplicate": {
+      "n": 400,
+      "extra_full_copies": 0,
+      "physical": 400,
+      "current_hunt_count": 400,
+      "candidate_hunt_count": 400,
+      "current_count_stats": {
+        "query_id": "85653d7f-80ec-4ae5-ab74-2f04eaed064d",
+        "read_rows": 0,
+        "read_bytes": 0,
+        "duration_ms": 47.522,
+        "sql_preview": "SELECT count() AS n FROM events AS e LEFT JOIN ( SELECT case_id, source_ref_type, source_ref_id, source_generation, visibility_state, publishable FROM visible_evidence_generations FINAL WHERE case_id = {case_id:UInt32} ) AS veg ON veg.case_"
+      },
+      "candidate_count_stats": {
+        "query_id": "01c78146-517d-4464-ada2-a6e268f23268",
+        "read_rows": 0,
+        "read_bytes": 0,
+        "duration_ms": 26.069,
+        "sql_preview": "SELECT countIf(e.source_ref_type IS NULL AND e.source_ref_id IS NULL AND e.source_generation IS NULL AND e.ingest_batch_id IS NULL AND e.ingest_row_ordinal IS NULL AND e.ingest_row_hash IS NULL AND e.ingest_attempt_id IS NULL) AS legacy_n, "
+      },
+      "current_data_stats": {
+        "query_id": "0a466155-d28d-47a7-8440-6e4dd6bb5fd5",
+        "read_rows": 0,
+        "read_bytes": 0,
+        "duration_ms": 20.925,
+        "sql_preview": "SELECT e.selector_key, e.ingest_batch_id, e.ingest_row_ordinal, e.ingest_attempt_id, e.evidence_record_key FROM events AS e LEFT JOIN ( SELECT case_id, source_ref_type, source_ref_id, source_generation, visibility_state, publishable FROM vi"
+      },
+      "candidate_data_stats": {
+        "query_id": "80155305-9e7a-4ac9-b9f0-f1ded206b536",
+        "read_rows": 0,
+        "read_bytes": 0,
+        "duration_ms": 27.514,
+        "sql_preview": "SELECT e.selector_key FROM events AS e LEFT JOIN ( SELECT case_id, source_ref_type, source_ref_id, source_generation, visibility_state, publishable FROM visible_evidence_generations FINAL WHERE case_id = {case_id:UInt32} ) AS veg ON veg.cas"
+      },
+      "verify_outcome": "exact"
+    },
+    "sparse_retry_duplicates": {
+      "n": 400,
+      "extra_full_copies": 1,
+      "physical": 800,
+      "current_hunt_count": 800,
+      "candidate_hunt_count": 400,
+      "current_count_stats": {
+        "query_id": "4e6748a2-e529-4e10-ada9-20e7dbd85368",
+        "read_rows": 0,
+        "read_bytes": 0,
+        "duration_ms": 28.041,
+        "sql_preview": "SELECT count() AS n FROM events AS e LEFT JOIN ( SELECT case_id, source_ref_type, source_ref_id, source_generation, visibility_state, publishable FROM visible_evidence_generations FINAL WHERE case_id = {case_id:UInt32} ) AS veg ON veg.case_"
+      },
+      "candidate_count_stats": {
+        "query_id": "5f51c825-b2f0-4b4a-98b7-c508f82a0f02",
+        "read_rows": 0,
+        "read_bytes": 0,
+        "duration_ms": 22.251,
+        "sql_preview": "SELECT countIf(e.source_ref_type IS NULL AND e.source_ref_id IS NULL AND e.source_generation IS NULL AND e.ingest_batch_id IS NULL AND e.ingest_row_ordinal IS NULL AND e.ingest_row_hash IS NULL AND e.ingest_attempt_id IS NULL) AS legacy_n, "
+      },
+      "current_data_stats": {
+        "query_id": "886f0ce1-09a9-472d-a5eb-205ed02eb153",
+        "read_rows": 0,
+        "read_bytes": 0,
+        "duration_ms": 22.556,
+        "sql_preview": "SELECT e.selector_key, e.ingest_batch_id, e.ingest_row_ordinal, e.ingest_attempt_id, e.evidence_record_key FROM events AS e LEFT JOIN ( SELECT case_id, source_ref_type, source_ref_id, source_generation, visibility_state, publishable FROM vi"
+      },
+      "candidate_data_stats": {
+        "query_id": "964081d2-424b-4f57-be63-b8adbb7a70f4",
+        "read_rows": 0,
+        "read_bytes": 0,
+        "duration_ms": 29.45,
+        "sql_preview": "SELECT e.selector_key FROM events AS e LEFT JOIN ( SELECT case_id, source_ref_type, source_ref_id, source_generation, visibility_state, publishable FROM visible_evidence_generations FINAL WHERE case_id = {case_id:UInt32} ) AS veg ON veg.cas"
+      },
+      "verify_outcome": "duplicate_identical"
+    },
+    "heavier_retry_duplicate": {
+      "n": 2000,
+      "extra_full_copies": 1,
+      "physical": 4000,
+      "current_hunt_count": 4000,
+      "candidate_hunt_count": 2000,
+      "current_count_stats": {
+        "query_id": "6e352af8-6cee-4ef8-bdcf-9e1c170926f0",
+        "read_rows": 0,
+        "read_bytes": 0,
+        "duration_ms": 26.008,
+        "sql_preview": "SELECT count() AS n FROM events AS e LEFT JOIN ( SELECT case_id, source_ref_type, source_ref_id, source_generation, visibility_state, publishable FROM visible_evidence_generations FINAL WHERE case_id = {case_id:UInt32} ) AS veg ON veg.case_"
+      },
+      "candidate_count_stats": {
+        "query_id": "6d8978cb-ebe2-4da3-b117-53869f518964",
+        "read_rows": 0,
+        "read_bytes": 0,
+        "duration_ms": 23.254,
+        "sql_preview": "SELECT countIf(e.source_ref_type IS NULL AND e.source_ref_id IS NULL AND e.source_generation IS NULL AND e.ingest_batch_id IS NULL AND e.ingest_row_ordinal IS NULL AND e.ingest_row_hash IS NULL AND e.ingest_attempt_id IS NULL) AS legacy_n, "
+      },
+      "current_data_stats": {
+        "query_id": "6262ced9-9b1f-486c-aa03-1b600368768a",
+        "read_rows": 0,
+        "read_bytes": 0,
+        "duration_ms": 23.522,
+        "sql_preview": "SELECT e.selector_key, e.ingest_batch_id, e.ingest_row_ordinal, e.ingest_attempt_id, e.evidence_record_key FROM events AS e LEFT JOIN ( SELECT case_id, source_ref_type, source_ref_id, source_generation, visibility_state, publishable FROM vi"
+      },
+      "candidate_data_stats": {
+        "query_id": "ba016687-145b-45ae-a910-d3efd5118c0a",
+        "read_rows": 0,
+        "read_bytes": 0,
+        "duration_ms": 31.924,
+        "sql_preview": "SELECT e.selector_key FROM events AS e LEFT JOIN ( SELECT case_id, source_ref_type, source_ref_id, source_generation, visibility_state, publishable FROM visible_evidence_generations FINAL WHERE case_id = {case_id:UInt32} ) AS veg ON veg.cas"
+      },
+      "verify_outcome": "duplicate_identical"
+    }
+  },
+  "regression_tests": {
+    "all_passed": true,
+    "skipped_detected": false,
+    "modules": [
+      {
+        "module": "tests.test_phase2_4a_retry_copy_gap_audit",
+        "ok": true,
+        "returncode": 0,
+        "duration_s": 6.675,
+        "tail": ".......................                                                  [100%]\n=============================== warnings summary ===============================\ntests/test_phase2_4a_retry_copy_gap_audit.py: 10 warnings\n  /opt/casescope/venv/lib/python3.12/site-packages/sqlalchemy/sql/schema.py:3624: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).\n    return util.wrap_callable(lambda ctx: fn(), fn)  # type: ignore\n\n-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html\n23 passed, 10 warnings in 4.34s"
+      },
+      {
+        "module": "tests.test_phase1b_tranche_b_protocol",
+        "ok": true,
+        "returncode": 0,
+        "duration_s": 5.66,
+        "tail": ".............                                                            [100%]\n=============================== warnings summary ===============================\ntests/test_phase1b_tranche_b_protocol.py: 59 warnings\n  /opt/casescope/venv/lib/python3.12/site-packages/sqlalchemy/sql/schema.py:3624: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).\n    return util.wrap_callable(lambda ctx: fn(), fn)  # type: ignore\n\n-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html\n13 passed, 59 warnings in 3.50s"
+      },
+      {
+        "module": "tests.test_phase1b_tranche_d2_staged_reconciler",
+        "ok": true,
+        "returncode": 0,
+        "duration_s": 10.332,
+        "tail": "ed_and_uses_stale_eligibility\ntests/test_phase1b_tranche_d2_staged_reconciler.py::Phase1BD2RealPGCHTestCase::test_discovery_is_bounded_and_uses_stale_eligibility\ntests/test_phase1b_tranche_d2_staged_reconciler.py::Phase1BD2RealPGCHTestCase::test_discovery_is_bounded_and_uses_stale_eligibility\ntests/test_phase1b_tranche_d2_staged_reconciler.py::Phase1BD2RealPGCHTestCase::test_discovery_is_bounded_and_uses_stale_eligibility\ntests/test_phase1b_tranche_d2_staged_reconciler.py::Phase1BD2RealPGCHTestCase::test_discovery_is_bounded_and_uses_stale_eligibility\n  /opt/casescope/tests/test_phase1b_tranche_d2_staged_reconciler.py:593: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).\n    attempt.lease_expires_at = datetime.utcnow() - timedelta(seconds=1)\n\ntests/test_phase1b_tranche_d2_staged_reconciler.py::Phase1BD2RealPGCHTestCase::test_live_writer_is_not_reconciled_until_attempt_lease_expires\n  /opt/casescope/tests/test_phase1b_tranche_d2_staged_reconciler.py:342: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).\n    attempt.lease_expires_at = datetime.utcnow() + timedelta(hours=1)\n\ntests/test_phase1b_tranche_d2_staged_reconciler.py::Phase1BD2RealPGCHTestCase::test_live_writer_is_not_reconciled_until_attempt_lease_expires\n  /opt/casescope/tests/test_phase1b_tranche_d2_staged_reconciler.py:354: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).\n    attempt.lease_expires_at = datetime.utcnow() - timedelta(seconds=1)\n\ntests/test_phase1b_tranche_d2_staged_reconciler.py::Phase1BD2RealPGCHTestCase::test_purge_crash_recovery_requires_next_pass_to_reinspect_and_prove_zero\n  /opt/casescope/tests/test_phase1b_tranche_d2_staged_reconciler.py:485: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).\n    batch.reconcile_lease_expires_at = datetime.utcnow() - timedelta(seconds=1)\n\n-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html\n14 passed, 172 warnings in 8.41s"
+      },
+      {
+        "module": "tests.test_phase1b_tranche_d1_generation_lifecycle",
+        "ok": true,
+        "returncode": 0,
+        "duration_s": 56.617,
+        "tail": " = CaseFile.query.get(case_file_id)\n\ntests/test_phase1b_tranche_d1_generation_lifecycle.py::Phase1BD1LifecycleUnitTestCase::test_single_file_rebuild_routes_managed_active_to_replacement_without_delete_scope\ntests/test_phase1b_tranche_d1_generation_lifecycle.py::Phase1BD1LifecycleUnitTestCase::test_single_file_rebuild_routes_managed_building_initial_without_delete_scope\ntests/test_phase1b_tranche_d1_generation_lifecycle.py::Phase1BD1RealPGCHTestCase::test_real_rebuild_task_managed_active_uses_replacement_lifecycle_with_cleanup_tripwires\n  /opt/casescope/models/audit_log.py:285: LegacyAPIWarning: The Query.get() method is considered legacy as of the 1.x series of SQLAlchemy and becomes a legacy construct in 2.0. The method is now available as Session.get() (deprecated since: 2.0) (Background on SQLAlchemy 2.0 at: https://sqlalche.me/e/b8d9)\n    client = Client.query.get(case.client_id)\n\ntests/test_phase1b_tranche_d1_generation_lifecycle.py::Phase1BD1LifecycleUnitTestCase::test_single_file_rebuild_routes_managed_active_to_replacement_without_delete_scope\ntests/test_phase1b_tranche_d1_generation_lifecycle.py::Phase1BD1LifecycleUnitTestCase::test_single_file_rebuild_routes_managed_building_initial_without_delete_scope\ntests/test_phase1b_tranche_d1_generation_lifecycle.py::Phase1BD1RealPGCHTestCase::test_real_rebuild_task_managed_active_uses_replacement_lifecycle_with_cleanup_tripwires\n  /opt/casescope/models/audit_log.py:235: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).\n    self.timestamp = datetime.utcnow()\n\ntests/test_phase1b_tranche_d1_generation_lifecycle.py::Phase1BD1RealPGCHTestCase::test_real_rebuild_task_managed_active_uses_replacement_lifecycle_with_cleanup_tripwires\ntests/test_phase1b_tranche_d1_generation_lifecycle.py::Phase1BD1RealPGCHTestCase::test_real_rebuild_task_managed_active_uses_replacement_lifecycle_with_cleanup_tripwires\n  /opt/casescope/tasks/celery_tasks.py:1665: LegacyAPIWarning: The Query.get() method is considered legacy as of the 1.x series of SQLAlchemy and becomes a legacy construct in 2.0. The method is now available as Session.get() (deprecated since: 2.0) (Background on SQLAlchemy 2.0 at: https://sqlalche.me/e/b8d9)\n    case = Case.query.get(case_id)\n\n-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html\n16 passed, 180 warnings, 6 subtests passed in 54.16s"
+      },
+      {
+        "module": "tests.test_phase1b_tranche_e1_capability_watermarks",
+        "ok": true,
+        "returncode": 0,
+        "duration_s": 10.174,
+        "tail": "removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).\n    batch.durable_at = datetime.utcnow()\n\ntests/test_phase1b_tranche_e1_capability_watermarks.py::Phase1BE1RealPGCHTestCase::test_d2_does_not_mark_capability_complete_then_late_hole_advances\ntests/test_phase1b_tranche_e1_capability_watermarks.py::Phase1BE1RealPGCHTestCase::test_d2_does_not_mark_capability_complete_then_late_hole_advances\ntests/test_phase1b_tranche_e1_capability_watermarks.py::Phase1BE1RealPGCHTestCase::test_d2_does_not_mark_capability_complete_then_late_hole_advances\ntests/test_phase1b_tranche_e1_capability_watermarks.py::Phase1BE1RealPGCHTestCase::test_iis_row_local_privacy_watermark_and_erk_coverage\ntests/test_phase1b_tranche_e1_capability_watermarks.py::Phase1BE1RealPGCHTestCase::test_iis_row_local_privacy_watermark_and_erk_coverage\ntests/test_phase1b_tranche_e1_capability_watermarks.py::Phase1BE1RealPGCHTestCase::test_iis_row_local_privacy_watermark_and_erk_coverage\ntests/test_phase1b_tranche_e1_capability_watermarks.py::Phase1BE1RealPGCHTestCase::test_iis_row_local_privacy_watermark_and_erk_coverage\n  /opt/casescope/models/case.py:190: LegacyAPIWarning: The Query.get() method is considered legacy as of the 1.x series of SQLAlchemy and becomes a legacy construct in 2.0. The method is now available as Session.get() (deprecated since: 2.0) (Background on SQLAlchemy 2.0 at: https://sqlalche.me/e/b8d9)\n    return Case._enforce_access(Case.query.get(case_id))\n\ntests/test_phase1b_tranche_e1_capability_watermarks.py: 11 warnings\n  /opt/casescope/utils/privacy_aliases.py:1516: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).\n    existing.updated_at = datetime.utcnow()\n\ntests/test_phase1b_tranche_e1_capability_watermarks.py::Phase1BE1RealPGCHTestCase::test_d2_does_not_mark_capability_complete_then_late_hole_advances\n  /opt/casescope/tests/test_phase1b_tranche_e1_capability_watermarks.py:914: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).\n    finish_attempt.lease_expires_at = datetime.utcnow() - timedelta(seconds=1)\n\n-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html\n19 passed, 486 warnings in 8.18s"
+      },
+      {
+        "module": "tests.test_phase1b_tranche_f1_completion_reconciliation",
+        "ok": true,
+        "returncode": 0,
+        "duration_s": 10.471,
+        "tail": "scope/tests/test_phase1b_tranche_f1_completion_reconciliation.py:1028: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).\n    attempt.finished_at = datetime.utcnow()\n\ntests/test_phase1b_tranche_f1_completion_reconciliation.py::Phase1BF1RealPGCHTestCase::test_iis_three_batch_reconciliation_pilot\n  /opt/casescope/tests/test_phase1b_tranche_f1_completion_reconciliation.py:1029: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).\n    attempt.lease_expires_at = datetime.utcnow() - timedelta(seconds=1)\n\ntests/test_phase1b_tranche_f1_completion_reconciliation.py::Phase1BF1RealPGCHTestCase::test_iis_three_batch_reconciliation_pilot\ntests/test_phase1b_tranche_f1_completion_reconciliation.py::Phase1BF1RealPGCHTestCase::test_iis_three_batch_reconciliation_pilot\ntests/test_phase1b_tranche_f1_completion_reconciliation.py::Phase1BF1RealPGCHTestCase::test_iis_three_batch_reconciliation_pilot\ntests/test_phase1b_tranche_f1_completion_reconciliation.py::Phase1BF1RealPGCHTestCase::test_managed_completion_task_skips_legacy_destructive_paths\ntests/test_phase1b_tranche_f1_completion_reconciliation.py::Phase1BF1RealPGCHTestCase::test_old_generation_evidence_survives_reconciliation\n  /opt/casescope/models/case.py:190: LegacyAPIWarning: The Query.get() method is considered legacy as of the 1.x series of SQLAlchemy and becomes a legacy construct in 2.0. The method is now available as Session.get() (deprecated since: 2.0) (Background on SQLAlchemy 2.0 at: https://sqlalche.me/e/b8d9)\n    return Case._enforce_access(Case.query.get(case_id))\n\ntests/test_phase1b_tranche_f1_completion_reconciliation.py::Phase1BF1RealPGCHTestCase::test_iis_three_batch_reconciliation_pilot\ntests/test_phase1b_tranche_f1_completion_reconciliation.py::Phase1BF1RealPGCHTestCase::test_iis_three_batch_reconciliation_pilot\n  /opt/casescope/utils/privacy_aliases.py:1516: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).\n    existing.updated_at = datetime.utcnow()\n\n-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html\n36 passed, 429 warnings in 8.46s"
+      },
+      {
+        "module": "tests.test_phase1b_tranche_f2_product_search_publication_gate",
+        "ok": true,
+        "returncode": 0,
+        "duration_s": 19.853,
+        "tail": "...........                                                              [100%]\n=============================== warnings summary ===============================\ntests/test_phase1b_tranche_f2_product_search_publication_gate.py: 99 warnings\n  /opt/casescope/venv/lib/python3.12/site-packages/sqlalchemy/sql/schema.py:3624: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).\n    return util.wrap_callable(lambda ctx: fn(), fn)  # type: ignore\n\ntests/test_phase1b_tranche_f2_product_search_publication_gate.py: 92 warnings\n  /opt/casescope/models/case.py:190: LegacyAPIWarning: The Query.get() method is considered legacy as of the 1.x series of SQLAlchemy and becomes a legacy construct in 2.0. The method is now available as Session.get() (deprecated since: 2.0) (Background on SQLAlchemy 2.0 at: https://sqlalche.me/e/b8d9)\n    return Case._enforce_access(Case.query.get(case_id))\n\ntests/test_phase1b_tranche_f2_product_search_publication_gate.py: 25 warnings\n  /opt/casescope/routes/hunting.py:50: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).\n    timestamp = datetime.utcnow().strftime(\"%Y%m%d_%H%M%S\")\n\ntests/test_phase1b_tranche_f2_product_search_publication_gate.py::Phase1BF2ProductSearchPublicationGateTestCase::test_export_tagged_obeys_phase1b_publication\ntests/test_phase1b_tranche_f2_product_search_publication_gate.py::Phase1BF2ProductSearchPublicationGateTestCase::test_export_tagged_obeys_phase1b_publication\ntests/test_phase1b_tranche_f2_product_search_publication_gate.py::Phase1BF2ProductSearchPublicationGateTestCase::test_export_tagged_obeys_phase1b_publication\ntests/test_phase1b_tranche_f2_product_search_publication_gate.py::Phase1BF2ProductSearchPublicationGateTestCase::test_export_tagged_obeys_phase1b_publication\n  /opt/casescope/models/audit_log.py:235: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).\n    self.timestamp = datetime.utcnow()\n\n-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html\n11 passed, 220 warnings in 17.92s"
+      },
+      {
+        "module": "tests.test_phase1b_tranche_e2_ai_privacy_freeze_verify",
+        "ok": true,
+        "returncode": 0,
+        "duration_s": 20.916,
+        "tail": "e_verify.py:223: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).\n    verified_at=datetime.utcnow(),\n\ntests/test_phase1b_tranche_e2_ai_privacy_freeze_verify.py: 1109 warnings\n  /opt/casescope/venv/lib/python3.12/site-packages/sqlalchemy/sql/schema.py:3624: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).\n    return util.wrap_callable(lambda ctx: fn(), fn)  # type: ignore\n\ntests/test_phase1b_tranche_e2_ai_privacy_freeze_verify.py: 35 warnings\n  /opt/casescope/models/case.py:190: LegacyAPIWarning: The Query.get() method is considered legacy as of the 1.x series of SQLAlchemy and becomes a legacy construct in 2.0. The method is now available as Session.get() (deprecated since: 2.0) (Background on SQLAlchemy 2.0 at: https://sqlalche.me/e/b8d9)\n    return Case._enforce_access(Case.query.get(case_id))\n\ntests/test_phase1b_tranche_e2_ai_privacy_freeze_verify.py: 82 warnings\n  /opt/casescope/utils/privacy_aliases.py:1516: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).\n    existing.updated_at = datetime.utcnow()\n\ntests/test_phase1b_tranche_e2_ai_privacy_freeze_verify.py: 20 warnings\n  /opt/casescope/utils/privacy_aliases.py:625: LegacyAPIWarning: The Query.get() method is considered legacy as of the 1.x series of SQLAlchemy and becomes a legacy construct in 2.0. The method is now available as Session.get() (deprecated since: 2.0) (Background on SQLAlchemy 2.0 at: https://sqlalche.me/e/b8d9)\n    case = Case.query.get(case_id)\n\ntests/test_phase1b_tranche_e2_ai_privacy_freeze_verify.py::Phase1BE2RealPGCHTestCase::test_d2_repair_then_new_freeze_succeeds\n  /opt/casescope/tests/test_phase1b_tranche_e2_ai_privacy_freeze_verify.py:1041: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).\n    finish_attempt.lease_expires_at = datetime.utcnow() - timedelta(seconds=1)\n\n-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html\n53 passed, 1259 warnings in 19.07s"
+      },
+      {
+        "module": "tests.test_privacy_alias_vault_bounds",
+        "ok": true,
+        "returncode": 0,
+        "duration_s": 2.0,
+        "tail": "............                                                       [100%]\n12 passed, 6 subtests passed in 1.04s"
+      },
+      {
+        "module": "tests.test_privacy_fail_closed",
+        "ok": true,
+        "returncode": 0,
+        "duration_s": 2.32,
+        "tail": "..........                                                         [100%]\n10 passed, 6 subtests passed in 1.15s"
+      },
+      {
+        "module": "tests.test_phase2_2b_sync_event_insert",
+        "ok": true,
+        "returncode": 0,
+        "duration_s": 7.798,
+        "tail": "..................                                                       [100%]\n=============================== warnings summary ===============================\ntests/test_phase2_2b_sync_event_insert.py: 36 warnings\n  /opt/casescope/venv/lib/python3.12/site-packages/sqlalchemy/sql/schema.py:3624: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).\n    return util.wrap_callable(lambda ctx: fn(), fn)  # type: ignore\n\n-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html\n18 passed, 36 warnings in 5.90s"
+      },
+      {
+        "module": "tests.test_phase2_3_lightweight_update_bridge",
+        "ok": true,
+        "returncode": 0,
+        "duration_s": 4.31,
+        "tail": "..................................                                       [100%]\n34 passed in 3.18s"
+      },
+      {
+        "module": "tests.test_phase2_3c_fence_contract_alignment",
+        "ok": true,
+        "returncode": 0,
+        "duration_s": 2.659,
+        "tail": "...............                                                          [100%]\n15 passed in 1.54s"
+      },
+      {
+        "module": "tests.test_event_analyst_state",
+        "ok": true,
+        "returncode": 0,
+        "duration_s": 0.805,
+        "tail": ".....                                                                    [100%]\n5 passed in 0.23s"
+      },
+      {
+        "module": "tests.test_event_noise_state",
+        "ok": true,
+        "returncode": 0,
+        "duration_s": 0.978,
+        "tail": "...                                                                      [100%]\n3 passed in 0.38s"
+      },
+      {
+        "module": "tests.test_clickhouse_delete_dedup_contracts",
+        "ok": true,
+        "returncode": 0,
+        "duration_s": 4.18,
+        "tail": "...................................                                      [100%]\n=============================== warnings summary ===============================\ntests/test_clickhouse_delete_dedup_contracts.py::CompletionTaskContractTestCase::test_case_indexing_complete_reports_skipped_buffer_flush_and_passes_auto_dedup_threshold\n  /opt/casescope/utils/case_work.py:165: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).\n    timestamp=datetime.utcnow(),\n\n-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html\n35 passed, 1 warning in 2.37s"
+      }
+    ],
+    "lint": {
+      "py_compile_ok": true,
+      "py_compile_stderr": "",
+      "pyflakes_ok": true,
+      "pyflakes_stdout": "",
+      "git_diff_check_ok": true,
+      "git_diff_check_stdout": ""
+    },
+    "phase1b_pg_test_database": "phase2_4a_reg",
+    "phase1b_ch_test_database": "phase2_4a_reg"
+  },
+  "tokens": {
+    "PRODUCTION_RETRY_COPY_STATE": "PRODUCTION_DETERMINISTIC_RETRY_COPIES_ABSENT",
+    "PRODUCTION_RETRY_INTEGRITY": "PRODUCTION_RETRY_INTEGRITY_CONFLICT_ABSENT",
+    "GENERATION_ACCOUNTING": "GENERATION_ACCOUNTING_ALREADY_RETRY_SAFE",
+    "INTERIM_CONSUMERS": "INTERIM_RETRY_EXCLUSION_REQUIRED",
+    "CURRENT_RETRY_COPY_STATE": "CURRENT_RETRY_COPY_STATE_NOT_OBSERVED",
+    "STRATEGY": "PHASE2_4_STRATEGY_HYBRID",
+    "phase2_4_state": "PHASE2_4B_SCOPE_READY",
+    "verdict": "PHASE2_4A_PASS"
+  },
+  "git_state": {
+    "commit_requested_by_user": true,
+    "spec_said_leave_uncommitted": true,
+    "note": "User first-line instruction was to commit and push when done."
+  },
+  "verdict": "PHASE2_4A_PASS",
+  "phase2_4_state": "PHASE2_4B_SCOPE_READY"
+}
