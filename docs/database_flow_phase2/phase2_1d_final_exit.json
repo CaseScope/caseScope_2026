@@ -1,0 +1,2207 @@
+{
+  "tranche": "phase2_1d_final_exit",
+  "verdict": "PHASE2_1D_NOT_READY",
+  "bloom_retirement_decision": "BLOOM_DEPENDENCY_BLOCKS_EXIT",
+  "version": "4.25.2",
+  "version_bumped": false,
+  "baseline_commit": "a9e40b712fb72cf182114980db9cad49f00f4279",
+  "origin_main": "a9e40b712fb72cf182114980db9cad49f00f4279",
+  "head_equals_origin_main": true,
+  "python": "/opt/casescope/venv/bin/python",
+  "clickhouse_version": "26.7.3.19",
+  "recorded_at": "2026-08-22T03:41:44.232709+00:00",
+  "phase2_1c_accepted": {
+    "version": "4.25.2",
+    "commit": "a9e40b712fb72cf182114980db9cad49f00f4279",
+    "token_safe_live": true,
+    "ascii_token_safe_only": true,
+    "export_publication_bridge": true,
+    "blooms_still_present_at_2_1c_exit": true
+  },
+  "production_index_inventory": {
+    "idx_search_blob_text": {
+      "present": true,
+      "expr": "search_blob",
+      "type_full": "text(tokenizer = 'splitByNonAlpha', preprocessor = lower(search_blob))",
+      "granularity_stored": 100000000,
+      "data_compressed_bytes": 14603118274
+    },
+    "idx_search_ngram": {
+      "present": true,
+      "expr": "search_blob",
+      "type_full": "ngrambf_v1(3, 512, 2, 0)",
+      "granularity": 4,
+      "data_compressed_bytes": 4049580
+    },
+    "idx_search_token": {
+      "present": true,
+      "expr": "search_blob",
+      "type_full": "tokenbf_v1(32768, 3, 0)",
+      "granularity": 4,
+      "data_compressed_bytes": 964699630
+    },
+    "preserved": [
+      "idx_event_id",
+      "idx_selector_key",
+      "idx_evidence_record_key"
+    ],
+    "coverage": {
+      "MATERIALIZED": 25,
+      "PARTIAL": 0,
+      "UNMATERIALIZED": 0,
+      "UNKNOWN": 0,
+      "active_parts_MATERIALIZED": 135,
+      "active_parts": 135,
+      "partitions": 25,
+      "rows": 745463991
+    },
+    "mutations_in_progress": 0
+  },
+  "search_blob_consumer_inventory": [
+    {
+      "file_function": "routes/hunting_query_helpers.py build_hunting_search_clause TOKEN_SAFE",
+      "product_surface": "Hunt Artifacts grid/count/pagination/export",
+      "predicate": "hasAllTokens / hasAnyTokens on stored search_blob",
+      "whole_token_vs_substring": "whole-token",
+      "potential_idx_search_ngram": false,
+      "potential_idx_search_token": false,
+      "potential_idx_search_blob_text": true,
+      "production_hot": true,
+      "must_preserve_semantics": "ASCII TOKEN_SAFE case-insensitive whole token",
+      "explain": "idx_search_blob_text direct read"
+    },
+    {
+      "file_function": "routes/hunting_query_helpers.py SUBSTRING_REQUIRED / EXCLUSION_PRESERVE",
+      "product_surface": "Hunt quoted/punctuation/IP/Unicode/negative",
+      "predicate": "search_blob ilike / NOT search_blob ilike",
+      "whole_token_vs_substring": "substring",
+      "potential_idx_search_ngram": true,
+      "potential_idx_search_token": false,
+      "potential_idx_search_blob_text": false,
+      "production_hot": true,
+      "must_preserve_semantics": "true substring including punctuation splits",
+      "explain": "none (ILIKE does not use ngram on 26.7.3.19)"
+    },
+    {
+      "file_function": "routes/hunting.py match_search_blob",
+      "product_surface": "Hunt event detail",
+      "predicate": "position(e.search_blob, \u2026)",
+      "whole_token_vs_substring": "substring case-sensitive",
+      "potential_idx_search_ngram": false,
+      "potential_idx_search_token": false,
+      "potential_idx_search_blob_text": false,
+      "production_hot": true,
+      "must_preserve_semantics": "existing position() detail match",
+      "explain": "none"
+    },
+    {
+      "file_function": "models/pattern_rules.py NTLM/ADMIN$/Kerberos LIKE conditions",
+      "product_surface": "Deterministic pattern detection (background)",
+      "predicate": "search_blob LIKE '%NTLM%' / '%ADMIN$%' / similar case-sensitive LIKE",
+      "whole_token_vs_substring": "substring case-sensitive",
+      "potential_idx_search_ngram": true,
+      "potential_idx_search_token": true,
+      "potential_idx_search_blob_text": true,
+      "production_hot": true,
+      "must_preserve_semantics": "existing LIKE match sets",
+      "explain": "idx_search_ngram prunes granules; idx_search_token listed after ngram with no additional prune; text index listed with 0 prune",
+      "blocks_bloom_drop": true
+    },
+    {
+      "file_function": "utils/ioc_artifact_tagger.py hasTokenCaseInsensitive / lower LIKE",
+      "product_surface": "IOC artifact tagger (background)",
+      "predicate": "hasTokenCaseInsensitive(search_blob) / lower(search_blob) LIKE",
+      "whole_token_vs_substring": "mixed",
+      "potential_idx_search_ngram": true,
+      "potential_idx_search_token": true,
+      "potential_idx_search_blob_text": false,
+      "production_hot": false,
+      "must_preserve_semantics": "existing IOC match",
+      "explain": "none for hasTokenCaseInsensitive and lower(LIKE)"
+    },
+    {
+      "file_function": "utils/sigma_converter.py wildcard selection",
+      "product_surface": "Sigma converter",
+      "predicate": "search_blob ILIKE",
+      "whole_token_vs_substring": "substring",
+      "potential_idx_search_ngram": true,
+      "potential_idx_search_token": false,
+      "potential_idx_search_blob_text": false,
+      "production_hot": false,
+      "must_preserve_semantics": "wildcard substring",
+      "explain": "none"
+    },
+    {
+      "file_function": "models/network_log.py search_blob ILIKE",
+      "product_surface": "Network logs (separate table; events analog measured)",
+      "predicate": "search_blob ILIKE",
+      "whole_token_vs_substring": "substring / dotted IP",
+      "potential_idx_search_ngram": true,
+      "potential_idx_search_token": false,
+      "potential_idx_search_blob_text": false,
+      "production_hot": true,
+      "must_preserve_semantics": "dotted IP substring",
+      "explain": "none on events analog; network_logs blooms not in this tranche"
+    },
+    {
+      "file_function": "utils/chat_tools.py / utils/forensic_chat_sources.py positionCaseInsensitive",
+      "product_surface": "Forensic chat",
+      "predicate": "positionCaseInsensitive(search_blob, \u2026)",
+      "whole_token_vs_substring": "mixed tokens and paths",
+      "potential_idx_search_ngram": false,
+      "potential_idx_search_token": false,
+      "potential_idx_search_blob_text": false,
+      "production_hot": true,
+      "must_preserve_semantics": "existing chat match including cmd.exe",
+      "explain": "none"
+    },
+    {
+      "file_function": "utils/noise_keywords.py / utils/candidate_extractor.py / utils/mitre_attack_sync.py / models/rag.py / utils/pattern_check_definitions.py",
+      "product_surface": "noise, candidates, MITRE, RAG, pattern checks",
+      "predicate": "LIKE / lower(search_blob) LIKE / hasToken (baseline scripts)",
+      "whole_token_vs_substring": "mostly substring",
+      "potential_idx_search_ngram": true,
+      "potential_idx_search_token": true,
+      "potential_idx_search_blob_text": false,
+      "production_hot": false,
+      "must_preserve_semantics": "existing offline match",
+      "explain": "same class as pattern_rules for case-sensitive LIKE; not migrated"
+    },
+    {
+      "file_function": "bin/database_flow_baseline.py",
+      "product_surface": "historical Phase 0 baseline (not a product reader)",
+      "predicate": "lower(search_blob) LIKE / hasToken / positionCaseInsensitive",
+      "whole_token_vs_substring": "mixed",
+      "potential_idx_search_ngram": true,
+      "potential_idx_search_token": true,
+      "potential_idx_search_blob_text": false,
+      "production_hot": false,
+      "must_preserve_semantics": "measurement script only",
+      "explain": "not a product path"
+    },
+    {
+      "file_function": "parsers/* writing search_blob",
+      "product_surface": "ingest",
+      "predicate": "none (write path)",
+      "whole_token_vs_substring": "n/a",
+      "potential_idx_search_ngram": false,
+      "potential_idx_search_token": false,
+      "potential_idx_search_blob_text": false,
+      "production_hot": true,
+      "must_preserve_semantics": "stored search_blob untouched",
+      "explain": "n/a"
+    }
+  ],
+  "readers_migrated_in_2_1d": false,
+  "hostname_fixture": {
+    "value": "www.ups.com",
+    "case_id": 10,
+    "source": "sampled_match"
+  },
+  "ignore_data_skipping_indices": {
+    "setting_name": "ignore_data_skipping_indices",
+    "verified_on_server": "26.7.3.19",
+    "type": "String",
+    "proof_query": "case 10 search_blob LIKE '%NTLM%'",
+    "before_skip_names": [
+      "idx_search_blob_text",
+      "idx_search_ngram",
+      "idx_search_token"
+    ],
+    "after_skip_names": [
+      "idx_search_blob_text"
+    ],
+    "ngram_is_the_pruner": true,
+    "token_listed_but_no_additional_prune": true
+  },
+  "explain_matrix": [
+    {
+      "id": "token_14_sonicwall",
+      "case_id": 14,
+      "kind": "TOKEN_SAFE",
+      "consumer": "routes/hunting_query_helpers.py build_hunting_search_clause",
+      "clause": " AND hasAllTokens(search_blob, {simple_0_txt:String})",
+      "current_skip_names": [
+        "idx_search_blob_text"
+      ],
+      "ignored_skip_names": [
+        "idx_search_blob_text"
+      ],
+      "current_idx_search_blob_text": true,
+      "current_idx_search_ngram": false,
+      "current_idx_search_token": false,
+      "current_direct_text_read": true,
+      "current_token_scan": false,
+      "current_blocks": [
+        {
+          "name": "idx_search_blob_text",
+          "parts": "1/1",
+          "granules_after": 1,
+          "granules_before": 1,
+          "marks_after": null,
+          "marks_before": null,
+          "description": "text GRANULARITY 100000000"
+        }
+      ]
+    },
+    {
+      "id": "token_10_powershell",
+      "case_id": 10,
+      "kind": "TOKEN_SAFE",
+      "consumer": "routes/hunting_query_helpers.py build_hunting_search_clause",
+      "clause": " AND hasAllTokens(search_blob, {simple_0_txt:String})",
+      "current_skip_names": [
+        "idx_search_blob_text"
+      ],
+      "ignored_skip_names": [
+        "idx_search_blob_text"
+      ],
+      "current_idx_search_blob_text": true,
+      "current_idx_search_ngram": false,
+      "current_idx_search_token": false,
+      "current_direct_text_read": true,
+      "current_token_scan": false,
+      "current_blocks": [
+        {
+          "name": "idx_search_blob_text",
+          "parts": "2/3",
+          "granules_after": 274,
+          "granules_before": 482,
+          "marks_after": null,
+          "marks_before": null,
+          "description": "text GRANULARITY 100000000"
+        }
+      ]
+    },
+    {
+      "id": "token_7_powershell",
+      "case_id": 7,
+      "kind": "TOKEN_SAFE",
+      "consumer": "routes/hunting_query_helpers.py build_hunting_search_clause",
+      "clause": " AND hasAllTokens(search_blob, {simple_0_txt:String})",
+      "current_skip_names": [
+        "idx_search_blob_text"
+      ],
+      "ignored_skip_names": [
+        "idx_search_blob_text"
+      ],
+      "current_idx_search_blob_text": true,
+      "current_idx_search_ngram": false,
+      "current_idx_search_token": false,
+      "current_direct_text_read": true,
+      "current_token_scan": false,
+      "current_blocks": [
+        {
+          "name": "idx_search_blob_text",
+          "parts": "4/5",
+          "granules_after": 15009,
+          "granules_before": 28038,
+          "marks_after": null,
+          "marks_before": null,
+          "description": "text GRANULARITY 100000000"
+        }
+      ]
+    },
+    {
+      "id": "token_32_powershell",
+      "case_id": 32,
+      "kind": "TOKEN_SAFE",
+      "consumer": "routes/hunting_query_helpers.py build_hunting_search_clause",
+      "clause": " AND hasAllTokens(search_blob, {simple_0_txt:String})",
+      "current_skip_names": [
+        "idx_search_blob_text"
+      ],
+      "ignored_skip_names": [
+        "idx_search_blob_text"
+      ],
+      "current_idx_search_blob_text": true,
+      "current_idx_search_ngram": false,
+      "current_idx_search_token": false,
+      "current_direct_text_read": true,
+      "current_token_scan": false,
+      "current_blocks": [
+        {
+          "name": "idx_search_blob_text",
+          "parts": "14/14",
+          "granules_after": 21854,
+          "granules_before": 35535,
+          "marks_after": null,
+          "marks_before": null,
+          "description": "text GRANULARITY 100000000"
+        }
+      ]
+    },
+    {
+      "id": "token_7_Administrator",
+      "case_id": 7,
+      "kind": "TOKEN_SAFE",
+      "consumer": "routes/hunting_query_helpers.py build_hunting_search_clause",
+      "clause": " AND hasAllTokens(search_blob, {simple_0_txt:String})",
+      "current_skip_names": [
+        "idx_search_blob_text"
+      ],
+      "ignored_skip_names": [
+        "idx_search_blob_text"
+      ],
+      "current_idx_search_blob_text": true,
+      "current_idx_search_ngram": false,
+      "current_idx_search_token": false,
+      "current_direct_text_read": true,
+      "current_token_scan": false,
+      "current_blocks": [
+        {
+          "name": "idx_search_blob_text",
+          "parts": "4/5",
+          "granules_after": 6039,
+          "granules_before": 28038,
+          "marks_after": null,
+          "marks_before": null,
+          "description": "text GRANULARITY 100000000"
+        }
+      ]
+    },
+    {
+      "id": "token_32_Administrator",
+      "case_id": 32,
+      "kind": "TOKEN_SAFE",
+      "consumer": "routes/hunting_query_helpers.py build_hunting_search_clause",
+      "clause": " AND hasAllTokens(search_blob, {simple_0_txt:String})",
+      "current_skip_names": [
+        "idx_search_blob_text"
+      ],
+      "ignored_skip_names": [
+        "idx_search_blob_text"
+      ],
+      "current_idx_search_blob_text": true,
+      "current_idx_search_ngram": false,
+      "current_idx_search_token": false,
+      "current_direct_text_read": true,
+      "current_token_scan": false,
+      "current_blocks": [
+        {
+          "name": "idx_search_blob_text",
+          "parts": "11/14",
+          "granules_after": 5609,
+          "granules_before": 35535,
+          "marks_after": null,
+          "marks_before": null,
+          "description": "text GRANULARITY 100000000"
+        }
+      ]
+    },
+    {
+      "id": "token_10_or",
+      "case_id": 10,
+      "kind": "TOKEN_SAFE",
+      "consumer": "routes/hunting_query_helpers.py build_hunting_search_clause",
+      "clause": " AND hasAnyTokens(search_blob, {simple_0_any_0:String})",
+      "current_skip_names": [
+        "idx_search_blob_text"
+      ],
+      "ignored_skip_names": [
+        "idx_search_blob_text"
+      ],
+      "current_idx_search_blob_text": true,
+      "current_idx_search_ngram": false,
+      "current_idx_search_token": false,
+      "current_direct_text_read": true,
+      "current_token_scan": false,
+      "current_blocks": [
+        {
+          "name": "idx_search_blob_text",
+          "parts": "2/3",
+          "granules_after": 278,
+          "granules_before": 482,
+          "marks_after": null,
+          "marks_before": null,
+          "description": "text GRANULARITY 100000000"
+        }
+      ]
+    },
+    {
+      "id": "token_7_or",
+      "case_id": 7,
+      "kind": "TOKEN_SAFE",
+      "consumer": "routes/hunting_query_helpers.py build_hunting_search_clause",
+      "clause": " AND hasAnyTokens(search_blob, {simple_0_any_0:String})",
+      "current_skip_names": [
+        "idx_search_blob_text"
+      ],
+      "ignored_skip_names": [
+        "idx_search_blob_text"
+      ],
+      "current_idx_search_blob_text": true,
+      "current_idx_search_ngram": false,
+      "current_idx_search_token": false,
+      "current_direct_text_read": true,
+      "current_token_scan": false,
+      "current_blocks": [
+        {
+          "name": "idx_search_blob_text",
+          "parts": "4/5",
+          "granules_after": 15554,
+          "granules_before": 28038,
+          "marks_after": null,
+          "marks_before": null,
+          "description": "text GRANULARITY 100000000"
+        }
+      ]
+    },
+    {
+      "id": "sub_10_cmdexe",
+      "case_id": 10,
+      "kind": "SUBSTRING_REQUIRED",
+      "consumer": "routes/hunting_query_helpers.py build_hunting_search_clause",
+      "clause": " AND search_blob ilike {simple_0_txt:String}",
+      "current_skip_names": [],
+      "ignored_skip_names": [],
+      "current_idx_search_blob_text": false,
+      "current_idx_search_ngram": false,
+      "current_idx_search_token": false,
+      "current_direct_text_read": false,
+      "current_token_scan": false,
+      "current_blocks": []
+    },
+    {
+      "id": "sub_7_cmdexe",
+      "case_id": 7,
+      "kind": "SUBSTRING_REQUIRED",
+      "consumer": "routes/hunting_query_helpers.py build_hunting_search_clause",
+      "clause": " AND search_blob ilike {simple_0_txt:String}",
+      "current_skip_names": [],
+      "ignored_skip_names": [],
+      "current_idx_search_blob_text": false,
+      "current_idx_search_ngram": false,
+      "current_idx_search_token": false,
+      "current_direct_text_read": false,
+      "current_token_scan": false,
+      "current_blocks": []
+    },
+    {
+      "id": "sub_32_cmdexe",
+      "case_id": 32,
+      "kind": "SUBSTRING_REQUIRED",
+      "consumer": "routes/hunting_query_helpers.py build_hunting_search_clause",
+      "clause": " AND search_blob ilike {simple_0_txt:String}",
+      "current_skip_names": [],
+      "ignored_skip_names": [],
+      "current_idx_search_blob_text": false,
+      "current_idx_search_ngram": false,
+      "current_idx_search_token": false,
+      "current_direct_text_read": false,
+      "current_token_scan": false,
+      "current_blocks": []
+    },
+    {
+      "id": "sub_14_cmdexe",
+      "case_id": 14,
+      "kind": "SUBSTRING_REQUIRED",
+      "consumer": "routes/hunting_query_helpers.py build_hunting_search_clause",
+      "clause": " AND search_blob ilike {simple_0_txt:String}",
+      "current_skip_names": [],
+      "ignored_skip_names": [],
+      "current_idx_search_blob_text": false,
+      "current_idx_search_ngram": false,
+      "current_idx_search_token": false,
+      "current_direct_text_read": false,
+      "current_token_scan": false,
+      "current_blocks": []
+    },
+    {
+      "id": "sub_7_ip",
+      "case_id": 7,
+      "kind": "SUBSTRING_REQUIRED",
+      "consumer": "routes/hunting_query_helpers.py build_hunting_search_clause",
+      "clause": " AND search_blob ilike {simple_0_txt:String}",
+      "current_skip_names": [],
+      "ignored_skip_names": [],
+      "current_idx_search_blob_text": false,
+      "current_idx_search_ngram": false,
+      "current_idx_search_token": false,
+      "current_direct_text_read": false,
+      "current_token_scan": false,
+      "current_blocks": []
+    },
+    {
+      "id": "sub_10_ip",
+      "case_id": 10,
+      "kind": "SUBSTRING_REQUIRED",
+      "consumer": "routes/hunting_query_helpers.py build_hunting_search_clause",
+      "clause": " AND search_blob ilike {simple_0_txt:String}",
+      "current_skip_names": [],
+      "ignored_skip_names": [],
+      "current_idx_search_blob_text": false,
+      "current_idx_search_ngram": false,
+      "current_idx_search_token": false,
+      "current_direct_text_read": false,
+      "current_token_scan": false,
+      "current_blocks": []
+    },
+    {
+      "id": "sub_32_ip",
+      "case_id": 32,
+      "kind": "SUBSTRING_REQUIRED",
+      "consumer": "routes/hunting_query_helpers.py build_hunting_search_clause",
+      "clause": " AND search_blob ilike {simple_0_txt:String}",
+      "current_skip_names": [],
+      "ignored_skip_names": [],
+      "current_idx_search_blob_text": false,
+      "current_idx_search_ngram": false,
+      "current_idx_search_token": false,
+      "current_direct_text_read": false,
+      "current_token_scan": false,
+      "current_blocks": []
+    },
+    {
+      "id": "sub_10_winps",
+      "case_id": 10,
+      "kind": "SUBSTRING_REQUIRED",
+      "consumer": "routes/hunting_query_helpers.py build_hunting_search_clause",
+      "clause": " AND search_blob ilike {simple_0_txt:String}",
+      "current_skip_names": [],
+      "ignored_skip_names": [],
+      "current_idx_search_blob_text": false,
+      "current_idx_search_ngram": false,
+      "current_idx_search_token": false,
+      "current_direct_text_read": false,
+      "current_token_scan": false,
+      "current_blocks": []
+    },
+    {
+      "id": "sub_7_winps",
+      "case_id": 7,
+      "kind": "SUBSTRING_REQUIRED",
+      "consumer": "routes/hunting_query_helpers.py build_hunting_search_clause",
+      "clause": " AND search_blob ilike {simple_0_txt:String}",
+      "current_skip_names": [],
+      "ignored_skip_names": [],
+      "current_idx_search_blob_text": false,
+      "current_idx_search_ngram": false,
+      "current_idx_search_token": false,
+      "current_direct_text_read": false,
+      "current_token_scan": false,
+      "current_blocks": []
+    },
+    {
+      "id": "sub_32_winps",
+      "case_id": 32,
+      "kind": "SUBSTRING_REQUIRED",
+      "consumer": "routes/hunting_query_helpers.py build_hunting_search_clause",
+      "clause": " AND search_blob ilike {simple_0_txt:String}",
+      "current_skip_names": [],
+      "ignored_skip_names": [],
+      "current_idx_search_blob_text": false,
+      "current_idx_search_ngram": false,
+      "current_idx_search_token": false,
+      "current_direct_text_read": false,
+      "current_token_scan": false,
+      "current_blocks": []
+    },
+    {
+      "id": "sub_10_path",
+      "case_id": 10,
+      "kind": "SUBSTRING_REQUIRED",
+      "consumer": "routes/hunting_query_helpers.py build_hunting_search_clause",
+      "clause": " AND search_blob ilike {simple_0_txt:String}",
+      "current_skip_names": [],
+      "ignored_skip_names": [],
+      "current_idx_search_blob_text": false,
+      "current_idx_search_ngram": false,
+      "current_idx_search_token": false,
+      "current_direct_text_read": false,
+      "current_token_scan": false,
+      "current_blocks": []
+    },
+    {
+      "id": "sub_7_path",
+      "case_id": 7,
+      "kind": "SUBSTRING_REQUIRED",
+      "consumer": "routes/hunting_query_helpers.py build_hunting_search_clause",
+      "clause": " AND search_blob ilike {simple_0_txt:String}",
+      "current_skip_names": [],
+      "ignored_skip_names": [],
+      "current_idx_search_blob_text": false,
+      "current_idx_search_ngram": false,
+      "current_idx_search_token": false,
+      "current_direct_text_read": false,
+      "current_token_scan": false,
+      "current_blocks": []
+    },
+    {
+      "id": "sub_10_host",
+      "case_id": 10,
+      "kind": "SUBSTRING_REQUIRED",
+      "consumer": "routes/hunting_query_helpers.py build_hunting_search_clause",
+      "clause": " AND search_blob ilike {simple_0_txt:String}",
+      "current_skip_names": [],
+      "ignored_skip_names": [],
+      "current_idx_search_blob_text": false,
+      "current_idx_search_ngram": false,
+      "current_idx_search_token": false,
+      "current_direct_text_read": false,
+      "current_token_scan": false,
+      "current_blocks": []
+    },
+    {
+      "id": "sub_7_host",
+      "case_id": 7,
+      "kind": "SUBSTRING_REQUIRED",
+      "consumer": "routes/hunting_query_helpers.py build_hunting_search_clause",
+      "clause": " AND search_blob ilike {simple_0_txt:String}",
+      "current_skip_names": [],
+      "ignored_skip_names": [],
+      "current_idx_search_blob_text": false,
+      "current_idx_search_ngram": false,
+      "current_idx_search_token": false,
+      "current_direct_text_read": false,
+      "current_token_scan": false,
+      "current_blocks": []
+    },
+    {
+      "id": "sub_10_unicode",
+      "case_id": 10,
+      "kind": "SUBSTRING_REQUIRED",
+      "consumer": "routes/hunting_query_helpers.py build_hunting_search_clause",
+      "clause": " AND search_blob ilike {simple_0_txt:String}",
+      "current_skip_names": [],
+      "ignored_skip_names": [],
+      "current_idx_search_blob_text": false,
+      "current_idx_search_ngram": false,
+      "current_idx_search_token": false,
+      "current_direct_text_read": false,
+      "current_token_scan": false,
+      "current_blocks": []
+    },
+    {
+      "id": "sub_7_unicode",
+      "case_id": 7,
+      "kind": "SUBSTRING_REQUIRED",
+      "consumer": "routes/hunting_query_helpers.py build_hunting_search_clause",
+      "clause": " AND search_blob ilike {simple_0_txt:String}",
+      "current_skip_names": [],
+      "ignored_skip_names": [],
+      "current_idx_search_blob_text": false,
+      "current_idx_search_ngram": false,
+      "current_idx_search_token": false,
+      "current_direct_text_read": false,
+      "current_token_scan": false,
+      "current_blocks": []
+    },
+    {
+      "id": "neg_14_powershell",
+      "case_id": 14,
+      "kind": "EXCLUSION_PRESERVE",
+      "consumer": "routes/hunting_query_helpers.py build_hunting_search_clause",
+      "clause": " AND NOT search_blob ilike {simple_0_excl:String}",
+      "current_skip_names": [],
+      "ignored_skip_names": [],
+      "current_idx_search_blob_text": false,
+      "current_idx_search_ngram": false,
+      "current_idx_search_token": false,
+      "current_direct_text_read": false,
+      "current_token_scan": false,
+      "current_blocks": []
+    },
+    {
+      "id": "num_10_4688",
+      "case_id": 10,
+      "kind": "STRUCTURED",
+      "consumer": "routes/hunting_query_helpers.py build_hunting_search_clause",
+      "clause": " AND event_id = {simple_0_id:String}",
+      "current_skip_names": [
+        "idx_event_id"
+      ],
+      "ignored_skip_names": [
+        "idx_event_id"
+      ],
+      "current_idx_search_blob_text": false,
+      "current_idx_search_ngram": false,
+      "current_idx_search_token": false,
+      "current_direct_text_read": false,
+      "current_token_scan": false,
+      "current_blocks": [
+        {
+          "name": "idx_event_id",
+          "parts": "0/2",
+          "granules_after": 0,
+          "granules_before": 464,
+          "marks_after": null,
+          "marks_before": null,
+          "description": "bloom_filter GRANULARITY 4"
+        }
+      ]
+    },
+    {
+      "id": "detail_10_position",
+      "case_id": 10,
+      "kind": "SUBSTRING_REQUIRED",
+      "consumer": "routes/hunting.py get_hunting_event_detail match_search_blob",
+      "clause": "position(search_blob, {needle:String}) > 0",
+      "current_skip_names": [],
+      "ignored_skip_names": [],
+      "current_idx_search_blob_text": false,
+      "current_idx_search_ngram": false,
+      "current_idx_search_token": false,
+      "current_direct_text_read": false,
+      "current_token_scan": false,
+      "current_blocks": []
+    },
+    {
+      "id": "ioc_10_hastoken",
+      "case_id": 10,
+      "kind": "TOKEN_CANDIDATE",
+      "consumer": "utils/ioc_artifact_tagger.py hasTokenCaseInsensitive",
+      "clause": "hasTokenCaseInsensitive(search_blob, {needle:String})",
+      "current_skip_names": [],
+      "ignored_skip_names": [],
+      "current_idx_search_blob_text": false,
+      "current_idx_search_ngram": false,
+      "current_idx_search_token": false,
+      "current_direct_text_read": false,
+      "current_token_scan": false,
+      "current_blocks": []
+    },
+    {
+      "id": "ioc_7_hastoken",
+      "case_id": 7,
+      "kind": "TOKEN_CANDIDATE",
+      "consumer": "utils/ioc_artifact_tagger.py hasTokenCaseInsensitive",
+      "clause": "hasTokenCaseInsensitive(search_blob, {needle:String})",
+      "current_skip_names": [],
+      "ignored_skip_names": [],
+      "current_idx_search_blob_text": false,
+      "current_idx_search_ngram": false,
+      "current_idx_search_token": false,
+      "current_direct_text_read": false,
+      "current_token_scan": false,
+      "current_blocks": []
+    },
+    {
+      "id": "ioc_10_like_cmdexe",
+      "case_id": 10,
+      "kind": "SUBSTRING_REQUIRED",
+      "consumer": "utils/ioc_artifact_tagger.py lower(search_blob) LIKE",
+      "clause": "lower(search_blob) LIKE {pat:String}",
+      "current_skip_names": [],
+      "ignored_skip_names": [],
+      "current_idx_search_blob_text": false,
+      "current_idx_search_ngram": false,
+      "current_idx_search_token": false,
+      "current_direct_text_read": false,
+      "current_token_scan": false,
+      "current_blocks": []
+    },
+    {
+      "id": "sigma_10_ilike",
+      "case_id": 10,
+      "kind": "SUBSTRING_REQUIRED",
+      "consumer": "utils/sigma_converter.py wildcard selection",
+      "clause": "search_blob ILIKE {pat:String}",
+      "current_skip_names": [],
+      "ignored_skip_names": [],
+      "current_idx_search_blob_text": false,
+      "current_idx_search_ngram": false,
+      "current_idx_search_token": false,
+      "current_direct_text_read": false,
+      "current_token_scan": false,
+      "current_blocks": []
+    },
+    {
+      "id": "pattern_10_ntlm",
+      "case_id": 10,
+      "kind": "SUBSTRING_REQUIRED",
+      "consumer": "models/pattern_rules.py NTLM LIKE",
+      "clause": "search_blob LIKE {pat:String}",
+      "current_skip_names": [
+        "idx_search_blob_text",
+        "idx_search_ngram",
+        "idx_search_token"
+      ],
+      "ignored_skip_names": [
+        "idx_search_blob_text"
+      ],
+      "current_idx_search_blob_text": true,
+      "current_idx_search_ngram": true,
+      "current_idx_search_token": true,
+      "current_direct_text_read": false,
+      "current_token_scan": false,
+      "current_blocks": [
+        {
+          "name": "idx_search_blob_text",
+          "parts": "3/3",
+          "granules_after": 482,
+          "granules_before": 482,
+          "marks_after": null,
+          "marks_before": null,
+          "description": "text GRANULARITY 100000000"
+        },
+        {
+          "name": "idx_search_ngram",
+          "parts": "2/3",
+          "granules_after": 461,
+          "granules_before": 482,
+          "marks_after": null,
+          "marks_before": null,
+          "description": "ngrambf_v1 GRANULARITY 4"
+        },
+        {
+          "name": "idx_search_token",
+          "parts": "2/2",
+          "granules_after": 461,
+          "granules_before": 461,
+          "marks_after": null,
+          "marks_before": null,
+          "description": "tokenbf_v1 GRANULARITY 4"
+        }
+      ]
+    },
+    {
+      "id": "pattern_7_ntlm",
+      "case_id": 7,
+      "kind": "SUBSTRING_REQUIRED",
+      "consumer": "models/pattern_rules.py NTLM LIKE",
+      "clause": "search_blob LIKE {pat:String}",
+      "current_skip_names": [
+        "idx_search_blob_text",
+        "idx_search_ngram",
+        "idx_search_token"
+      ],
+      "ignored_skip_names": [
+        "idx_search_blob_text"
+      ],
+      "current_idx_search_blob_text": true,
+      "current_idx_search_ngram": true,
+      "current_idx_search_token": true,
+      "current_direct_text_read": false,
+      "current_token_scan": false,
+      "current_blocks": [
+        {
+          "name": "idx_search_blob_text",
+          "parts": "5/5",
+          "granules_after": 28038,
+          "granules_before": 28038,
+          "marks_after": null,
+          "marks_before": null,
+          "description": "text GRANULARITY 100000000"
+        },
+        {
+          "name": "idx_search_ngram",
+          "parts": "4/5",
+          "granules_after": 24172,
+          "granules_before": 28038,
+          "marks_after": null,
+          "marks_before": null,
+          "description": "ngrambf_v1 GRANULARITY 4"
+        },
+        {
+          "name": "idx_search_token",
+          "parts": "4/4",
+          "granules_after": 24172,
+          "granules_before": 24172,
+          "marks_after": null,
+          "marks_before": null,
+          "description": "tokenbf_v1 GRANULARITY 4"
+        }
+      ]
+    },
+    {
+      "id": "pattern_32_ntlm",
+      "case_id": 32,
+      "kind": "SUBSTRING_REQUIRED",
+      "consumer": "models/pattern_rules.py NTLM LIKE",
+      "clause": "search_blob LIKE {pat:String}",
+      "current_skip_names": [
+        "idx_search_blob_text",
+        "idx_search_ngram",
+        "idx_search_token"
+      ],
+      "ignored_skip_names": [
+        "idx_search_blob_text"
+      ],
+      "current_idx_search_blob_text": true,
+      "current_idx_search_ngram": true,
+      "current_idx_search_token": true,
+      "current_direct_text_read": false,
+      "current_token_scan": false,
+      "current_blocks": [
+        {
+          "name": "idx_search_blob_text",
+          "parts": "14/14",
+          "granules_after": 35535,
+          "granules_before": 35535,
+          "marks_after": null,
+          "marks_before": null,
+          "description": "text GRANULARITY 100000000"
+        },
+        {
+          "name": "idx_search_ngram",
+          "parts": "14/14",
+          "granules_after": 30366,
+          "granules_before": 35535,
+          "marks_after": null,
+          "marks_before": null,
+          "description": "ngrambf_v1 GRANULARITY 4"
+        },
+        {
+          "name": "idx_search_token",
+          "parts": "14/14",
+          "granules_after": 30366,
+          "granules_before": 30366,
+          "marks_after": null,
+          "marks_before": null,
+          "description": "tokenbf_v1 GRANULARITY 4"
+        }
+      ]
+    },
+    {
+      "id": "pattern_10_admin_share",
+      "case_id": 10,
+      "kind": "SUBSTRING_REQUIRED",
+      "consumer": "models/pattern_rules.py ADMIN$ LIKE",
+      "clause": "search_blob LIKE {pat:String}",
+      "current_skip_names": [
+        "idx_search_blob_text",
+        "idx_search_ngram",
+        "idx_search_token"
+      ],
+      "ignored_skip_names": [
+        "idx_search_blob_text"
+      ],
+      "current_idx_search_blob_text": true,
+      "current_idx_search_ngram": true,
+      "current_idx_search_token": true,
+      "current_direct_text_read": false,
+      "current_token_scan": false,
+      "current_blocks": [
+        {
+          "name": "idx_search_blob_text",
+          "parts": "3/3",
+          "granules_after": 482,
+          "granules_before": 482,
+          "marks_after": null,
+          "marks_before": null,
+          "description": "text GRANULARITY 100000000"
+        },
+        {
+          "name": "idx_search_ngram",
+          "parts": "2/3",
+          "granules_after": 472,
+          "granules_before": 482,
+          "marks_after": null,
+          "marks_before": null,
+          "description": "ngrambf_v1 GRANULARITY 4"
+        },
+        {
+          "name": "idx_search_token",
+          "parts": "2/2",
+          "granules_after": 472,
+          "granules_before": 472,
+          "marks_after": null,
+          "marks_before": null,
+          "description": "tokenbf_v1 GRANULARITY 4"
+        }
+      ]
+    },
+    {
+      "id": "chat_10_pos_ps",
+      "case_id": 10,
+      "kind": "TOKEN_CANDIDATE",
+      "consumer": "utils/chat_tools.py positionCaseInsensitive",
+      "clause": "positionCaseInsensitive(search_blob, {needle:String}) > 0",
+      "current_skip_names": [],
+      "ignored_skip_names": [],
+      "current_idx_search_blob_text": false,
+      "current_idx_search_ngram": false,
+      "current_idx_search_token": false,
+      "current_direct_text_read": false,
+      "current_token_scan": false,
+      "current_blocks": []
+    },
+    {
+      "id": "chat_10_pos_cmd",
+      "case_id": 10,
+      "kind": "SUBSTRING_REQUIRED",
+      "consumer": "utils/chat_tools.py positionCaseInsensitive cmd.exe",
+      "clause": "positionCaseInsensitive(search_blob, {needle:String}) > 0",
+      "current_skip_names": [],
+      "ignored_skip_names": [],
+      "current_idx_search_blob_text": false,
+      "current_idx_search_ngram": false,
+      "current_idx_search_token": false,
+      "current_direct_text_read": false,
+      "current_token_scan": false,
+      "current_blocks": []
+    },
+    {
+      "id": "network_10_ilike",
+      "case_id": 10,
+      "kind": "SUBSTRING_REQUIRED",
+      "consumer": "models/network_log.py search_blob ILIKE",
+      "clause": "search_blob ILIKE {pat:String}",
+      "current_skip_names": [],
+      "ignored_skip_names": [],
+      "current_idx_search_blob_text": false,
+      "current_idx_search_ngram": false,
+      "current_idx_search_token": false,
+      "current_direct_text_read": false,
+      "current_token_scan": false,
+      "current_blocks": []
+    },
+    {
+      "id": "cmdcol_10_like",
+      "case_id": 10,
+      "kind": "STRUCTURED_FIELD",
+      "consumer": "routes/hunting_query_helpers.py SEARCH_FIELD_MAP cmd:",
+      "clause": "command_line ILIKE {pat:String}",
+      "current_skip_names": [],
+      "ignored_skip_names": [],
+      "current_idx_search_blob_text": false,
+      "current_idx_search_ngram": false,
+      "current_idx_search_token": false,
+      "current_direct_text_read": false,
+      "current_token_scan": false,
+      "current_blocks": []
+    }
+  ],
+  "blooms_used_in_explain": [
+    {
+      "id": "pattern_10_ntlm",
+      "case_id": 10,
+      "consumer": "models/pattern_rules.py NTLM LIKE",
+      "kind": "SUBSTRING_REQUIRED",
+      "clause": "search_blob LIKE {pat:String}",
+      "skip_names": [
+        "idx_search_blob_text",
+        "idx_search_ngram",
+        "idx_search_token"
+      ]
+    },
+    {
+      "id": "pattern_7_ntlm",
+      "case_id": 7,
+      "consumer": "models/pattern_rules.py NTLM LIKE",
+      "kind": "SUBSTRING_REQUIRED",
+      "clause": "search_blob LIKE {pat:String}",
+      "skip_names": [
+        "idx_search_blob_text",
+        "idx_search_ngram",
+        "idx_search_token"
+      ]
+    },
+    {
+      "id": "pattern_32_ntlm",
+      "case_id": 32,
+      "consumer": "models/pattern_rules.py NTLM LIKE",
+      "kind": "SUBSTRING_REQUIRED",
+      "clause": "search_blob LIKE {pat:String}",
+      "skip_names": [
+        "idx_search_blob_text",
+        "idx_search_ngram",
+        "idx_search_token"
+      ]
+    },
+    {
+      "id": "pattern_10_admin_share",
+      "case_id": 10,
+      "consumer": "models/pattern_rules.py ADMIN$ LIKE",
+      "kind": "SUBSTRING_REQUIRED",
+      "clause": "search_blob LIKE {pat:String}",
+      "skip_names": [
+        "idx_search_blob_text",
+        "idx_search_ngram",
+        "idx_search_token"
+      ]
+    }
+  ],
+  "ab": [
+    {
+      "id": "token_14_sonicwall",
+      "case_id": 14,
+      "kind": "TOKEN_SAFE",
+      "consumer": "routes/hunting_query_helpers.py build_hunting_search_clause",
+      "clause": " AND hasAllTokens(search_blob, {simple_0_txt:String})",
+      "same_n": true,
+      "same_erk_fp": true,
+      "current": {
+        "warmup": 1,
+        "samples": 9,
+        "p50_ms": 9.466,
+        "p95_ms": 9.969,
+        "min_ms": 8.887,
+        "max_ms": 9.969,
+        "n": 13,
+        "erk_fp": "3401124464575423452",
+        "read_rows_p50": 1341,
+        "read_bytes_p50": 105939,
+        "identity_stable": true
+      },
+      "ignored": {
+        "warmup": 1,
+        "samples": 9,
+        "p50_ms": 9.698,
+        "p95_ms": 12.082,
+        "min_ms": 9.649,
+        "max_ms": 12.082,
+        "n": 13,
+        "erk_fp": "3401124464575423452",
+        "read_rows_p50": 1341,
+        "read_bytes_p50": 105939,
+        "identity_stable": true
+      },
+      "p50_delta_ms": 0.232,
+      "read_rows_delta": 0,
+      "read_bytes_delta": 0
+    },
+    {
+      "id": "token_10_powershell",
+      "case_id": 10,
+      "kind": "TOKEN_SAFE",
+      "consumer": "routes/hunting_query_helpers.py build_hunting_search_clause",
+      "clause": " AND hasAllTokens(search_blob, {simple_0_txt:String})",
+      "same_n": true,
+      "same_erk_fp": true,
+      "current": {
+        "warmup": 1,
+        "samples": 9,
+        "p50_ms": 31.62,
+        "p95_ms": 35.413,
+        "min_ms": 29.307,
+        "max_ms": 35.413,
+        "n": 19455,
+        "erk_fp": "17839893020690138519",
+        "read_rows_p50": 1391279,
+        "read_bytes_p50": 109911041,
+        "identity_stable": true
+      },
+      "ignored": {
+        "warmup": 1,
+        "samples": 9,
+        "p50_ms": 30.383,
+        "p95_ms": 32.889,
+        "min_ms": 28.809,
+        "max_ms": 32.889,
+        "n": 19455,
+        "erk_fp": "17839893020690138519",
+        "read_rows_p50": 1391279,
+        "read_bytes_p50": 109911041,
+        "identity_stable": true
+      },
+      "p50_delta_ms": -1.237,
+      "read_rows_delta": 0,
+      "read_bytes_delta": 0
+    },
+    {
+      "id": "token_7_powershell",
+      "case_id": 7,
+      "kind": "TOKEN_SAFE",
+      "consumer": "routes/hunting_query_helpers.py build_hunting_search_clause",
+      "clause": " AND hasAllTokens(search_blob, {simple_0_txt:String})",
+      "same_n": true,
+      "same_erk_fp": true,
+      "current": {
+        "warmup": 1,
+        "samples": 9,
+        "p50_ms": 633.348,
+        "p95_ms": 657.031,
+        "min_ms": 572.955,
+        "max_ms": 657.031,
+        "n": 705353,
+        "erk_fp": "8518599735336500947",
+        "read_rows_p50": 70967069,
+        "read_bytes_p50": 5606398451,
+        "identity_stable": true
+      },
+      "ignored": {
+        "warmup": 1,
+        "samples": 9,
+        "p50_ms": 672.961,
+        "p95_ms": 715.33,
+        "min_ms": 626.043,
+        "max_ms": 715.33,
+        "n": 705353,
+        "erk_fp": "8518599735336500947",
+        "read_rows_p50": 70967069,
+        "read_bytes_p50": 5606398451,
+        "identity_stable": true
+      },
+      "p50_delta_ms": 39.613,
+      "read_rows_delta": 0,
+      "read_bytes_delta": 0
+    },
+    {
+      "id": "token_32_powershell",
+      "case_id": 32,
+      "kind": "TOKEN_SAFE",
+      "consumer": "routes/hunting_query_helpers.py build_hunting_search_clause",
+      "clause": " AND hasAllTokens(search_blob, {simple_0_txt:String})",
+      "same_n": true,
+      "same_erk_fp": true,
+      "current": {
+        "warmup": 1,
+        "samples": 9,
+        "p50_ms": 923.663,
+        "p95_ms": 1049.555,
+        "min_ms": 864.894,
+        "max_ms": 1049.555,
+        "n": 940117,
+        "erk_fp": "4718367479810690057",
+        "read_rows_p50": 104812410,
+        "read_bytes_p50": 8280180390,
+        "identity_stable": true
+      },
+      "ignored": {
+        "warmup": 1,
+        "samples": 9,
+        "p50_ms": 950.017,
+        "p95_ms": 1057.209,
+        "min_ms": 875.445,
+        "max_ms": 1057.209,
+        "n": 940117,
+        "erk_fp": "4718367479810690057",
+        "read_rows_p50": 104812410,
+        "read_bytes_p50": 8280180390,
+        "identity_stable": true
+      },
+      "p50_delta_ms": 26.354,
+      "read_rows_delta": 0,
+      "read_bytes_delta": 0
+    },
+    {
+      "id": "token_7_Administrator",
+      "case_id": 7,
+      "kind": "TOKEN_SAFE",
+      "consumer": "routes/hunting_query_helpers.py build_hunting_search_clause",
+      "clause": " AND hasAllTokens(search_blob, {simple_0_txt:String})",
+      "same_n": true,
+      "same_erk_fp": true,
+      "current": {
+        "warmup": 1,
+        "samples": 9,
+        "p50_ms": 220.577,
+        "p95_ms": 245.59,
+        "min_ms": 212.796,
+        "max_ms": 245.59,
+        "n": 27100,
+        "erk_fp": "5473493415236290154",
+        "read_rows_p50": 24271730,
+        "read_bytes_p50": 1917466670,
+        "identity_stable": true
+      },
+      "ignored": {
+        "warmup": 1,
+        "samples": 9,
+        "p50_ms": 233.614,
+        "p95_ms": 253.2,
+        "min_ms": 208.781,
+        "max_ms": 253.2,
+        "n": 27100,
+        "erk_fp": "5473493415236290154",
+        "read_rows_p50": 24271730,
+        "read_bytes_p50": 1917466670,
+        "identity_stable": true
+      },
+      "p50_delta_ms": 13.037,
+      "read_rows_delta": 0,
+      "read_bytes_delta": 0
+    },
+    {
+      "id": "token_32_Administrator",
+      "case_id": 32,
+      "kind": "TOKEN_SAFE",
+      "consumer": "routes/hunting_query_helpers.py build_hunting_search_clause",
+      "clause": " AND hasAllTokens(search_blob, {simple_0_txt:String})",
+      "same_n": true,
+      "same_erk_fp": true,
+      "current": {
+        "warmup": 1,
+        "samples": 9,
+        "p50_ms": 264.309,
+        "p95_ms": 271.13,
+        "min_ms": 235.62,
+        "max_ms": 271.13,
+        "n": 27958,
+        "erk_fp": "6848532754428131598",
+        "read_rows_p50": 23659402,
+        "read_bytes_p50": 1869092758,
+        "identity_stable": true
+      },
+      "ignored": {
+        "warmup": 1,
+        "samples": 9,
+        "p50_ms": 264.882,
+        "p95_ms": 282.781,
+        "min_ms": 234.135,
+        "max_ms": 282.781,
+        "n": 27958,
+        "erk_fp": "6848532754428131598",
+        "read_rows_p50": 23659402,
+        "read_bytes_p50": 1869092758,
+        "identity_stable": true
+      },
+      "p50_delta_ms": 0.573,
+      "read_rows_delta": 0,
+      "read_bytes_delta": 0
+    },
+    {
+      "id": "token_10_or",
+      "case_id": 10,
+      "kind": "TOKEN_SAFE",
+      "consumer": "routes/hunting_query_helpers.py build_hunting_search_clause",
+      "clause": " AND hasAnyTokens(search_blob, {simple_0_any_0:String})",
+      "same_n": true,
+      "same_erk_fp": true,
+      "current": {
+        "warmup": 1,
+        "samples": 9,
+        "p50_ms": 29.19,
+        "p95_ms": 32.503,
+        "min_ms": 27.713,
+        "max_ms": 32.503,
+        "n": 19654,
+        "erk_fp": "10527371819020382433",
+        "read_rows_p50": 1413955,
+        "read_bytes_p50": 111702445,
+        "identity_stable": true
+      },
+      "ignored": {
+        "warmup": 1,
+        "samples": 9,
+        "p50_ms": 28.458,
+        "p95_ms": 29.966,
+        "min_ms": 26.301,
+        "max_ms": 29.966,
+        "n": 19654,
+        "erk_fp": "10527371819020382433",
+        "read_rows_p50": 1413955,
+        "read_bytes_p50": 111702445,
+        "identity_stable": true
+      },
+      "p50_delta_ms": -0.732,
+      "read_rows_delta": 0,
+      "read_bytes_delta": 0
+    },
+    {
+      "id": "sub_10_cmdexe",
+      "case_id": 10,
+      "kind": "SUBSTRING_REQUIRED",
+      "consumer": "routes/hunting_query_helpers.py build_hunting_search_clause",
+      "clause": " AND search_blob ilike {simple_0_txt:String}",
+      "same_n": true,
+      "same_erk_fp": true,
+      "current": {
+        "warmup": 1,
+        "samples": 9,
+        "p50_ms": 73.074,
+        "p95_ms": 86.121,
+        "min_ms": 64.718,
+        "max_ms": 86.121,
+        "n": 3025,
+        "erk_fp": "4285295726417312528",
+        "read_rows_p50": 687142,
+        "read_bytes_p50": 261515960,
+        "identity_stable": true
+      },
+      "ignored": {
+        "warmup": 1,
+        "samples": 9,
+        "p50_ms": 76.138,
+        "p95_ms": 84.726,
+        "min_ms": 66.673,
+        "max_ms": 84.726,
+        "n": 3025,
+        "erk_fp": "4285295726417312528",
+        "read_rows_p50": 687142,
+        "read_bytes_p50": 261515960,
+        "identity_stable": true
+      },
+      "p50_delta_ms": 3.064,
+      "read_rows_delta": 0,
+      "read_bytes_delta": 0
+    },
+    {
+      "id": "sub_7_cmdexe",
+      "case_id": 7,
+      "kind": "SUBSTRING_REQUIRED",
+      "consumer": "routes/hunting_query_helpers.py build_hunting_search_clause",
+      "clause": " AND search_blob ilike {simple_0_txt:String}",
+      "same_n": true,
+      "same_erk_fp": true,
+      "current": {
+        "warmup": 1,
+        "samples": 9,
+        "p50_ms": 2576.991,
+        "p95_ms": 2723.651,
+        "min_ms": 2401.257,
+        "max_ms": 2723.651,
+        "n": 883843,
+        "erk_fp": "1683881945644803324",
+        "read_rows_p50": 36947991,
+        "read_bytes_p50": 17360809629,
+        "identity_stable": true
+      },
+      "ignored": {
+        "warmup": 1,
+        "samples": 9,
+        "p50_ms": 2515.893,
+        "p95_ms": 2583.79,
+        "min_ms": 2466.022,
+        "max_ms": 2583.79,
+        "n": 883843,
+        "erk_fp": "1683881945644803324",
+        "read_rows_p50": 36947991,
+        "read_bytes_p50": 17360809629,
+        "identity_stable": true
+      },
+      "p50_delta_ms": -61.098,
+      "read_rows_delta": 0,
+      "read_bytes_delta": 0
+    },
+    {
+      "id": "sub_32_cmdexe",
+      "case_id": 32,
+      "kind": "SUBSTRING_REQUIRED",
+      "consumer": "routes/hunting_query_helpers.py build_hunting_search_clause",
+      "clause": " AND search_blob ilike {simple_0_txt:String}",
+      "same_n": true,
+      "same_erk_fp": true,
+      "current": {
+        "warmup": 1,
+        "samples": 9,
+        "p50_ms": 1825.363,
+        "p95_ms": 1972.022,
+        "min_ms": 1746.048,
+        "max_ms": 1972.022,
+        "n": 104646,
+        "erk_fp": "9016377526069421426",
+        "read_rows_p50": 38767639,
+        "read_bytes_p50": 11369319415,
+        "identity_stable": true
+      },
+      "ignored": {
+        "warmup": 1,
+        "samples": 9,
+        "p50_ms": 1782.753,
+        "p95_ms": 1868.131,
+        "min_ms": 1761.676,
+        "max_ms": 1868.131,
+        "n": 104646,
+        "erk_fp": "9016377526069421426",
+        "read_rows_p50": 38767639,
+        "read_bytes_p50": 11369319415,
+        "identity_stable": true
+      },
+      "p50_delta_ms": -42.61,
+      "read_rows_delta": 0,
+      "read_bytes_delta": 0
+    },
+    {
+      "id": "sub_7_ip",
+      "case_id": 7,
+      "kind": "SUBSTRING_REQUIRED",
+      "consumer": "routes/hunting_query_helpers.py build_hunting_search_clause",
+      "clause": " AND search_blob ilike {simple_0_txt:String}",
+      "same_n": true,
+      "same_erk_fp": true,
+      "current": {
+        "warmup": 1,
+        "samples": 9,
+        "p50_ms": 40.505,
+        "p95_ms": 50.719,
+        "min_ms": 33.831,
+        "max_ms": 50.719,
+        "n": 3162,
+        "erk_fp": "17690750615836510811",
+        "read_rows_p50": 375509,
+        "read_bytes_p50": 115596771,
+        "identity_stable": true
+      },
+      "ignored": {
+        "warmup": 1,
+        "samples": 9,
+        "p50_ms": 37.933,
+        "p95_ms": 40.886,
+        "min_ms": 35.232,
+        "max_ms": 40.886,
+        "n": 3162,
+        "erk_fp": "17690750615836510811",
+        "read_rows_p50": 375509,
+        "read_bytes_p50": 115596771,
+        "identity_stable": true
+      },
+      "p50_delta_ms": -2.572,
+      "read_rows_delta": 0,
+      "read_bytes_delta": 0
+    },
+    {
+      "id": "sub_10_winps",
+      "case_id": 10,
+      "kind": "SUBSTRING_REQUIRED",
+      "consumer": "routes/hunting_query_helpers.py build_hunting_search_clause",
+      "clause": " AND search_blob ilike {simple_0_txt:String}",
+      "same_n": true,
+      "same_erk_fp": true,
+      "current": {
+        "warmup": 1,
+        "samples": 9,
+        "p50_ms": 39.079,
+        "p95_ms": 49.337,
+        "min_ms": 32.426,
+        "max_ms": 49.337,
+        "n": 13370,
+        "erk_fp": "3894185312323527028",
+        "read_rows_p50": 234203,
+        "read_bytes_p50": 149517455,
+        "identity_stable": true
+      },
+      "ignored": {
+        "warmup": 1,
+        "samples": 9,
+        "p50_ms": 33.626,
+        "p95_ms": 38.389,
+        "min_ms": 31.635,
+        "max_ms": 38.389,
+        "n": 13370,
+        "erk_fp": "3894185312323527028",
+        "read_rows_p50": 234203,
+        "read_bytes_p50": 149517455,
+        "identity_stable": true
+      },
+      "p50_delta_ms": -5.453,
+      "read_rows_delta": 0,
+      "read_bytes_delta": 0
+    },
+    {
+      "id": "sub_10_path",
+      "case_id": 10,
+      "kind": "SUBSTRING_REQUIRED",
+      "consumer": "routes/hunting_query_helpers.py build_hunting_search_clause",
+      "clause": " AND search_blob ilike {simple_0_txt:String}",
+      "same_n": true,
+      "same_erk_fp": true,
+      "current": {
+        "warmup": 1,
+        "samples": 9,
+        "p50_ms": 42.983,
+        "p95_ms": 53.223,
+        "min_ms": 37.88,
+        "max_ms": 53.223,
+        "n": 1671,
+        "erk_fp": "9850423258416371865",
+        "read_rows_p50": 473661,
+        "read_bytes_p50": 151748420,
+        "identity_stable": true
+      },
+      "ignored": {
+        "warmup": 1,
+        "samples": 9,
+        "p50_ms": 39.731,
+        "p95_ms": 44.971,
+        "min_ms": 37.491,
+        "max_ms": 44.971,
+        "n": 1671,
+        "erk_fp": "9850423258416371865",
+        "read_rows_p50": 473661,
+        "read_bytes_p50": 151748420,
+        "identity_stable": true
+      },
+      "p50_delta_ms": -3.252,
+      "read_rows_delta": 0,
+      "read_bytes_delta": 0
+    },
+    {
+      "id": "sub_10_host",
+      "case_id": 10,
+      "kind": "SUBSTRING_REQUIRED",
+      "consumer": "routes/hunting_query_helpers.py build_hunting_search_clause",
+      "clause": " AND search_blob ilike {simple_0_txt:String}",
+      "same_n": true,
+      "same_erk_fp": true,
+      "current": {
+        "warmup": 1,
+        "samples": 9,
+        "p50_ms": 44.708,
+        "p95_ms": 70.479,
+        "min_ms": 39.02,
+        "max_ms": 70.479,
+        "n": 35,
+        "erk_fp": "6903859020784133385",
+        "read_rows_p50": 41073,
+        "read_bytes_p50": 42369351,
+        "identity_stable": true
+      },
+      "ignored": {
+        "warmup": 1,
+        "samples": 9,
+        "p50_ms": 41.229,
+        "p95_ms": 46.443,
+        "min_ms": 40.3,
+        "max_ms": 46.443,
+        "n": 35,
+        "erk_fp": "6903859020784133385",
+        "read_rows_p50": 41073,
+        "read_bytes_p50": 42369351,
+        "identity_stable": true
+      },
+      "p50_delta_ms": -3.479,
+      "read_rows_delta": 0,
+      "read_bytes_delta": 0
+    },
+    {
+      "id": "sub_10_unicode",
+      "case_id": 10,
+      "kind": "SUBSTRING_REQUIRED",
+      "consumer": "routes/hunting_query_helpers.py build_hunting_search_clause",
+      "clause": " AND search_blob ilike {simple_0_txt:String}",
+      "same_n": true,
+      "same_erk_fp": true,
+      "current": {
+        "warmup": 1,
+        "samples": 9,
+        "p50_ms": 6.752,
+        "p95_ms": 8.8,
+        "min_ms": 6.347,
+        "max_ms": 8.8,
+        "n": 0,
+        "erk_fp": "0",
+        "read_rows_p50": 0,
+        "read_bytes_p50": 0,
+        "identity_stable": true
+      },
+      "ignored": {
+        "warmup": 1,
+        "samples": 9,
+        "p50_ms": 6.945,
+        "p95_ms": 7.342,
+        "min_ms": 6.564,
+        "max_ms": 7.342,
+        "n": 0,
+        "erk_fp": "0",
+        "read_rows_p50": 0,
+        "read_bytes_p50": 0,
+        "identity_stable": true
+      },
+      "p50_delta_ms": 0.193,
+      "read_rows_delta": 0,
+      "read_bytes_delta": 0
+    },
+    {
+      "id": "detail_10_position",
+      "case_id": 10,
+      "kind": "SUBSTRING_REQUIRED",
+      "consumer": "routes/hunting.py get_hunting_event_detail match_search_blob",
+      "clause": "position(search_blob, {needle:String}) > 0",
+      "same_n": true,
+      "same_erk_fp": true,
+      "current": {
+        "warmup": 1,
+        "samples": 9,
+        "p50_ms": 83.933,
+        "p95_ms": 99.507,
+        "min_ms": 76.336,
+        "max_ms": 99.507,
+        "n": 16167,
+        "erk_fp": "9380139630149311727",
+        "read_rows_p50": 1120374,
+        "read_bytes_p50": 423146670,
+        "identity_stable": true
+      },
+      "ignored": {
+        "warmup": 1,
+        "samples": 9,
+        "p50_ms": 81.313,
+        "p95_ms": 98.629,
+        "min_ms": 75.938,
+        "max_ms": 98.629,
+        "n": 16167,
+        "erk_fp": "9380139630149311727",
+        "read_rows_p50": 1120374,
+        "read_bytes_p50": 423146670,
+        "identity_stable": true
+      },
+      "p50_delta_ms": -2.62,
+      "read_rows_delta": 0,
+      "read_bytes_delta": 0
+    },
+    {
+      "id": "ioc_10_hastoken",
+      "case_id": 10,
+      "kind": "TOKEN_CANDIDATE",
+      "consumer": "utils/ioc_artifact_tagger.py hasTokenCaseInsensitive",
+      "clause": "hasTokenCaseInsensitive(search_blob, {needle:String})",
+      "same_n": true,
+      "same_erk_fp": true,
+      "current": {
+        "warmup": 1,
+        "samples": 9,
+        "p50_ms": 99.041,
+        "p95_ms": 114.136,
+        "min_ms": 91.699,
+        "max_ms": 114.136,
+        "n": 19455,
+        "erk_fp": "17839893020690138519",
+        "read_rows_p50": 1401059,
+        "read_bytes_p50": 494601098,
+        "identity_stable": true
+      },
+      "ignored": {
+        "warmup": 1,
+        "samples": 9,
+        "p50_ms": 104.61,
+        "p95_ms": 130.601,
+        "min_ms": 92.285,
+        "max_ms": 130.601,
+        "n": 19455,
+        "erk_fp": "17839893020690138519",
+        "read_rows_p50": 1401059,
+        "read_bytes_p50": 494601098,
+        "identity_stable": true
+      },
+      "p50_delta_ms": 5.569,
+      "read_rows_delta": 0,
+      "read_bytes_delta": 0
+    },
+    {
+      "id": "ioc_7_hastoken",
+      "case_id": 7,
+      "kind": "TOKEN_CANDIDATE",
+      "consumer": "utils/ioc_artifact_tagger.py hasTokenCaseInsensitive",
+      "clause": "hasTokenCaseInsensitive(search_blob, {needle:String})",
+      "same_n": true,
+      "same_erk_fp": true,
+      "current": {
+        "warmup": 1,
+        "samples": 9,
+        "p50_ms": 3480.787,
+        "p95_ms": 3660.891,
+        "min_ms": 3422.619,
+        "max_ms": 3660.891,
+        "n": 705353,
+        "erk_fp": "8518599735336500947",
+        "read_rows_p50": 71053994,
+        "read_bytes_p50": 26143327010,
+        "identity_stable": true
+      },
+      "ignored": {
+        "warmup": 1,
+        "samples": 9,
+        "p50_ms": 3528.398,
+        "p95_ms": 3655.767,
+        "min_ms": 3380.162,
+        "max_ms": 3655.767,
+        "n": 705353,
+        "erk_fp": "8518599735336500947",
+        "read_rows_p50": 71053994,
+        "read_bytes_p50": 26143327010,
+        "identity_stable": true
+      },
+      "p50_delta_ms": 47.611,
+      "read_rows_delta": 0,
+      "read_bytes_delta": 0
+    },
+    {
+      "id": "pattern_10_ntlm",
+      "case_id": 10,
+      "kind": "SUBSTRING_REQUIRED",
+      "consumer": "models/pattern_rules.py NTLM LIKE",
+      "clause": "search_blob LIKE {pat:String}",
+      "same_n": true,
+      "same_erk_fp": true,
+      "current": {
+        "warmup": 1,
+        "samples": 9,
+        "p50_ms": 110.862,
+        "p95_ms": 121.742,
+        "min_ms": 103.293,
+        "max_ms": 121.742,
+        "n": 2200,
+        "erk_fp": "5246493344152029003",
+        "read_rows_p50": 2336555,
+        "read_bytes_p50": 658582719,
+        "identity_stable": true
+      },
+      "ignored": {
+        "warmup": 1,
+        "samples": 9,
+        "p50_ms": 105.016,
+        "p95_ms": 120.067,
+        "min_ms": 93.69,
+        "max_ms": 120.067,
+        "n": 2200,
+        "erk_fp": "5246493344152029003",
+        "read_rows_p50": 2447494,
+        "read_bytes_p50": 676444636,
+        "identity_stable": true
+      },
+      "p50_delta_ms": -5.846,
+      "read_rows_delta": 110939,
+      "read_bytes_delta": 17861917
+    },
+    {
+      "id": "pattern_7_ntlm",
+      "case_id": 7,
+      "kind": "SUBSTRING_REQUIRED",
+      "consumer": "models/pattern_rules.py NTLM LIKE",
+      "clause": "search_blob LIKE {pat:String}",
+      "same_n": true,
+      "same_erk_fp": true,
+      "current": {
+        "warmup": 1,
+        "samples": 9,
+        "p50_ms": 3578.121,
+        "p95_ms": 3706.755,
+        "min_ms": 3509.302,
+        "max_ms": 3706.755,
+        "n": 73510,
+        "erk_fp": "654549076959291658",
+        "read_rows_p50": 119984806,
+        "read_bytes_p50": 31507169676,
+        "identity_stable": true
+      },
+      "ignored": {
+        "warmup": 1,
+        "samples": 9,
+        "p50_ms": 3675.061,
+        "p95_ms": 3823.857,
+        "min_ms": 3589.695,
+        "max_ms": 3823.857,
+        "n": 73510,
+        "erk_fp": "654549076959291658",
+        "read_rows_p50": 139579161,
+        "read_bytes_p50": 34070129486,
+        "identity_stable": true
+      },
+      "p50_delta_ms": 96.94,
+      "read_rows_delta": 19594355,
+      "read_bytes_delta": 2562959810
+    },
+    {
+      "id": "pattern_32_ntlm",
+      "case_id": 32,
+      "kind": "SUBSTRING_REQUIRED",
+      "consumer": "models/pattern_rules.py NTLM LIKE",
+      "clause": "search_blob LIKE {pat:String}",
+      "same_n": true,
+      "same_erk_fp": true,
+      "current": {
+        "warmup": 1,
+        "samples": 9,
+        "p50_ms": 3766.409,
+        "p95_ms": 3816.098,
+        "min_ms": 3655.81,
+        "max_ms": 3816.098,
+        "n": 162596,
+        "erk_fp": "7544011092462364294",
+        "read_rows_p50": 149647982,
+        "read_bytes_p50": 34551511235,
+        "identity_stable": true
+      },
+      "ignored": {
+        "warmup": 1,
+        "samples": 9,
+        "p50_ms": 4002.125,
+        "p95_ms": 4096.28,
+        "min_ms": 3911.635,
+        "max_ms": 4096.28,
+        "n": 162596,
+        "erk_fp": "7544011092462364294",
+        "read_rows_p50": 174899397,
+        "read_bytes_p50": 38052793049,
+        "identity_stable": true
+      },
+      "p50_delta_ms": 235.716,
+      "read_rows_delta": 25251415,
+      "read_bytes_delta": 3501281814
+    },
+    {
+      "id": "pattern_10_admin_share",
+      "case_id": 10,
+      "kind": "SUBSTRING_REQUIRED",
+      "consumer": "models/pattern_rules.py ADMIN$ LIKE",
+      "clause": "search_blob LIKE {pat:String}",
+      "same_n": true,
+      "same_erk_fp": true,
+      "current": {
+        "warmup": 1,
+        "samples": 9,
+        "p50_ms": 99.615,
+        "p95_ms": 110.807,
+        "min_ms": 82.911,
+        "max_ms": 110.807,
+        "n": 0,
+        "erk_fp": "0",
+        "read_rows_p50": 2403574,
+        "read_bytes_p50": 618482672,
+        "identity_stable": true
+      },
+      "ignored": {
+        "warmup": 1,
+        "samples": 9,
+        "p50_ms": 100.618,
+        "p95_ms": 118.834,
+        "min_ms": 88.882,
+        "max_ms": 118.834,
+        "n": 0,
+        "erk_fp": "0",
+        "read_rows_p50": 2447494,
+        "read_bytes_p50": 631102281,
+        "identity_stable": true
+      },
+      "p50_delta_ms": 1.003,
+      "read_rows_delta": 43920,
+      "read_bytes_delta": 12619609
+    },
+    {
+      "id": "chat_10_pos_ps",
+      "case_id": 10,
+      "kind": "TOKEN_CANDIDATE",
+      "consumer": "utils/chat_tools.py positionCaseInsensitive",
+      "clause": "positionCaseInsensitive(search_blob, {needle:String}) > 0",
+      "same_n": true,
+      "same_erk_fp": true,
+      "current": {
+        "warmup": 1,
+        "samples": 9,
+        "p50_ms": 113.988,
+        "p95_ms": 121.199,
+        "min_ms": 93.31,
+        "max_ms": 121.199,
+        "n": 19995,
+        "erk_fp": "17032335930395935472",
+        "read_rows_p50": 1421084,
+        "read_bytes_p50": 496316361,
+        "identity_stable": true
+      },
+      "ignored": {
+        "warmup": 1,
+        "samples": 9,
+        "p50_ms": 109.841,
+        "p95_ms": 124.208,
+        "min_ms": 95.61,
+        "max_ms": 124.208,
+        "n": 19995,
+        "erk_fp": "17032335930395935472",
+        "read_rows_p50": 1421084,
+        "read_bytes_p50": 496316361,
+        "identity_stable": true
+      },
+      "p50_delta_ms": -4.147,
+      "read_rows_delta": 0,
+      "read_bytes_delta": 0
+    },
+    {
+      "id": "chat_10_pos_cmd",
+      "case_id": 10,
+      "kind": "SUBSTRING_REQUIRED",
+      "consumer": "utils/chat_tools.py positionCaseInsensitive cmd.exe",
+      "clause": "positionCaseInsensitive(search_blob, {needle:String}) > 0",
+      "same_n": true,
+      "same_erk_fp": true,
+      "current": {
+        "warmup": 1,
+        "samples": 9,
+        "p50_ms": 75.952,
+        "p95_ms": 105.669,
+        "min_ms": 75.509,
+        "max_ms": 105.669,
+        "n": 3025,
+        "erk_fp": "4285295726417312528",
+        "read_rows_p50": 688530,
+        "read_bytes_p50": 262307193,
+        "identity_stable": true
+      },
+      "ignored": {
+        "warmup": 1,
+        "samples": 9,
+        "p50_ms": 79.22,
+        "p95_ms": 109.128,
+        "min_ms": 67.562,
+        "max_ms": 109.128,
+        "n": 3025,
+        "erk_fp": "4285295726417312528",
+        "read_rows_p50": 688530,
+        "read_bytes_p50": 262307193,
+        "identity_stable": true
+      },
+      "p50_delta_ms": 3.268,
+      "read_rows_delta": 0,
+      "read_bytes_delta": 0
+    }
+  ],
+  "blocking_dependency": {
+    "index": "idx_search_ngram",
+    "also_listed": "idx_search_token",
+    "consumer": "models/pattern_rules.py NTLM LIKE / ADMIN$ LIKE",
+    "query": "search_blob LIKE '%NTLM%'",
+    "cases": [
+      10,
+      7,
+      32
+    ],
+    "why": "EXPLAIN Skip uses idx_search_ngram to prune granules on a retained required product query. idx_search_token is listed after ngram with no further prune. Hunt ILIKE/hasAllTokens do not need the blooms, but the locked rule forbids dropping an index a retained required query still uses.",
+    "granules": {
+      "10": "482 -> 461 (ngram)",
+      "7": "28038 -> 24172 (ngram)",
+      "32": "35535 -> 30366 (ngram)"
+    },
+    "ab_read_rows_delta": {
+      "pattern_10_ntlm": 110939,
+      "pattern_7_ntlm": 19594355,
+      "pattern_32_ntlm": 25251415
+    }
+  },
+  "pre_drop_storage": {
+    "idx_search_ngram_compressed_bytes": 4049580,
+    "idx_search_token_compressed_bytes": 964699630,
+    "idx_search_blob_text_compressed_bytes": 14603118274,
+    "events_compressed_bytes": 123153313168,
+    "disk_free_bytes": 74440380416,
+    "disk_path": "/var/lib/clickhouse",
+    "instant_reclaim_claimed": false
+  },
+  "canonical_fresh_schema": {
+    "changed": false,
+    "reason": "blooms not retired",
+    "EVENTS_SCHEMA_still_declares_ngram_and_token": true
+  },
+  "upgrade_migration": {
+    "added": false,
+    "executed": false
+  },
+  "fresh_install_proof": "NOT EXECUTED",
+  "upgrade_idempotence_drift_proof": "NOT EXECUTED",
+  "production_quiescence": "NOT EXECUTED",
+  "production_drop": "NOT EXECUTED",
+  "post_drop": "NOT EXECUTED",
+  "materialize_skip_indexes_on_insert_experiment": {
+    "clickhouse": "26.7.3.19",
+    "batch_size": 10000,
+    "schema": "EVENTS_SCHEMA with text index and both blooms (retirement not passed)",
+    "A": {
+      "setting": 1,
+      "insert_rows_per_sec": 41977.1,
+      "insert_seconds": 0.2382,
+      "text_index_compressed_bytes": 70148,
+      "immediate_n": 10000,
+      "immediate_ms": 7.368,
+      "immediate_read_bytes": 10000,
+      "direct_text_read": true,
+      "false_negative": false
+    },
+    "B": {
+      "setting": 0,
+      "insert_rows_per_sec": 82217.1,
+      "insert_seconds": 0.1216,
+      "text_index_compressed_bytes": 0,
+      "immediate_n": 10000,
+      "immediate_ms": 10.75,
+      "immediate_read_bytes": 1755390,
+      "scan_fallback": true,
+      "direct_text_read": false,
+      "false_negative": false,
+      "filter": "hasAllTokens(lower(search_blob), ['durablebeta'], 'splitByNonAlpha')"
+    },
+    "production_like_exclude_merge": {
+      "exclude_materialize_skip_indexes_on_merge": "idx_search_blob_text",
+      "insert_0_bytes": 0,
+      "count_correct": 10000,
+      "scan_fallback": true,
+      "after_optimize_final_bytes_still_0": true,
+      "after_explicit_MATERIALIZE_bytes": 43347,
+      "after_explicit_MATERIALIZE_direct_read": true,
+      "note": "Production events already exclude the text index from merge. Setting 0 would leave newly DURABLE parts without a text index until an explicit MATERIALIZE INDEX, which this tranche must not invent."
+    },
+    "production_decision": "KEEP_PRODUCTION_MATERIALIZE_SKIP_INDEXES_ON_INSERT_1",
+    "production_setting_changed": false
+  },
+  "command_line_evaluation": {
+    "decision": "COMMAND_LINE_INDEX_DEFER",
+    "density": [
+      {
+        "case_id": 14,
+        "rows": 1341,
+        "nonempty": 0,
+        "density": 0.0,
+        "command_line_ilike_powershell": 0
+      },
+      {
+        "case_id": 10,
+        "rows": 2447494,
+        "nonempty": 5799,
+        "density": 0.0023693622946573106,
+        "command_line_ilike_powershell": 302
+      },
+      {
+        "case_id": 7,
+        "rows": 139579161,
+        "nonempty": 2615167,
+        "density": 0.018736084822862632,
+        "command_line_ilike_powershell": 143510
+      },
+      {
+        "case_id": 32,
+        "rows": 174899397,
+        "nonempty": 73295,
+        "density": 0.00041906948369867735,
+        "command_line_ilike_powershell": 999
+      }
+    ],
+    "product_query": "cmd: / commandline: / command_line: use typed command_line ILIKE via SEARCH_FIELD_MAP",
+    "explain_skip_names_case_10": [],
+    "index_created": false
+  },
+  "publication_authority": {
+    "unchanged": true,
+    "export_view_and_tagged_gated_in_4_25_2": true,
+    "readers_not_migrated": true
+  },
+    "regression": {
+        "pytest": "193 passed, 0 skipped",
+        "f2_env": {
+            "PHASE1B_PG_TEST_DATABASE_URL": "postgresql://casescope:casescope@localhost/phase2_1c_test",
+            "PHASE1B_CH_TEST_DATABASE": "phase2_1c_test"
+        },
+        "py_compile": true,
+        "pyflakes": true,
+        "git_diff_check": true,
+        "dedicated_2_1d_tests": "tests/test_phase2_1d_final_exit.py"
+    },
+    "product_smoke": "NOT EXECUTED (no production drop / no service restart)",
+  "running_web": {
+    "unit": "casescope-web",
+    "ActiveState": "active",
+    "MainPID": 501361,
+    "ExecMainStartTimestamp": "Sat 2026-08-22 03:11:45 UTC",
+    "version_expected": "4.25.2",
+    "restarted_this_tranche": false
+  },
+  "no_later_phase": {
+    "phase_2_2": false,
+    "async_insert_change": false,
+    "phase_2_3": false,
+    "phase_2_4": false,
+    "phase_3": false,
+    "phase_4": false,
+    "events_current": false,
+    "event_observations_current": false,
+    "search_blob_reader_migration": false,
+    "pagination_redesign": false,
+    "OPTIMIZE_FINAL_production": false,
+    "MATERIALIZE_INDEX_production": false,
+    "DROP_INDEX_production": false
+  },
+  "exit_gates": {
+    "1_text_index_present": "PASS",
+    "2_text_index_coverage": "PASS",
+    "3_token_safe_live": "PASS",
+    "4_substring_unicode_preserved": "PASS",
+    "5_publication_authority": "PASS",
+    "6_blooms_dropped_after_explain": "FAIL",
+    "7_fresh_install_no_blooms": "FAIL",
+    "8_upgrade_migration": "FAIL",
+    "9_setting_0_tested": "PASS",
+    "10_setting_decision_recorded": "PASS",
+    "11_command_line_eval": "PASS",
+    "12_no_evidence_rewrite": "PASS",
+    "13_no_later_phase_bleed": "PASS"
+  }
+}
