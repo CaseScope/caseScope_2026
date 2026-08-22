@@ -24,6 +24,7 @@ from models.database_flow import (
     SourceRefType,
 )
 from parsers.base import ParsedEvent
+from utils.clickhouse import event_insert_settings
 from utils.ingest_fence import exclusive_ingest_fence, shared_ingest_admission
 from utils.ingest_identity import (
     BATCHING_CONTRACT_VERSION,
@@ -766,7 +767,12 @@ def insert_managed_batch(clickhouse_client, manifest: ManagedBatch) -> None:
             case_id=manifest.generation.case_id,
             source_ref=f"ingest_batch:{manifest.ingest_batch_id}",
         ):
-            clickhouse_client.insert("events", list(rows), column_names=list(PROTOCOL_CLICKHOUSE_COLUMNS))
+            clickhouse_client.insert(
+                "events",
+                list(rows),
+                column_names=list(PROTOCOL_CLICKHOUSE_COLUMNS),
+                settings=event_insert_settings(),
+            )
     emit_metric(
         "phase1b_clickhouse_insert_summary",
         ingest_batch_id=manifest.ingest_batch_id,

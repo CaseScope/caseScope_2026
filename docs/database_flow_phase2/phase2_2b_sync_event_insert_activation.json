@@ -1,0 +1,178 @@
+{
+  "tranche": "phase2_2b_sync_event_insert_activation",
+  "recorded_at": "2026-08-22T17:23:42+00:00",
+  "version": "4.26.1",
+  "version_bumped": true,
+  "version_policy": "patch: production runtime events INSERT acknowledgement behavior",
+  "verdict": "PHASE2_2B_PASS",
+  "phase2_2_state": "PHASE2_2_CLOSED_PENDING_INDEPENDENT_REVIEW",
+  "accepted_2_2a": {
+    "PHASE2_2A_PASS": true,
+    "PHASE2_2_DECISION_READY": true,
+    "insert_mode_decision": "PHASE2_2_MODE_SYNC",
+    "async_no_wait_decision": "ASYNC_NO_WAIT_FORBIDDEN",
+    "batch_size_decision": "KEEP_PRODUCTION_BATCH_SIZE_10000",
+    "fifteen_percent_heuristic_adopted": false
+  },
+  "baseline": {
+    "repository": "/opt/casescope",
+    "python": "/opt/casescope/venv/bin/python",
+    "head": "23999b3c10eaa2b0aa2942559d71f95aaa54b3c5",
+    "origin_main": "23999b3c10eaa2b0aa2942559d71f95aaa54b3c5",
+    "head_equals_origin_main": true,
+    "working_tree_clean_at_start": true,
+    "expected_head": "23999b3c10eaa2b0aa2942559d71f95aaa54b3c5",
+    "expected_version": "4.26.0",
+    "clickhouse_version": "26.7.3.19",
+    "ok": true
+  },
+  "runtime_change": {
+    "module": "utils/clickhouse.py",
+    "EVENT_INSERT_MODE": "sync",
+    "helper": "event_insert_settings()",
+    "settings": {
+      "async_insert": 0,
+      "materialize_skip_indexes_on_insert": 1
+    },
+    "wait_for_async_insert_set": false,
+    "environment_override": false,
+    "applied_to": [
+      "utils.manifest_protocol.insert_managed_batch",
+      "parsers.registry.BatchProcessor.flush when table==events"
+    ],
+    "not_applied_to": [
+      "utils.clickhouse.get_client",
+      "utils.clickhouse.get_fresh_client",
+      "visible_evidence_generations",
+      "durable_ingest_batches",
+      "verify_ingest_batch SELECT",
+      "Hunt / graph / IOC / derivation readers",
+      "migration/admin clients"
+    ],
+    "celery_tasks_changed": false
+  },
+  "disposable_sync_proof": {
+    "database": "cs_p22b_proof_ad66df3749b6",
+    "dropped_after_capture": true,
+    "clickhouse_version": "26.7.3.19",
+    "path": "insert_managed_batch via get_fresh_client-style client",
+    "event_query_id": "36cbdca7-1f5a-4043-b749-3354605a9677",
+    "control_query_id": "6f07213e-c8d4-4e44-920c-7a85e1791203",
+    "event_query_log_async_insert": "0",
+    "event_asynchronous_insert_log_rows": 0,
+    "control_asynchronous_insert_log": [
+      {
+        "query_id": "6f07213e-c8d4-4e44-920c-7a85e1791203",
+        "status": "Ok",
+        "table": "control_probe"
+      }
+    ],
+    "row_count": 8,
+    "erk_count": 8,
+    "ingest_batch_id": "ingest-batch:v1:6c3bbbf54f1c3c113cb16960007c988acd225dca52cdca67274b39d02b6c1fd9",
+    "hasAllTokens_uniqueP22BToken": 1,
+    "like_NTLM": 1,
+    "text_index_files_present": true,
+    "ngram_files_present": true,
+    "explain_uses_text_index": true,
+    "explain_uses_ngram": true,
+    "materialize_index_used": false,
+    "optimize_final_used": false
+  },
+  "production_pre_activation": {
+    "clickhouse_version": "26.7.3.19",
+    "events_rows": 745463991,
+    "active_parts": 135,
+    "partitions": 25,
+    "idx_search_blob_text": true,
+    "idx_search_ngram": true,
+    "idx_search_token": false,
+    "coverage": {"MATERIALIZED": 25, "PARTIAL": 0, "UNMATERIALIZED": 0},
+    "parts_MATERIALIZED": 135,
+    "mutations_in_progress": 0,
+    "async_insert": "1",
+    "wait_for_async_insert": "1",
+    "materialize_skip_indexes_on_insert": "1"
+  },
+  "activation": {
+    "broker_message_deletion": false,
+    "safe_idle": true,
+    "celery_before": {
+      "active": 0,
+      "reserved": 0,
+      "scheduled": 0,
+      "queued": 0,
+      "unacked": 0
+    },
+    "fence_before": {"shared_writer_count": 0, "exclusive": null},
+    "restarted": ["casescope-workers", "casescope-web"],
+    "not_restarted": ["casescope-beat"],
+    "before": {
+      "casescope-workers": {"MainPID": 1048283, "ExecMainStartTimestamp": "Sat 2026-08-22 14:51:32 UTC"},
+      "casescope-web": {"MainPID": 1048172, "ExecMainStartTimestamp": "Sat 2026-08-22 14:51:27 UTC"},
+      "casescope-beat": {"MainPID": 1048416, "ExecMainStartTimestamp": "Sat 2026-08-22 14:51:38 UTC"}
+    },
+    "after": {
+      "casescope-workers": {"MainPID": 1173262, "ExecMainStartTimestamp": "Sat 2026-08-22 17:22:51 UTC", "ActiveState": "active"},
+      "casescope-web": {"MainPID": 1173723, "ExecMainStartTimestamp": "Sat 2026-08-22 17:23:24 UTC", "ActiveState": "active"},
+      "casescope-beat": {"MainPID": 1048416, "ExecMainStartTimestamp": "Sat 2026-08-22 14:51:38 UTC", "ActiveState": "active"}
+    }
+  },
+  "live_production_event_insert": "LIVE_PRODUCTION_EVENT_INSERT_NOT_OBSERVED",
+  "hunt_smoke": {
+    "login_get": 200,
+    "ui_version": "v4.26.1",
+    "hunting_page": 200,
+    "case_id": 14,
+    "search": "sonicwall",
+    "grid_status": 200,
+    "grid_total": 13,
+    "grid_rows": 13,
+    "detail_status": 200,
+    "export_view_status": 200,
+    "export_content_type": "text/csv; charset=utf-8",
+    "analyst_tags_modified": false
+  },
+  "production_server_settings_after": [
+    {"name": "async_insert", "value": "1", "changed": 0},
+    {"name": "wait_for_async_insert", "value": "1", "changed": 0},
+    {"name": "materialize_skip_indexes_on_insert", "value": "1", "changed": 0}
+  ],
+  "regression_tests": {
+    "passed": 238,
+    "failed": 0,
+    "skipped": 0,
+    "env": {
+      "PHASE1B_PG_TEST_DATABASE_URL": "postgresql://casescope:casescope@localhost/phase2_2a_test",
+      "PHASE1B_CH_TEST_DATABASE": "phase2_2a_test"
+    }
+  },
+  "production_mutation_audit": {
+    "evidence": "NO EVIDENCE MUTATION",
+    "index": "NO INDEX MUTATION",
+    "server_settings": "NO SERVER SETTINGS MUTATION",
+    "events_rows_after": 745463991
+  },
+  "no_later_phase_audit": {
+    "phase_2_3": false,
+    "phase_2_4": false,
+    "async_insert_1_on_events": false,
+    "wait_for_async_insert_0": false,
+    "server_alter_settings": false,
+    "batch_size_change": false,
+    "generation_contract_change": false,
+    "text_index_change": false,
+    "ngram_change": false,
+    "command_line_index": false,
+    "pattern_rules": false,
+    "lek": false,
+    "events_current": false,
+    "event_observations_current": false,
+    "pagination": false,
+    "broker_message_deletion": false
+  },
+  "remaining_work": [
+    "Independent 2.2B review",
+    "Phase 2.3 lightweight UPDATE bridge only after independent acceptance"
+  ]
+}

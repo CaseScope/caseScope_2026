@@ -15,6 +15,7 @@ from pathlib import Path
 from dataclasses import dataclass, field
 
 from parsers.base import BaseParser, ParsedEvent, ParseResult
+from utils.clickhouse import event_insert_settings
 from utils.ingest_fence import (
     IngestAdmissionDenied,
     IngestExclusiveTimeout,
@@ -879,11 +880,19 @@ class BatchProcessor:
                 case_id=case_id,
                 source_ref=f'table:{self.table}',
             ):
-                self.client.insert(
-                    self.table,
-                    self._batch,
-                    column_names=self._columns
-                )
+                if self.table == "events":
+                    self.client.insert(
+                        self.table,
+                        self._batch,
+                        column_names=self._columns,
+                        settings=event_insert_settings(),
+                    )
+                else:
+                    self.client.insert(
+                        self.table,
+                        self._batch,
+                        column_names=self._columns,
+                    )
             insert_duration_ms = (time.perf_counter() - batch_started) * 1000.0
             self._total_inserted += row_count
             self._batch_count += 1

@@ -113,7 +113,7 @@ class _MemoryClickHouse:
         self.events = []
         self.inserts = []
 
-    def insert(self, table, rows, column_names=None):
+    def insert(self, table, rows, column_names=None, settings=None, **kwargs):
         self.inserts.append((table, list(rows), list(column_names or [])))
         if table == "events":
             for row in rows:

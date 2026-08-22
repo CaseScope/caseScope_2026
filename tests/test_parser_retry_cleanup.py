@@ -70,7 +70,7 @@ class _FakeClient:
     def __init__(self):
         self.inserts = []
 
-    def insert(self, table, batch, column_names=None):
+    def insert(self, table, batch, column_names=None, settings=None, **kwargs):
         self.inserts.append((table, list(batch), column_names))
 
 

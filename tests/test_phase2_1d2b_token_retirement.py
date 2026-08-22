@@ -200,8 +200,12 @@ class Phase21D2BContractTests(unittest.TestCase):
     def test_version_is_feature_bump_4_26_0(self):
         with open(VERSION_PATH, encoding="utf-8") as handle:
             payload = json.load(handle)
-        self.assertEqual(payload["version"], "4.26.0")
-        self.assertEqual(payload["changelog"][0]["version"], "4.26.0")
+        versions = [entry.get("version") for entry in payload.get("changelog") or []]
+        self.assertIn("4.26.0", versions)
+        d2b_entry = next(entry for entry in payload["changelog"] if entry.get("version") == "4.26.0")
+        joined = " ".join(d2b_entry.get("changes") or [])
+        self.assertIn("PHASE2_1_EXC_001", joined)
+        self.assertTrue(str(payload["version"]).startswith("4.26."), msg=payload["version"])
 
     def test_d2b_evidence_records_pass_and_exc_001(self):
         self.assertTrue(os.path.exists(D2B_MD), msg="D2B markdown evidence is required")

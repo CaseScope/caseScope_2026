@@ -230,7 +230,7 @@ class AliasHotPathTests(unittest.TestCase):
 
         client = SimpleNamespace(inserts=[])
 
-        def insert(table, batch, column_names=None):
+        def insert(table, batch, column_names=None, settings=None, **kwargs):
             client.inserts.append((table, list(batch), column_names))
 
         client.insert = insert

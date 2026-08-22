@@ -32,6 +32,25 @@ _client_lock = threading.Lock()
 
 _DESTRUCTIVE_REWRITE_LOCK_KEY = 'clickhouse:events_destructive_rewrite'
 
+# Phase 2.2 locked PHASE2_2_MODE_SYNC for physical events INSERT only.
+# Changing this requires another explicit architecture review. There is
+# no environment-variable override that can silently restore async.
+EVENT_INSERT_MODE = "sync"
+
+
+def event_insert_settings():
+    """Return a fresh per-call settings mapping for events INSERT.
+
+    Generic ClickHouse clients must not pin these values. Control
+    projections, verification SELECTs, and other tables keep server/
+    session defaults.
+    """
+    return {
+        "async_insert": 0,
+        "materialize_skip_indexes_on_insert": 1,
+    }
+
+
 MIGRATION_MAX_THREADS = int(os.environ.get('CLICKHOUSE_MIGRATION_MAX_THREADS', 1))
 MIGRATION_MAX_BLOCK_SIZE = int(os.environ.get('CLICKHOUSE_MIGRATION_MAX_BLOCK_SIZE', 8192))
 MIGRATION_MAX_EXECUTION_TIME = int(os.environ.get('CLICKHOUSE_MIGRATION_MAX_EXECUTION_TIME', 0))

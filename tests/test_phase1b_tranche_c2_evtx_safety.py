@@ -45,7 +45,7 @@ class _ManagedEvtxFakeClickHouse:
         }
         self.delete_calls = []
 
-    def insert(self, table, rows, column_names=None):
+    def insert(self, table, rows, column_names=None, settings=None, **kwargs):
         names = list(column_names or [])
         for row in rows:
             self.tables.setdefault(table, []).append(dict(zip(names, row)) if names else tuple(row))

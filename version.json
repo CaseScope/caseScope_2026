@@ -1,6 +1,15 @@
 {
-  "version": "4.26.0",
+  "version": "4.26.1",
   "changelog": [
+    {
+      "version": "4.26.1",
+      "date": "2026-08-22",
+      "changes": [
+        "Phase 2.2 explicitly pins physical events INSERTs to synchronous ClickHouse insertion after measurement showed no async advantage",
+        "Keeps 10k frozen batch contract and materialize_skip_indexes_on_insert=1",
+        "Does not change generic ClickHouse clients, control projections, server defaults, Phase 2.1 indexes, or start Phase 2.3"
+      ]
+    },
     {
       "version": "4.26.0",
       "date": "2026-08-22",

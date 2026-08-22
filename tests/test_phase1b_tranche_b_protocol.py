@@ -68,7 +68,7 @@ class _FakeClickHouseClient:
         self.fail_insert_after_store = fail_insert_after_store
         self.fail_projection = fail_projection
 
-    def insert(self, table, rows, column_names=None):
+    def insert(self, table, rows, column_names=None, settings=None, **kwargs):
         rows = list(rows)
         column_names = list(column_names or [])
         self.inserts.append((table, rows, column_names))
