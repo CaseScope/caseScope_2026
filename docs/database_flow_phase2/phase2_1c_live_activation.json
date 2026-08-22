@@ -351,5 +351,200 @@
     "Independent review of live activation",
     "Phase 2.1D bloom-index retirement / final Phase 2.1 exit only after that review"
   ],
-  "verdict": "PHASE2_1C_LIVE_PASS"
+  "verdict": "PHASE2_1C_LIVE_PASS",
+  "export_publication_closure": {
+    "version": "4.25.2",
+    "version_bumped": true,
+    "baseline_commit": "933809c116464131a9e972486f12066052d8da75",
+    "working_tree_clean_at_start": true,
+    "head_equals_origin_main": true,
+    "discovered_bypass": {
+      "export_view": true,
+      "export_tagged": true,
+      "historical_live_activation_publication_join": false,
+      "historical_field_preserved": true
+    },
+    "baseline_reproduction": {
+      "database": "phase2_1c_test",
+      "state": "STAGED managed batch physically present",
+      "grid_hidden": true,
+      "export_view_leaked": true,
+      "selector_key": "ts:2026-01-01 00:00:01|host:unknown|artifact:iis|event:|file:u_ex260101.log",
+      "evidence_record_key": "erk:v2:bb82e8840f92753dd0ad7317f1bde1019515e012826e8fedcf55150c57d68d1c",
+      "search_blob": "GET /path/1?id=1&q=alpha 192.0.2.2 user1 Agent1 200",
+      "staged_batch_export_rows": 4,
+      "building_replacement_pre_fix_export": "not_separately_captured_test_stopped_at_staged_leak"
+    },
+    "fix": {
+      "export_view_events": true,
+      "export_tagged_events": true,
+      "helper": "build_hunting_publication_bridge(alias=\"e\")",
+      "search_clause_unchanged": true,
+      "classifier_untouched": true
+    },
+    "inventory": [
+      {
+        "route": "GET /api/hunting/events/export-view/<case_id>",
+        "physical_events_reader": true,
+        "publication_bridge": true,
+        "action": "gated"
+      },
+      {
+        "route": "GET /api/hunting/events/export-tagged/<case_id>",
+        "physical_events_reader": true,
+        "publication_bridge": true,
+        "action": "gated"
+      }
+    ],
+    "f2_lifecycle_export_view": {
+      "A_legacy": "visible",
+      "B_staged": "hidden",
+      "C_first_durable_building_initial": "visible",
+      "D_subsequent_durable_building_initial": "visible",
+      "E_building_replacement_before_activation": "hidden",
+      "F_old_active_during_replacement": "visible",
+      "G_atomic_activation": "replacement_visible_superseded_hidden",
+      "H_malformed_partial_identity": "hidden",
+      "I_stale_projection": "cannot_resurrect"
+    },
+    "f2_lifecycle_export_tagged": {
+      "legacy_tagged": "visible",
+      "staged_tagged": "hidden",
+      "durable_publishable_tagged": "visible",
+      "building_replacement_tagged": "hidden",
+      "activated_replacement_tagged": "visible",
+      "malformed_tagged": "hidden",
+      "tag_mechanism": "POST /api/hunting/event/tag/<case_id>"
+    },
+    "grid_export_parity": true,
+    "fail_closed": {
+      "missing_durable_ingest_batches": "export_does_not_return_physical_events",
+      "http_not_200": true
+    },
+    "text_index_pre_restart": {
+      "name": "idx_search_blob_text",
+      "PRESENT": true,
+      "MATERIALIZED": 25,
+      "PARTIAL": 0,
+      "UNMATERIALIZED": 0,
+      "UNKNOWN": 0,
+      "active_parts": 135,
+      "part_coverage_MATERIALIZED": 135,
+      "rows": 745463991,
+      "rematerialized": false
+    },
+    "blooms": {
+      "idx_search_ngram": "PRESENT",
+      "idx_search_token": "PRESENT",
+      "DROP_INDEX": false
+    },
+    "web_activation": {
+      "unit": "casescope-web",
+      "workers_restarted": false,
+      "workers_MainPID": 251661,
+      "before": {
+        "MainPID": 479860,
+        "ExecMainStartTimestamp": "Sat 2026-08-22 02:42:23 UTC"
+      },
+      "restart_command": "sudo -n /usr/bin/systemctl restart casescope-web",
+      "after": {
+        "MainPID": 501361,
+        "ExecMainStartTimestamp": "Sat 2026-08-22 03:11:45 UTC",
+        "ActiveState": "active",
+        "listen": "https://0.0.0.0:443",
+        "running_version": "4.25.2",
+        "startup_exception": false
+      }
+    },
+    "live_export_view": {
+      "case_id": 14,
+      "search": "sonicwall",
+      "grid_total": 13,
+      "export_data_rows": 13,
+      "count_match": true,
+      "product_sql": "hasAllTokens(search_blob, 'sonicwall')",
+      "old_ilike_absent": true,
+      "publication_join": true,
+      "visible_evidence_generations": true,
+      "durable_ingest_batches": true,
+      "legacy_null_identity": true,
+      "query_log": {
+        "event_time": "2026-08-22 03:12:44",
+        "ms": 74,
+        "result_rows": 13,
+        "type": "QueryFinish",
+        "exception": ""
+      }
+    },
+    "live_export_tagged": {
+      "classification": "existing_retained_tagged_fixture",
+      "case_id": 10,
+      "physical_tagged": 2,
+      "export_data_rows": 2,
+      "publication_join": true,
+      "query_log": {
+        "event_time": "2026-08-22 03:12:44",
+        "ms": 139,
+        "result_rows": 2,
+        "type": "QueryFinish",
+        "exception": ""
+      },
+      "tags_modified": false
+    },
+    "token_semantic_regression": {
+      "sonicwall": "hasAllTokens",
+      "powershell": "hasAllTokens",
+      "cmd.exe": "ILIKE",
+      "10.0.0.1": "ILIKE",
+      "münchen": "ILIKE",
+      "用户": "ILIKE",
+      "4688": "event_id =",
+      "-powershell": "NOT ILIKE",
+      "classifier_drift": false
+    },
+    "f2_regression": {
+      "database": "phase2_1c_test",
+      "tests": "tests/test_phase1b_tranche_f2_product_search_publication_gate.py",
+      "collected": 11,
+      "result": "passed"
+    },
+    "regression": {
+      "pytest": "100 passed",
+      "py_compile": "pass",
+      "pyflakes": "pass",
+      "git_diff_check": "pass"
+    },
+    "no_later_phase": {
+      "bloom_drop": false,
+      "command_line_index": false,
+      "text_index_redesign": false,
+      "rematerialization": false,
+      "search_grammar_redesign": false,
+      "pagination_redesign": false,
+      "phase_2_2": false,
+      "phase_2_3": false,
+      "phase_2_4": false,
+      "phase_3": false,
+      "phase_4": false,
+      "LEK": false,
+      "events_current": false,
+      "event_observations_current": false
+    },
+    "files_changed": [
+      "routes/hunting.py",
+      "tests/test_phase1b_tranche_f2_product_search_publication_gate.py",
+      "tests/test_phase2_1c_hunt_token_cutover.py",
+      "version.json",
+      "docs/database_flow_phase2/phase2_1c_live_activation.md",
+      "docs/database_flow_phase2/phase2_1c_live_activation.json"
+    ],
+    "git": {
+      "expected": "committed_and_pushed_per_user_request"
+    },
+    "remaining_work": [
+      "Independent closure review",
+      "Phase 2.1D bloom-index retirement / final Phase 2.1 exit only after that review"
+    ],
+    "verdict": "PHASE2_1C_EXPORT_PUBLICATION_PASS"
+  }
 }

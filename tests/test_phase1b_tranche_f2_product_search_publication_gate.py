@@ -2,10 +2,14 @@
 
 This is a verification gate, not a product-reader migration. It calls
 `GET /api/hunting/events/<case_id>` (`routes.hunting.get_hunting_events`),
-the endpoint used by `static/templates/case_hunting.html`.
+the endpoint used by `static/templates/case_hunting.html`, plus the Hunt
+event CSV exports that must share the same publication authority.
 """
 from __future__ import annotations
 
+import csv
+import inspect
+import io
 import json
 import os
 import time
@@ -41,6 +45,7 @@ from parsers.base import ParsedEvent
 from parsers.log_parsers import IISLogParser
 from routes.hunting import hunting_bp
 from routes.hunting_query_helpers import build_hunting_publication_bridge
+from utils.event_selector import build_event_selector_key
 from utils.ingest_fence import install_memory_backend, reset_fence_backend
 from utils.manifest_protocol import (
     ManifestParserContract,
@@ -141,6 +146,11 @@ class _CountingClickHouse:
         self.queries.append(sql)
         return self._inner.query(*args, **kwargs)
 
+    def query_rows_stream(self, *args, **kwargs):
+        sql = args[0] if args else kwargs.get("query", "")
+        self.queries.append(sql)
+        return self._inner.query_rows_stream(*args, **kwargs)
+
     def command(self, *args, **kwargs):
         sql = args[0] if args else kwargs.get("cmd", kwargs.get("query", ""))
         self.commands.append(sql)
@@ -170,6 +180,20 @@ class HuntingPublicationBridgeUnitTestCase(unittest.TestCase):
         self.assertNotIn("event_observations_current", join_sql + where_sql)
         self.assertNotIn("redis", (join_sql + where_sql).lower())
 
+    def test_hunt_event_csv_exports_reuse_accepted_bridge(self):
+        from routes import hunting as hunting_routes
+
+        view_src = inspect.getsource(hunting_routes.export_view_events)
+        tagged_src = inspect.getsource(hunting_routes.export_tagged_events)
+        for source, name in ((view_src, "export_view_events"), (tagged_src, "export_tagged_events")):
+            self.assertIn("build_hunting_publication_bridge", source, msg=name)
+            self.assertIn('publication["join_sql"]', source, msg=name)
+            self.assertIn('publication["where_sql"]', source, msg=name)
+            self.assertNotIn("events_current", source, msg=name)
+            self.assertNotIn("event_observations_current", source, msg=name)
+        self.assertIn("build_hunting_search_clause", view_src)
+        self.assertNotIn("build_hunting_search_clause", tagged_src)
+
 
 @unittest.skipUnless(PG_URL and CH_DB, "PHASE1B_PG_TEST_DATABASE_URL and PHASE1B_CH_TEST_DATABASE are required")
 class Phase1BF2ProductSearchPublicationGateTestCase(unittest.TestCase):
@@ -178,6 +202,8 @@ class Phase1BF2ProductSearchPublicationGateTestCase(unittest.TestCase):
     PRODUCT_PATH = "GET /api/hunting/events/<case_id> -> routes.hunting.get_hunting_events"
     DETAIL_PATH = "GET /api/hunting/event/detail/<case_id> -> routes.hunting.get_hunting_event_detail"
     RAW_PATH = "GET /api/hunting/event/raw/<case_id> -> routes.hunting.get_raw_event_data"
+    EXPORT_VIEW_PATH = "GET /api/hunting/events/export-view/<case_id> -> routes.hunting.export_view_events"
+    EXPORT_TAGGED_PATH = "GET /api/hunting/events/export-tagged/<case_id> -> routes.hunting.export_tagged_events"
 
     @classmethod
     def setUpClass(cls):
@@ -351,6 +377,7 @@ class Phase1BF2ProductSearchPublicationGateTestCase(unittest.TestCase):
             "event_ids": [str(event.get("event_id") or "") for event in events],
             "search_blobs": [str(event.get("search_blob") or "") for event in events],
             "selector_keys": [str(event.get("selector_key") or "") for event in events],
+            "evidence_record_keys": [str(event.get("evidence_record_key") or "") for event in events],
             "artifact_types": [str(event.get("artifact_type") or "") for event in events],
             "events": events,
             "payload": payload,
@@ -371,6 +398,126 @@ class Phase1BF2ProductSearchPublicationGateTestCase(unittest.TestCase):
         response = self._request(query, counter=counter)
         return response.status_code, response.get_json() or {}
 
+    def _parse_event_csv_text(self, text):
+        reader = csv.DictReader(io.StringIO(text))
+        rows = list(reader)
+        selector_keys = []
+        for row in rows:
+            selector = str(row.get("selector_key") or "").strip()
+            if not selector:
+                selector = self._selector_from_csv_row(row)
+            selector_keys.append(selector)
+        return {
+            "rows": rows,
+            "header": list(reader.fieldnames or []),
+            "selector_keys": selector_keys,
+            "evidence_record_keys": [str(row.get("evidence_record_key") or "") for row in rows],
+            "search_blobs": [str(row.get("search_blob") or "") for row in rows],
+            "event_ids": [str(row.get("event_id") or "") for row in rows],
+        }
+
+    def _selector_from_csv_row(self, row):
+        timestamp = str(row.get("timestamp_utc") or row.get("timestamp") or "").strip()
+        timestamp = timestamp.replace("T", " ")
+        if "." in timestamp:
+            timestamp = timestamp.split(".", 1)[0]
+        if "+" in timestamp:
+            timestamp = timestamp.split("+", 1)[0]
+        if len(timestamp) >= 19 and timestamp[4] == "-" and timestamp[10] == " ":
+            timestamp = timestamp[:19]
+        try:
+            return build_event_selector_key(
+                event_id=row.get("event_id") or "",
+                record_id=row.get("record_id") or "",
+                source_file=row.get("source_file") or "",
+                source_host=row.get("source_host") or "",
+                timestamp=timestamp,
+                artifact_type=row.get("artifact_type") or "",
+            )
+        except ValueError:
+            return ""
+
+    def _parse_event_csv(self, response, *, path):
+        body = response.get_data(as_text=True)
+        self.assertEqual(
+            response.status_code,
+            200,
+            msg=f"{path} HTTP {response.status_code}: {body[:2000]}",
+        )
+        self.assertIn("text/csv", response.content_type or "", msg=body[:500])
+        parsed = self._parse_event_csv_text(body)
+        parsed["body"] = body
+        parsed["response"] = response
+        return parsed
+
+    def _product_export_view(self, extra_params=None, *, counter=None):
+        query = f"/api/hunting/events/export-view/{self.case.id}"
+        if extra_params:
+            query = f"{query}?{urlencode(extra_params, doseq=True)}"
+        response = self._request(query, counter=counter)
+        return self._parse_event_csv(response, path=self.EXPORT_VIEW_PATH)
+
+    def _product_export_tagged(self, *, counter=None):
+        query = f"/api/hunting/events/export-tagged/{self.case.id}"
+        response = self._request(query, counter=counter)
+        return self._parse_event_csv(response, path=self.EXPORT_TAGGED_PATH)
+
+    def _identity_for_selector(self, selector_key):
+        rows = self.ch.query(
+            """
+            SELECT selector_key, evidence_record_key, event_id, search_blob
+            FROM events
+            WHERE case_id = {case_id:UInt32}
+              AND selector_key = {selector_key:String}
+            LIMIT 1
+            """,
+            parameters={"case_id": self.case.id, "selector_key": selector_key},
+        ).result_rows
+        if not rows:
+            return {"selector_key": selector_key, "missing_physical": True}
+        return {
+            "selector_key": str(rows[0][0] or ""),
+            "evidence_record_key": str(rows[0][1] or ""),
+            "event_id": str(rows[0][2] or ""),
+            "search_blob": str(rows[0][3] or ""),
+        }
+
+    def _tag_selector(self, selector_key):
+        with patch("utils.clickhouse.get_client", return_value=self.ch), patch(
+            "tasks.celery_tasks.queue_analyst_tag_embedding_refresh",
+            return_value=None,
+        ):
+            client = self.app.test_client()
+            with client.session_transaction() as session:
+                session["_user_id"] = "1"
+                session["_fresh"] = True
+            response = client.post(
+                f"/api/hunting/event/tag/{self.case.id}",
+                json={
+                    "selector_key": selector_key,
+                    "artifact_type": "",
+                    "analyst_tagged": True,
+                    "analyst_tags": ["f2-export-gate"],
+                    "analyst_notes": "disposable publication-gate tag",
+                },
+            )
+        payload = response.get_json() or {}
+        self.assertEqual(
+            response.status_code,
+            200,
+            msg=f"analyst tag failed for {selector_key}: {payload}",
+        )
+        self.assertTrue(payload.get("success"), msg=payload)
+        return payload
+
+    def _request_may_fail(self, path, *, counter=None):
+        try:
+            response = self._request(path, counter=counter)
+            body = response.get_data(as_text=True)
+            return response.status_code, body, None
+        except Exception as exc:
+            return 500, "", exc
+
     def _assert_hidden_selector(self, selector_key, label):
         detail_status, detail_payload = self._product_detail(selector_key)
         self.assertEqual(
@@ -384,6 +531,52 @@ class Phase1BF2ProductSearchPublicationGateTestCase(unittest.TestCase):
             404,
             msg=f"{self.RAW_PATH} exposed {label}: {raw_payload}",
         )
+        export = self._product_export_view()
+        identity = self._identity_for_selector(selector_key)
+        self.assertNotIn(
+            selector_key,
+            export["selector_keys"],
+            msg=(
+                f"{self.EXPORT_VIEW_PATH} exposed {label} by selector: "
+                f"{json.dumps(identity, indent=2)} "
+                f"export_selectors={export['selector_keys']}"
+            ),
+        )
+        blob = identity.get("search_blob") or ""
+        if blob:
+            self.assertNotIn(
+                blob,
+                export["search_blobs"],
+                msg=(
+                    f"{self.EXPORT_VIEW_PATH} exposed {label} by search_blob: "
+                    f"{json.dumps(identity, indent=2)} "
+                    f"export_blobs={export['search_blobs']}"
+                ),
+            )
+        event_id = identity.get("event_id") or ""
+        if event_id:
+            self.assertNotIn(
+                event_id,
+                export["event_ids"],
+                msg=(
+                    f"{self.EXPORT_VIEW_PATH} exposed {label} by event_id: "
+                    f"{json.dumps(identity, indent=2)} "
+                    f"export_event_ids={export['event_ids']}"
+                ),
+            )
+        erk = identity.get("evidence_record_key") or ""
+        if erk:
+            grid = self._product_search({"show_noise": "true", "per_page": 50})
+            if erk not in grid["evidence_record_keys"]:
+                self.assertNotIn(
+                    erk,
+                    export["evidence_record_keys"],
+                    msg=(
+                        f"{self.EXPORT_VIEW_PATH} exposed {label} by ERK: "
+                        f"{json.dumps(identity, indent=2)} "
+                        f"export_erks={export['evidence_record_keys']}"
+                    ),
+                )
 
     def _assert_visible_selector(self, selector_key, label):
         detail_status, detail_payload = self._product_detail(selector_key)
@@ -399,6 +592,20 @@ class Phase1BF2ProductSearchPublicationGateTestCase(unittest.TestCase):
             200,
             msg=f"{self.RAW_PATH} hid {label}: {raw_payload}",
         )
+        export = self._product_export_view()
+        identity = self._identity_for_selector(selector_key)
+        self.assertIn(
+            selector_key,
+            export["selector_keys"],
+            msg=(
+                f"{self.EXPORT_VIEW_PATH} hid {label}: "
+                f"{json.dumps(identity, indent=2)} "
+                f"export_selectors={export['selector_keys']}"
+            ),
+        )
+        erk = identity.get("evidence_record_key") or ""
+        if erk:
+            self.assertIn(erk, export["evidence_record_keys"], msg=json.dumps(identity))
 
     def _selector_for_blob(self, search_blob):
         rows = self.ch.query(
@@ -491,6 +698,15 @@ class Phase1BF2ProductSearchPublicationGateTestCase(unittest.TestCase):
         token = self._product_token_search()
         observations["A_token_safe_total"] = token["total"]
         self.assertEqual(token["total"], 0)
+        staged_identity = self._identity_for_selector(staged_selector)
+        observations["A_staged_identity"] = staged_identity
+        staged_export = self._product_export_view()
+        observations["A_export_view_selectors"] = staged_export["selector_keys"]
+        observations["A_export_view_erks"] = staged_export["evidence_record_keys"]
+        observations["A_export_view_leaked_staged"] = (
+            staged_selector in staged_export["selector_keys"]
+            or staged_identity.get("evidence_record_key") in staged_export["evidence_record_keys"]
+        )
         self._assert_hidden_selector(staged_selector, "STAGED managed row")
 
         generation = db.session.get(EvidenceSourceGeneration, generation.id)
@@ -577,6 +793,16 @@ class Phase1BF2ProductSearchPublicationGateTestCase(unittest.TestCase):
         observations["D_token_safe_replacement_visible"] = bool(set(token["event_ids"]) & replacement_ids)
         self.assertFalse(observations["D_token_safe_replacement_visible"], msg=json.dumps(observations, indent=2))
         self.assertTrue(set(token["search_blobs"]).issubset(n_blobs))
+        replacement_identity = self._identity_for_selector(replacement_selector)
+        observations["D_replacement_identity"] = replacement_identity
+        replacement_export = self._product_export_view()
+        observations["D_export_view_event_ids"] = replacement_export["event_ids"]
+        observations["D_export_view_leaked_replacement"] = (
+            replacement_selector in replacement_export["selector_keys"]
+            or replacement_identity.get("search_blob") in replacement_export["search_blobs"]
+            or "repl-0" in replacement_export["event_ids"]
+        )
+        observations["D_export_view_old_active_visible"] = n_selector in replacement_export["selector_keys"]
         self._assert_hidden_selector(replacement_selector, "BUILDING_REPLACEMENT row")
         self._assert_visible_selector(n_selector, "ACTIVE generation N")
 
@@ -765,6 +991,13 @@ class Phase1BF2ProductSearchPublicationGateTestCase(unittest.TestCase):
         token = self._product_token_search()
         self.assertFalse(any(blob.startswith("hidden-replacement ") for blob in token["search_blobs"]))
         self.assertFalse(any(blob.startswith("staged-extra ") for blob in token["search_blobs"]))
+        export = self._product_export_view()
+        self.assertEqual(sorted(export["selector_keys"]), sorted(found["selector_keys"]))
+        self.assertEqual(sorted(export["evidence_record_keys"]), sorted(found["evidence_record_keys"]))
+        self.assertFalse(any(blob.startswith("hidden-replacement ") for blob in export["search_blobs"]))
+        self.assertFalse(any(blob.startswith("staged-extra ") for blob in export["search_blobs"]))
+        token_export = self._product_export_view({"search": "alpha"})
+        self.assertEqual(sorted(token_export["selector_keys"]), sorted(token["selector_keys"]))
 
     def test_malformed_managed_identity_fail_closed(self):
         copied = deepcopy(self.events[0])
@@ -976,6 +1209,16 @@ class Phase1BF2ProductSearchPublicationGateTestCase(unittest.TestCase):
         extra_round_trips = len(hunt_selects) - 2
         self.assertEqual(extra_round_trips, 0)
 
+        export_counter = _CountingClickHouse(self.ch)
+        export = self._product_export_view(counter=export_counter)
+        self.assertEqual(sorted(export["selector_keys"]), sorted(found["selector_keys"]))
+        export_sqls = [sql for sql in export_counter.queries if "FROM events AS e" in sql]
+        self.assertTrue(export_sqls, msg=export_counter.queries)
+        export_sql = export_sqls[0]
+        self.assertIn("visible_evidence_generations FINAL", export_sql)
+        self.assertIn("durable_ingest_batches FINAL", export_sql)
+        self.assertIn("veg.publishable = 1", export_sql)
+
         self.assertLess(product_ms, 5000.0)
         observations = {
             "query_shape_before": "FROM events AS e WHERE e.case_id = {case_id:UInt32}",
@@ -1007,5 +1250,229 @@ class Phase1BF2ProductSearchPublicationGateTestCase(unittest.TestCase):
             self.assertEqual(response.status_code, 500, msg=payload)
             self.assertFalse(payload.get("success", True), msg=payload)
             self.assertNotIn("events", payload)
+
+            physical_erks = {
+                str(row[0])
+                for row in self.ch.query(
+                    "SELECT evidence_record_key FROM events WHERE case_id = {case_id:UInt32}",
+                    parameters={"case_id": self.case.id},
+                ).result_rows
+            }
+            self.assertTrue(physical_erks)
+            for path, name in (
+                (f"/api/hunting/events/export-view/{self.case.id}", "export-view"),
+                (f"/api/hunting/events/export-tagged/{self.case.id}", "export-tagged"),
+            ):
+                status, body, exc = self._request_may_fail(path)
+                leaked = []
+                if status == 200 and body:
+                    parsed = self._parse_event_csv_text(body)
+                    leaked = [
+                        erk
+                        for erk in parsed["evidence_record_keys"]
+                        if erk and erk in physical_erks
+                    ]
+                self.assertFalse(
+                    leaked,
+                    msg=(
+                        f"{name} returned physical events after dropping "
+                        f"durable_ingest_batches: status={status} leaked={leaked} "
+                        f"exc={exc} body={body[:1000]}"
+                    ),
+                )
+                self.assertNotEqual(
+                    status,
+                    200,
+                    msg=f"{name} fail-closed HTTP {status} body={body[:500]} exc={exc}",
+                )
         finally:
             self.ch.command(CLICKHOUSE_CONTROL_TABLE_DDL[1])
+
+    def test_export_tagged_obeys_phase1b_publication(self):
+        generation = allocate_case_file_initial_generation(
+            session=db.session,
+            case_id=self.case.id,
+            case_file_id=self.case_file.id,
+            contract=self.contract,
+        )
+        db.session.commit()
+
+        legacy = deepcopy(self.events[6])
+        legacy.event_id = "tagged-legacy"
+        legacy.record_id = 9100
+        legacy.search_blob = "tagged-legacy alpha"
+        self._insert_legacy_event(legacy)
+        legacy_selector = self._selector_for_event_id("tagged-legacy")
+        self._tag_selector(legacy_selector)
+        tagged = self._product_export_tagged()
+        self.assertIn(legacy_selector, tagged["selector_keys"])
+        self.assertIn(self._identity_for_selector(legacy_selector)["evidence_record_key"], tagged["evidence_record_keys"])
+
+        staged_batch, staged_manifest = self._ingest_slice(
+            generation, self.events[0:4], batch_ordinal=0, durable=False
+        )
+        staged_selector = self._selector_for_blob(self.events[0].search_blob)
+        self._tag_selector(staged_selector)
+        tagged = self._product_export_tagged()
+        staged_identity = self._identity_for_selector(staged_selector)
+        self.assertNotIn(
+            staged_selector,
+            tagged["selector_keys"],
+            msg=f"export-tagged leaked STAGED tagged row {json.dumps(staged_identity)}",
+        )
+        self.assertNotIn(staged_identity["evidence_record_key"], tagged["evidence_record_keys"])
+        self.assertIn(legacy_selector, tagged["selector_keys"])
+
+        generation = db.session.get(EvidenceSourceGeneration, generation.id)
+        staged_batch = db.session.get(IngestBatch, staged_batch.id)
+        mark_batch_durable(
+            session=db.session,
+            batch=staged_batch,
+            verification=verify_ingest_batch(self.ch, staged_manifest),
+        )
+        update_generation_ingest_accounting(session=db.session, generation=generation)
+        db.session.commit()
+        project_generation_control_state(self.ch, db.session, generation)
+        tagged = self._product_export_tagged()
+        self.assertIn(staged_selector, tagged["selector_keys"], msg="DURABLE BUILDING_INITIAL tagged should export")
+        self.assertIn(legacy_selector, tagged["selector_keys"])
+
+        declare_generation_ingest_complete(
+            session=db.session,
+            generation=generation,
+            expected_rows=4,
+            final_batch_ordinal=0,
+        )
+        activate_initial_generation(session=db.session, generation=generation, actor="f2-gate")
+        db.session.commit()
+        project_generation_control_state(self.ch, db.session, generation)
+
+        replacement_events = []
+        for idx, event in enumerate(self.events[0:4]):
+            copied = deepcopy(event)
+            copied.event_id = f"tagged-repl-{idx}"
+            copied.record_id = 7200 + idx
+            copied.search_blob = f"tagged-replacement {idx} alpha"
+            copied.timestamp = datetime(2026, 4, 1) + timedelta(seconds=idx)
+            copied.timestamp_utc = copied.timestamp
+            replacement_events.append(copied)
+        replacement = allocate_case_file_replacement_generation(
+            session=db.session,
+            case_id=self.case.id,
+            case_file_id=self.case_file.id,
+            contract=self.contract,
+        )
+        db.session.commit()
+        self._ingest_slice(replacement, replacement_events, batch_ordinal=0, durable=True)
+        replacement_selector = self._selector_for_event_id("tagged-repl-0")
+        self._tag_selector(replacement_selector)
+        tagged = self._product_export_tagged()
+        replacement_identity = self._identity_for_selector(replacement_selector)
+        self.assertNotIn(
+            replacement_selector,
+            tagged["selector_keys"],
+            msg=f"export-tagged leaked BUILDING_REPLACEMENT tagged row {json.dumps(replacement_identity)}",
+        )
+        self.assertIn(staged_selector, tagged["selector_keys"])
+        self.assertIn(legacy_selector, tagged["selector_keys"])
+
+        declare_generation_ingest_complete(
+            session=db.session,
+            generation=replacement,
+            expected_rows=len(replacement_events),
+            final_batch_ordinal=0,
+        )
+        activate_replacement_generation(
+            session=db.session,
+            replacement=replacement,
+            actor="f2-gate",
+        )
+        db.session.commit()
+        generation = db.session.get(EvidenceSourceGeneration, generation.id)
+        replacement = db.session.get(EvidenceSourceGeneration, replacement.id)
+        project_generation_authority_swap(
+            self.ch,
+            db.session,
+            prior_generation=generation,
+            new_generation=replacement,
+        )
+        tagged = self._product_export_tagged()
+        self.assertIn(replacement_selector, tagged["selector_keys"])
+        self.assertNotIn(staged_selector, tagged["selector_keys"])
+        self.assertIn(legacy_selector, tagged["selector_keys"])
+
+        malformed = deepcopy(self.events[7])
+        malformed.event_id = "tagged-malformed"
+        malformed.record_id = 9300
+        malformed.search_blob = "tagged malformed partial"
+        self.ch.insert(
+            "events",
+            [malformed.to_clickhouse_row() + ("CASE_FILE",)],
+            column_names=list(ParsedEvent.clickhouse_columns()) + ["source_ref_type"],
+        )
+        malformed_selector = self._selector_for_event_id("tagged-malformed")
+        self._tag_selector(malformed_selector)
+        tagged = self._product_export_tagged()
+        malformed_identity = self._identity_for_selector(malformed_selector)
+        self.assertNotIn(
+            malformed_selector,
+            tagged["selector_keys"],
+            msg=f"export-tagged leaked malformed tagged row {json.dumps(malformed_identity)}",
+        )
+
+    def test_grid_and_export_view_publication_parity(self):
+        generation = allocate_case_file_initial_generation(
+            session=db.session,
+            case_id=self.case.id,
+            case_file_id=self.case_file.id,
+            contract=self.contract,
+        )
+        db.session.commit()
+        self._ingest_slice(generation, self.events[0:4], batch_ordinal=0, durable=True)
+        self._ingest_slice(generation, self.events[4:8], batch_ordinal=1, durable=True)
+        declare_generation_ingest_complete(
+            session=db.session,
+            generation=generation,
+            expected_rows=8,
+            final_batch_ordinal=1,
+        )
+        activate_initial_generation(session=db.session, generation=generation, actor="f2-gate")
+        db.session.commit()
+        project_generation_control_state(self.ch, db.session, generation)
+
+        hidden = deepcopy(self.events[0])
+        hidden.event_id = "parity-malformed"
+        hidden.record_id = 7777
+        hidden.search_blob = "parity malformed"
+        self.ch.insert(
+            "events",
+            [hidden.to_clickhouse_row() + ("CASE_FILE",)],
+            column_names=list(ParsedEvent.clickhouse_columns()) + ["source_ref_type"],
+        )
+        legacy = deepcopy(self.events[1])
+        legacy.event_id = "parity-legacy"
+        legacy.record_id = 8888
+        legacy.search_blob = "parity-legacy alpha"
+        self._insert_legacy_event(legacy)
+
+        params_list = (
+            {"show_noise": "true", "per_page": 50},
+            {"search": "alpha", "show_noise": "true", "per_page": 50},
+        )
+        for params in params_list:
+            grid = self._product_search(params)
+            export_params = {key: value for key, value in params.items() if key != "per_page"}
+            export = self._product_export_view(export_params)
+            self.assertEqual(
+                sorted(export["selector_keys"]),
+                sorted(grid["selector_keys"]),
+                msg=f"publication mismatch for {params}: grid={grid['selector_keys']} export={export['selector_keys']}",
+            )
+            self.assertEqual(
+                sorted(export["evidence_record_keys"]),
+                sorted(grid["evidence_record_keys"]),
+                msg=f"ERK mismatch for {params}",
+            )
+            self.assertNotIn("parity-malformed", export["event_ids"])
+            self.assertNotIn("parity-malformed", grid["event_ids"])
+            self.assertEqual(len(export["selector_keys"]), grid["total"])

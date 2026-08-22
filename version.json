@@ -1,6 +1,14 @@
 {
-  "version": "4.25.1",
+  "version": "4.25.2",
   "changelog": [
+    {
+      "version": "4.25.2",
+      "date": "2026-08-21",
+      "changes": [
+        "Closed the Hunt event CSV export publication bypass so export-view and export-tagged use the accepted Phase 1B publication bridge instead of reading unpublished physical events",
+        "Did not change Hunt TOKEN_SAFE grammar, drop bloom indexes, rematerialize, or start Phase 2.1D"
+      ]
+    },
     {
       "version": "4.25.1",
       "date": "2026-08-21",

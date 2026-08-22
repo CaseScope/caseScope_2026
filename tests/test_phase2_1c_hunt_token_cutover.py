@@ -439,6 +439,13 @@ class HuntGrammarMatrixTests(unittest.TestCase):
         self.assertEqual(source.count("build_hunting_search_clause("), 2)
         self.assertIn("def get_hunting_events", source)
         self.assertIn("def export_view_events", source)
+        view_src = inspect.getsource(hunting_routes.export_view_events)
+        tagged_src = inspect.getsource(hunting_routes.export_tagged_events)
+        grid_src = inspect.getsource(hunting_routes.get_hunting_events)
+        self.assertIn("build_hunting_publication_bridge", view_src)
+        self.assertIn("build_hunting_publication_bridge", tagged_src)
+        self.assertIn("build_hunting_publication_bridge", grid_src)
+        self.assertIn("build_hunting_search_clause", view_src)
 
     def test_does_not_emit_lower_on_stored_column(self):
         sql, _params = _clause("powershell")

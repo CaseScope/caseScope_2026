@@ -1585,31 +1585,24 @@ def export_tagged_events(case_id):
         analyst_projection = build_analyst_projection(alias="e", case_id_filter_sql="{case_id:UInt32}")
         noise_projection = build_noise_projection(alias="e", case_id_filter_sql="{case_id:UInt32}")
         ioc_projection = build_ioc_projection(alias="e", case_id_filter_sql="{case_id:UInt32}")
-        query = """
+        publication = build_hunting_publication_bridge(alias="e")
+        query = f"""
             SELECT e.*,
-                   {analyst_tagged} AS analyst_tagged_effective,
-                   {analyst_tags} AS analyst_tags_effective,
-                   {analyst_notes} AS analyst_notes_effective,
-                   {ioc_types} AS ioc_types_effective,
-                   {noise_matched} AS noise_matched_effective,
-                   {noise_rules} AS noise_rules_effective
+                   {analyst_projection["tagged_sql"]} AS analyst_tagged_effective,
+                   {analyst_projection["tags_sql"]} AS analyst_tags_effective,
+                   {analyst_projection["notes_sql"]} AS analyst_notes_effective,
+                   {ioc_projection["ioc_types_sql"]} AS ioc_types_effective,
+                   {noise_projection["matched_sql"]} AS noise_matched_effective,
+                   {noise_projection["rules_sql"]} AS noise_rules_effective
             FROM events AS e
-            {analyst_join}
-            {noise_join}
-            {ioc_join}
+            {publication["join_sql"]}
+            {analyst_projection["join_sql"]}
+            {noise_projection["join_sql"]}
+            {ioc_projection["join_sql"]}
             WHERE e.case_id = {{case_id:UInt32}}
-              AND {analyst_tagged} = true
-        """.format(
-            analyst_join=analyst_projection["join_sql"],
-            analyst_tagged=analyst_projection["tagged_sql"],
-            analyst_tags=analyst_projection["tags_sql"],
-            analyst_notes=analyst_projection["notes_sql"],
-            noise_join=noise_projection["join_sql"],
-            noise_matched=noise_projection["matched_sql"],
-            noise_rules=noise_projection["rules_sql"],
-            ioc_join=ioc_projection["join_sql"],
-            ioc_types=ioc_projection["ioc_types_sql"],
-        )
+              AND {analyst_projection["tagged_sql"]} = true
+              {publication["where_sql"]}
+        """
         safe_log_case_work_activity(
             case.uuid,
             CaseWorkActivityType.HUNTING_SEARCH,
@@ -1687,6 +1680,7 @@ def export_view_events(case_id):
             params,
         )
         search_clause = build_hunting_search_clause(search, params)
+        publication = build_hunting_publication_bridge(alias="e")
 
         query = f"""
             SELECT e.*,
@@ -1697,10 +1691,11 @@ def export_view_events(case_id):
                    {noise_projection["matched_sql"]} AS noise_matched_effective,
                    {noise_projection["rules_sql"]} AS noise_rules_effective
             FROM events AS e
+            {publication["join_sql"]}
             {analyst_projection["join_sql"]}
             {noise_projection["join_sql"]}
             {ioc_projection["join_sql"]}
-            WHERE e.case_id = {{case_id:UInt32}}{search_clause}{type_filter}{alert_type_filter}{noise_filter}{time_filter}
+            WHERE e.case_id = {{case_id:UInt32}}{search_clause}{type_filter}{alert_type_filter}{noise_filter}{time_filter}{publication["where_sql"]}
         """
         safe_log_case_work_activity(
             case.uuid,

@@ -274,3 +274,132 @@ Do not drop bloom indexes automatically.
 Then and only then:
 
 Phase 2.1D — bloom-index retirement / final Phase 2.1 exit.
+
+## Export publication closure (4.25.2)
+
+The original live activation above discovered
+`publication_join=false` on `GET /api/hunting/events/export-view/<case_id>`.
+That historical fact is retained. This closure gates Hunt event CSV export
+with the accepted Phase 1B publication bridge. The 4.25.1 TOKEN_SAFE reader
+is unchanged.
+
+### Discovered bypass
+
+`export_view_events` and `export_tagged_events` read `events AS e` with
+overlay filters and did not apply `build_hunting_publication_bridge(alias="e")`
+`join_sql` / `where_sql`. Grid/detail/raw hid unpublished managed rows;
+CSV export could still emit them.
+
+### Baseline reproduction (disposable `phase2_1c_test`)
+
+STAGED managed batch physically present. Hunt grid/detail/raw hidden.
+Export-view returned the unpublished rows.
+
+- selector_key: `ts:2026-01-01 00:00:01|host:unknown|artifact:iis|event:|file:u_ex260101.log`
+- evidence_record_key: `erk:v2:bb82e8840f92753dd0ad7317f1bde1019515e012826e8fedcf55150c57d68d1c`
+- search_blob: `GET /path/1?id=1&q=alpha 192.0.2.2 user1 Agent1 200`
+- export-view also returned the other three STAGED siblings in that batch
+
+BUILDING_REPLACEMENT was not separately exported on the unmodified baseline
+because the lifecycle assertion stopped at the STAGED leak. The same missing
+join is the cause for both routes.
+
+### Fix
+
+Both Hunt event CSV export routes now reuse the accepted helper, matching
+`get_hunting_events`:
+
+- `publication = build_hunting_publication_bridge(alias="e")`
+- inject `publication["join_sql"]` and `publication["where_sql"]`
+
+`export_view_events` still uses `build_hunting_search_clause()`. Classifier
+untouched.
+
+### Hunt event CSV export inventory
+
+| route | physical events reader? | publication bridge? | action |
+|---|---|---|---|
+| `GET /api/hunting/events/export-view/<case_id>` | YES | YES | gated in this closure |
+| `GET /api/hunting/events/export-tagged/<case_id>` | YES | YES | gated in this closure |
+
+No other Hunt event CSV export of physical `events` rows exists in
+`routes/hunting.py`. Browser downloads, process children, MITRE/noise stats,
+graph, chat, Sigma, and IOC internals were not changed.
+
+### F2 lifecycle (export-view)
+
+Matches grid publication:
+
+- A legacy physical: export visible
+- B managed STAGED: export hidden
+- C first DURABLE BUILDING_INITIAL: export visible before EOF
+- D subsequent DURABLE BUILDING_INITIAL: export visible
+- E BUILDING_REPLACEMENT physical/DURABLE before activation: export hidden
+- F old ACTIVE while replacement builds: old export remains visible
+- G atomic activation: replacement export-visible; superseded not authoritative
+- H malformed partial protocol identity: export hidden
+- I stale control projection cannot resurrect hidden evidence
+
+### F2 lifecycle (export-tagged)
+
+Analyst tags applied through `POST /api/hunting/event/tag/<case_id>`. A tag
+does not override publication:
+
+- legacy tagged: visible
+- managed STAGED tagged: HIDDEN
+- DURABLE + publishable tagged: visible
+- hidden BUILDING_REPLACEMENT tagged: HIDDEN
+- activated replacement tagged: visible
+- malformed partial identity tagged: HIDDEN
+
+### Grid / export parity
+
+On a bounded mixed fixture, export-view selectors/ERKs equal the complete
+grid set for identical filters. No export-only unpublished selectors.
+
+`SELECT e.*` omits MATERIALIZED `selector_key`; tests identify CSV rows by
+`evidence_record_key` / `search_blob` / reconstructed selector. ERK can
+coincide across generations; unpublished identity is the selector/blob/event_id.
+
+### Fail-closed
+
+Dropping `durable_ingest_batches` makes export-view and export-tagged fail
+closed (not HTTP 200 CSV of all physical events), same as the Hunt grid.
+
+### Live activation of this fix
+
+- pre-restart text index: `idx_search_blob_text` PRESENT; MATERIALIZED 25 /
+  PARTIAL 0 / UNMATERIALIZED 0 / UNKNOWN 0; 135/135 active parts;
+  blooms `idx_search_ngram` PRESENT, `idx_search_token` PRESENT; 0 in-progress
+  mutations; 0 failed text-index mutations. No rematerialization.
+- casescope-web restarted only. Before MainPID 479860 (2026-08-22 02:42:23 UTC).
+  After MainPID 501361 (2026-08-22 03:11:45 UTC), active/running,
+  listening `https://0.0.0.0:443`, version v4.25.2, no startup exception.
+  Workers unchanged (MainPID 251661 since 2026-08-21 20:52:30 UTC).
+
+### Live export-view
+
+Case 14 `sonicwall`: grid 13, export-view 13. Product `query_log`
+(2026-08-22 03:12:44 UTC, 13 result rows, QueryFinish):
+
+- `hasAllTokens(search_blob, 'sonicwall')`
+- no `search_blob ILIKE '%sonicwall%'`
+- `visible_evidence_generations FINAL` / `durable_ingest_batches FINAL`
+- accepted publication condition including legacy-NULL identity
+
+### Live tagged-export
+
+Case 10 already had 2 analyst-tagged retained events. Export-tagged HTTP 200,
+2 CSV rows. Product `query_log` includes the publication bridge and
+`e.analyst_tagged = true`. Tags were not modified to manufacture the fixture.
+
+### Regression
+
+Required suite with disposable F2 env `phase2_1c_test`: 100 passed.
+`py_compile`, `pyflakes`, `git diff --check` on changed Python.
+
+### No later phase
+
+No bloom drop, no command_line index, no rematerialization, no search grammar
+redesign, no pagination redesign, no Phase 2.2–2.4, no Phase 3/4, no LEK, no
+`events_current` / `event_observations_current`.
