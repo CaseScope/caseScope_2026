@@ -1,6 +1,17 @@
 {
-  "version": "4.26.3",
+  "version": "4.26.4",
   "changelog": [
+    {
+      "version": "4.26.4",
+      "date": "2026-08-22",
+      "changes": [
+        "already-DURABLE managed batch replay fails closed on any non-exact physical verification",
+        "malformed partial protocol identity fails closed for current publication",
+        "extracts a shared Phase 1B event publication helper and Hunt compatibility wrapper",
+        "anchors Hunt relative time ranges to currently published events",
+        "does not implement semantic dedup / LEK / Phase 3 / Phase 4"
+      ]
+    },
     {
       "version": "4.26.3",
       "date": "2026-08-22",

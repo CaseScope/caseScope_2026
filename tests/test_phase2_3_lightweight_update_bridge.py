@@ -319,7 +319,8 @@ class Phase23ContractTests(unittest.TestCase):
     def test_version_records_phase23_and_current_candidate(self):
         with open(os.path.join(REPO_ROOT, "version.json"), encoding="utf-8") as handle:
             payload = json.load(handle)
-        self.assertEqual(payload["version"], "4.26.3")
+        parts = tuple(int(part) for part in payload["version"].split("."))
+        self.assertGreaterEqual(parts, (4, 26, 2))
         phase23 = next(item for item in payload["changelog"] if item["version"] == "4.26.2")
         joined = " ".join(phase23["changes"]).lower()
         self.assertIn("lightweight", joined)

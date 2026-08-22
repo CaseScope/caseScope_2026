@@ -229,7 +229,8 @@ class Phase24ASourceInspectionTests(unittest.TestCase):
     def test_version_is_candidate_4_26_3(self):
         with open(os.path.join(REPO_ROOT, "version.json"), encoding="utf-8") as handle:
             payload = json.load(handle)
-        self.assertEqual(payload["version"], "4.26.3")
+        parts = tuple(int(part) for part in payload["version"].split("."))
+        self.assertGreaterEqual(parts, (4, 26, 3))
 
     def test_batch_identity_excludes_attempt_id(self):
         source = inspect.getsource(canonical_ingest_batch_identity)

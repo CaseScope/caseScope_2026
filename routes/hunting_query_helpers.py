@@ -417,78 +417,16 @@ PHASE1B_PROTOCOL_IDENTITY_COLUMNS = (
 
 
 def build_hunting_publication_bridge(alias="e", *, case_id_param=None):
-    """Interim Phase 1B publication filter over the physical ``events`` table.
+    """Compatibility wrapper over the shared Phase 1B publication bridge.
 
-    This is not ``events_current`` and does not change counting basis. Hunt
-    readers keep querying ``events``. Managed rows are returned only when the
-    current ReplacingMergeTree control projections prove both DURABLE batch
-    publication and a publishable generation. True legacy rows (all protocol
-    identity NULL) stay visible. Partial protocol identity fails closed.
+    Hunt callers keep this name. Semantics live in
+    ``utils.event_publication.build_event_publication_bridge``.
+    veg.publishable = 1, visibility_state BUILDING_INITIAL or ACTIVE, and
+    dib.state = 'DURABLE'.
+    """
+    from utils.event_publication import build_event_publication_bridge
 
-    ``case_id_param`` is an optional ClickHouse parameter expression such as
-    ``{case_id:UInt32}``. When set, control-projection subqueries are restricted
-    to that case. Semantics stay identical because Hunt already filters
-    ``events`` by case_id and the joins already require matching case_id.
-    """
-    veg_from = "FROM visible_evidence_generations FINAL"
-    dib_from = "FROM durable_ingest_batches FINAL"
-    if case_id_param:
-        veg_from += f"\n                WHERE case_id = {case_id_param}"
-        dib_from += f"\n                WHERE case_id = {case_id_param}"
-    join_sql = f"""
-            LEFT JOIN (
-                SELECT
-                    case_id,
-                    source_ref_type,
-                    source_ref_id,
-                    source_generation,
-                    visibility_state,
-                    publishable
-                {veg_from}
-            ) AS veg
-                ON veg.case_id = {alias}.case_id
-               AND veg.source_ref_type = {alias}.source_ref_type
-               AND veg.source_ref_id = {alias}.source_ref_id
-               AND veg.source_generation = {alias}.source_generation
-            LEFT JOIN (
-                SELECT
-                    ingest_batch_id,
-                    case_id,
-                    source_ref_type,
-                    source_ref_id,
-                    source_generation,
-                    state
-                {dib_from}
-            ) AS dib
-                ON dib.ingest_batch_id = {alias}.ingest_batch_id
-               AND dib.case_id = {alias}.case_id
-               AND dib.source_ref_type = {alias}.source_ref_type
-               AND dib.source_ref_id = {alias}.source_ref_id
-               AND dib.source_generation = {alias}.source_generation
-    """
-    protocol_null_sql = " AND ".join(
-        f"{alias}.{column} IS NULL" for column in PHASE1B_PROTOCOL_IDENTITY_COLUMNS
-    )
-    where_sql = f"""
-            AND (
-                (
-                    {protocol_null_sql}
-                )
-                OR (
-                    {alias}.source_ref_type IS NOT NULL AND {alias}.source_ref_type != ''
-                    AND {alias}.source_ref_id IS NOT NULL AND {alias}.source_ref_id != ''
-                    AND {alias}.source_generation IS NOT NULL
-                    AND {alias}.ingest_batch_id IS NOT NULL AND {alias}.ingest_batch_id != ''
-                    AND veg.publishable = 1
-                    AND veg.visibility_state IN ('BUILDING_INITIAL', 'ACTIVE')
-                    AND dib.state = 'DURABLE'
-                )
-            )
-    """
-    return {
-        "join_sql": join_sql,
-        "where_sql": where_sql,
-    }
+    return build_event_publication_bridge(alias=alias, case_id_param=case_id_param)
 
 
 def build_hunting_type_filter(artifact_types_param: str, params: dict) -> str:
@@ -703,12 +641,17 @@ CLICKHOUSE_TIME_FORMAT = "%Y-%m-%d %H:%M:%S"
 
 
 def resolve_case_latest_event_time(client, case_id: int):
-    """Return the newest event time in a case, ignoring implausible timestamps."""
+    """Return the newest currently published event time, ignoring implausible timestamps."""
+    from utils.event_publication import build_event_publication_bridge
+
+    publication = build_event_publication_bridge(alias="e", case_id_param="{case_id:UInt32}")
     query = (
-        "SELECT max(COALESCE(timestamp_utc, timestamp)) FROM events "
-        "WHERE case_id = {case_id:UInt32} "
-        "AND COALESCE(timestamp_utc, timestamp) >= parseDateTimeBestEffort({plausible_start:String}) "
-        "AND COALESCE(timestamp_utc, timestamp) <= parseDateTimeBestEffort({plausible_end:String})"
+        "SELECT max(COALESCE(e.timestamp_utc, e.timestamp)) FROM events AS e "
+        f"{publication['join_sql']} "
+        "WHERE e.case_id = {case_id:UInt32} "
+        f"{publication['where_sql']} "
+        "AND COALESCE(e.timestamp_utc, e.timestamp) >= parseDateTimeBestEffort({plausible_start:String}) "
+        "AND COALESCE(e.timestamp_utc, e.timestamp) <= parseDateTimeBestEffort({plausible_end:String})"
     )
     result = client.query(
         query,

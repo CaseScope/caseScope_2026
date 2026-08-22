@@ -207,11 +207,12 @@ class Phase24B1UnitTests(unittest.TestCase):
         identity = inspect.getsource(canonical_ingest_batch_identity)
         self.assertNotIn("ingest_attempt_id", identity)
 
-    def test_candidate_version_is_4_26_3(self):
+    def test_candidate_version_is_at_least_4_26_3(self):
         import json
 
         payload = json.loads((REPO_ROOT / "version.json").read_text(encoding="utf-8"))
-        self.assertEqual(payload["version"], "4.26.3")
+        parts = tuple(int(part) for part in payload["version"].split("."))
+        self.assertGreaterEqual(parts, (4, 26, 3))
         self.assertIn("does not implement semantic dedup / LEK / Phase 3 / Phase 4", payload["changelog"][0]["changes"])
 
 

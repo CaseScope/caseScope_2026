@@ -1040,6 +1040,33 @@ def commit_managed_batch_exactly_once(
     session.flush()
     if batch.state == IngestBatchState.DURABLE:
         existing = verify_ingest_batch(clickhouse_client, manifest)
+        if existing.outcome != "exact":
+            case_id = None
+            try:
+                generation = batch.generation
+                if generation is None:
+                    generation = (
+                        session.query(EvidenceSourceGeneration)
+                        .filter_by(id=batch.generation_id)
+                        .one_or_none()
+                    )
+                if generation is not None:
+                    case_id = generation.case_id
+            except Exception:
+                case_id = None
+            emit_metric(
+                "phase2_4_durable_manifest_invariant_violation",
+                case_id=case_id,
+                ingest_batch_id=manifest.ingest_batch_id,
+                verification_outcome=existing.outcome,
+                physical_row_count=existing.physical_rows,
+                duplicate_physical_row_count=existing.duplicate_physical_rows,
+            )
+            raise DurableRetryUniquenessError(
+                f"DURABLE batch {manifest.ingest_batch_id} failed physical exactness: "
+                f"{existing.outcome} physical_rows={existing.physical_rows} "
+                f"duplicate_physical_rows={existing.duplicate_physical_rows}"
+            )
         return ManagedBatchCommitResult(
             action="already_durable",
             batch=batch,

@@ -10,7 +10,10 @@ from flask import Flask
 
 os.environ.setdefault('SECRET_KEY', 'test-secret')
 
-if 'clickhouse_connect' not in sys.modules:
+try:
+    import clickhouse_connect
+    clickhouse_connect.get_client  # ensure the real client module is importable
+except ImportError:
     clickhouse_stub = types.ModuleType('clickhouse_connect')
     clickhouse_stub.get_client = lambda *args, **kwargs: None
     sys.modules['clickhouse_connect'] = clickhouse_stub
@@ -19,6 +22,13 @@ REPO_ROOT = os.path.dirname(os.path.dirname(__file__))
 
 
 def _load_module(module_name, relative_path):
+    """Load a production file under a test-only sys.modules name.
+
+    Canonical names such as ``utils.clickhouse`` must remain the real
+    production modules so later pytest collection is not contaminated.
+    """
+    if not module_name.startswith('test_'):
+        raise AssertionError(f"test doubles must use a test-only module name: {module_name}")
     spec = importlib.util.spec_from_file_location(
         module_name,
         os.path.join(REPO_ROOT, relative_path),
@@ -112,11 +122,6 @@ class _TrackingGraphSupportLifecycle(_NoopGraphSupportLifecycle):
 
 clickhouse_utils = _load_module('test_clickhouse_utils', os.path.join('utils', 'clickhouse.py'))
 
-utils_package = types.ModuleType('utils')
-utils_package.clickhouse = clickhouse_utils
-sys.modules.setdefault('utils', utils_package)
-sys.modules['utils.clickhouse'] = clickhouse_utils
-
 from utils.ingest_fence import install_memory_backend, reset_fence_backend
 
 
@@ -128,8 +133,6 @@ def tearDownModule():
     reset_fence_backend()
 
 event_deduplication = _load_module('test_event_deduplication', os.path.join('utils', 'event_deduplication.py'))
-utils_package.event_deduplication = event_deduplication
-sys.modules['utils.event_deduplication'] = event_deduplication
 
 network_log_module = _load_module('test_network_log_model', os.path.join('models', 'network_log.py'))
 
@@ -380,7 +383,7 @@ class EventDeduplicationSafetyTestCase(unittest.TestCase):
         with patch.object(
             event_deduplication,
             'destructive_event_rewrite_guard',
-            side_effect=clickhouse_utils.ClickHouseMutationGuardActive(
+            side_effect=event_deduplication.ClickHouseMutationGuardActive(
                 {'operation': 'case_event_delete', 'case_id': 44, 'started_at': '2026-04-21T12:00:00Z'}
             ),
         ):
