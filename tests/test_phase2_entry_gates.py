@@ -269,12 +269,12 @@ class SearchBlobTextIndexMigrationTests(unittest.TestCase):
         with self.assertRaises(IncompatibleSearchBlobTextIndex):
             add_events_search_blob_text_index(client, allow_production=True)
 
-    def test_fresh_schema_declares_text_index_and_keeps_blooms(self):
+    def test_fresh_schema_declares_text_index_and_keeps_ngram_exception(self):
         self.assertIn(INDEX_NAME, EVENTS_SCHEMA)
         self.assertIn("tokenizer = 'splitByNonAlpha'", EVENTS_SCHEMA)
         self.assertIn("preprocessor = lower(search_blob)", EVENTS_SCHEMA)
         self.assertIn("idx_search_ngram", EVENTS_SCHEMA)
-        self.assertIn("idx_search_token", EVENTS_SCHEMA)
+        self.assertNotIn("idx_search_token", EVENTS_SCHEMA)
         self.assertNotIn("MATERIALIZE INDEX", EVENTS_SCHEMA)
 
 
@@ -389,7 +389,7 @@ class LivePhase2EntryGateTests(unittest.TestCase):
         self.assertIn("splitByNonAlpha", create)
         self.assertIn("lower(search_blob)", create)
         self.assertIn("idx_search_ngram", create)
-        self.assertIn("idx_search_token", create)
+        self.assertNotIn("idx_search_token", create)
         self.assertIn("enable_block_number_column = 1", create)
         self.assertIn("enable_block_offset_column = 1", create)
         self.client.command("DROP TABLE events")

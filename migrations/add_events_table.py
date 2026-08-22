@@ -128,7 +128,6 @@ CREATE TABLE IF NOT EXISTS events (
     {",\n    ".join(f"{name} {definition}" for name, definition in EVENTS_COLUMN_DEFINITIONS.items())},
 
     INDEX idx_search_ngram search_blob TYPE ngrambf_v1(3, 512, 2, 0) GRANULARITY 4,
-    INDEX idx_search_token search_blob TYPE tokenbf_v1(32768, 3, 0) GRANULARITY 4,
     INDEX idx_search_blob_text search_blob TYPE text(tokenizer = 'splitByNonAlpha', preprocessor = lower(search_blob)) GRANULARITY 1,
     INDEX idx_event_id event_id TYPE bloom_filter(0.01) GRANULARITY 4,
     INDEX idx_selector_key selector_key TYPE bloom_filter(0.01) GRANULARITY 4,

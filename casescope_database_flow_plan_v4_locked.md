@@ -225,7 +225,7 @@ Upgrade planning: CH ≥26.2 (26.3 LTS preferred) staged; 26.3 async-insert defa
 
 **GATE A (text index):** CH ≥26.2; DDL/tests/index migration verified. **GATE B (lightweight UPDATE):** version verified; block-number/block-offset settings enabled on `events` via migration; benchmark done.
 
-**2.1** Text index on `search_blob`: tokenizer + `lower(...)` preprocessor (stored column untouched); term hunts via `hasAllTokens`/`hasAnyTokens`; LIKE for true substrings; drop both bloom indexes after `EXPLAIN` validation; evaluate `command_line` index; test `materialize_skip_indexes_on_insert=0`.
+**2.1** Text index on `search_blob`: tokenizer + `lower(...)` preprocessor (stored column untouched); term hunts via `hasAllTokens`/`hasAnyTokens`; LIKE remains available for true substrings; retire legacy bloom indexes only where `EXPLAIN` validation proves them redundant. `idx_search_token` is retired by Phase 2.1. `idx_search_ngram` is retained under architecture exception `PHASE2_1_EXC_001` because deployed ClickHouse 26.7.3.19 `EXPLAIN` and four-way ablation prove that retained deterministic true-substring LIKE predicates materially use it, while the locked text index cannot safely replace all such predicates. Any future removal of `idx_search_ngram` requires a new architecture review with exact detection parity + `EXPLAIN` + performance evidence. Evaluate `command_line` index by measurement (currently `COMMAND_LINE_INDEX_DEFER`). Test `materialize_skip_indexes_on_insert=0` by measurement (production remains `KEEP_PRODUCTION_MATERIALIZE_SKIP_INDEXES_ON_INSERT_1`).
 **2.2** Insertion mode chosen explicitly post-26.3 (sync 10–100k vs async + `wait_for_async_insert`), configured on the parser session/user.
 **2.3** Lightweight UPDATE bridge (Gate B) for small state paths, batched; classic mutations behind the drain-capable fail-closed fence for large rewrites; audit hooks carried over. Bridge only.
 **2.4** Dedup: no engine decision (RMT Option A remains removed). Interim = generation-aware accounting + deterministic-batch retry exclusion. Real design = Phase 4.
@@ -292,6 +292,22 @@ Drop frozen `events` state columns and superseded PG machine-fact tables only af
 **Measurement discipline:** baselines re-run at each phase exit; deltas in-repo; measurement beats plan. Benchmark-decided: LEK storage form, surface/projection implementations, partition keys, insertion mode, memory destination, graph SQL scope, partition-drop purge, batch sizes.
 **Forensic integrity:** immutable events; ERK pure provenance; duplicates reconciled not destroyed; deterministic canonical representatives; publication ≠ presence; fail-closed fencing; recall-parity gates on detection-path changes; per-fact provenance with run IDs; audit hooks precede legacy removal.
 **Out of scope:** no new engines; Redis coordination-only; credentials + alias vault in PG under existing controls.
+
+## Architecture decision / change history
+
+### 2026-08-22 — PHASE2_1_EXC_001 (`idx_search_ngram` retained)
+
+The original Phase 2.1 sentence required dropping both `search_blob` bloom indexes after `EXPLAIN` validation. Independent D2A measurement on deployed ClickHouse 26.7.3.19 proved that literal outcome unsafe for `idx_search_ngram`.
+
+The same locked plan says measurement beats plan. This is therefore one explicit architecture-reviewed exception, not a general waiver and not a rewrite of later phases.
+
+**Keep:** `events.idx_search_ngram` — `search_blob` `ngrambf_v1(3, 512, 2, 0)` GRANULARITY 4.
+
+**Retire:** `events.idx_search_token` — not part of this exception.
+
+**Meaning:** deploy/use the locked `idx_search_blob_text`; term hunts use `hasAllTokens`/`hasAnyTokens`; LIKE remains available for true substrings; retire legacy blooms only where `EXPLAIN` proves them redundant. `PHASE2_1_EXC_001` does not authorize keeping `idx_search_token`, adding new bloom indexes, retaining arbitrary obsolete indexes, changing pattern semantics, changing the locked text-index definition, or ignoring future `EXPLAIN` evidence.
+
+Publication ≠ presence, measurement discipline, forensic integrity, fail-closed behavior, and recall-parity requirements are unchanged.
 
 ## The locked core model
 

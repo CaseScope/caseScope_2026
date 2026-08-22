@@ -1,6 +1,14 @@
 {
-  "version": "4.25.2",
+  "version": "4.26.0",
   "changelog": [
+    {
+      "version": "4.26.0",
+      "date": "2026-08-22",
+      "changes": [
+        "Closed Phase 2.1 by recording architecture exception PHASE2_1_EXC_001 to retain idx_search_ngram and retiring the redundant idx_search_token bloom after EXPLAIN-proven independence",
+        "Did not drop idx_search_ngram, rewrite pattern_rules, add text-index prefilters, change materialize_skip_indexes_on_insert, or start Phase 2.2"
+      ]
+    },
     {
       "version": "4.25.2",
       "date": "2026-08-21",

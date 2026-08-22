@@ -1,9 +1,12 @@
-"""Phase 2.1D bloom-retirement / final-exit tests.
+"""Phase 2.1D bloom-retirement history and updated Phase 2.1 exit contract.
 
-Phase 2.1D measured production EXPLAIN and did NOT drop idx_search_ngram or
-idx_search_token: models/pattern_rules.py case-sensitive search_blob LIKE still
-uses those skip indexes. These tests lock that NOT_READY contract and the
-materialize_skip_indexes_on_insert decision. They do not migrate readers.
+Phase 2.1D recorded PHASE2_1D_NOT_READY: production EXPLAIN showed
+idx_search_ngram pruning retained search_blob LIKE queries, so both blooms
+stayed. D2A attributed prune to ngram and found idx_search_token redundant.
+D2B records PHASE2_1_EXC_001 (keep ngram) and retires only idx_search_token.
+
+This file keeps the D1 measurement proofs (ngram still prunes case-sensitive
+LIKE) and updates the canonical schema contract after the exception.
 """
 from __future__ import annotations
 
@@ -15,12 +18,41 @@ import uuid
 os.environ.setdefault("SECRET_KEY", "phase2-1d-test-secret")
 
 from migrations.add_events_table import EVENTS_SCHEMA
+from migrations.drop_events_search_token_bloom import (
+    ARCHITECTURE_EXCEPTION_ID,
+    INDEX_NAME as TOKEN_INDEX_NAME,
+    NGRAM_INDEX_NAME,
+)
 from routes import hunting_query_helpers
 from utils import clickhouse as clickhouse_utils
 
 
-class Phase21DNotReadyContractTests(unittest.TestCase):
-    def test_canonical_schema_still_declares_both_blooms_and_text_index(self):
+LOCKED_PLAN = os.path.join(
+    os.path.dirname(os.path.dirname(__file__)),
+    "casescope_database_flow_plan_v4_locked.md",
+)
+D1_EVIDENCE = os.path.join(
+    os.path.dirname(os.path.dirname(__file__)),
+    "docs",
+    "database_flow_phase2",
+    "phase2_1d_final_exit.json",
+)
+
+
+class Phase21DHistoryAndUpdatedContractTests(unittest.TestCase):
+    def test_d1_not_ready_evidence_is_preserved(self):
+        import json
+
+        self.assertTrue(os.path.exists(D1_EVIDENCE), msg="D1 JSON evidence is required")
+        with open(D1_EVIDENCE, encoding="utf-8") as handle:
+            payload = json.load(handle)
+        self.assertEqual(payload["verdict"], "PHASE2_1D_NOT_READY")
+        self.assertEqual(payload["bloom_retirement_decision"], "BLOOM_DEPENDENCY_BLOCKS_EXIT")
+        self.assertTrue(payload["production_index_inventory"]["idx_search_ngram"]["present"])
+        self.assertTrue(payload["production_index_inventory"]["idx_search_token"]["present"])
+        self.assertFalse(payload["upgrade_migration"]["executed"])
+
+    def test_canonical_schema_keeps_ngram_exception_and_drops_token(self):
         self.assertIn("INDEX idx_search_blob_text search_blob TYPE text(", EVENTS_SCHEMA)
         self.assertIn("tokenizer = 'splitByNonAlpha'", EVENTS_SCHEMA)
         self.assertIn("preprocessor = lower(search_blob)", EVENTS_SCHEMA)
@@ -28,10 +60,8 @@ class Phase21DNotReadyContractTests(unittest.TestCase):
             "INDEX idx_search_ngram search_blob TYPE ngrambf_v1(3, 512, 2, 0) GRANULARITY 4",
             EVENTS_SCHEMA,
         )
-        self.assertIn(
-            "INDEX idx_search_token search_blob TYPE tokenbf_v1(32768, 3, 0) GRANULARITY 4",
-            EVENTS_SCHEMA,
-        )
+        self.assertNotIn("INDEX idx_search_token", EVENTS_SCHEMA)
+        self.assertNotIn("tokenbf_v1(32768, 3, 0)", EVENTS_SCHEMA)
         self.assertIn("INDEX idx_event_id event_id TYPE bloom_filter(0.01) GRANULARITY 4", EVENTS_SCHEMA)
         self.assertIn(
             "INDEX idx_selector_key selector_key TYPE bloom_filter(0.01) GRANULARITY 4",
@@ -41,15 +71,42 @@ class Phase21DNotReadyContractTests(unittest.TestCase):
             "INDEX idx_evidence_record_key evidence_record_key TYPE bloom_filter(0.01) GRANULARITY 4",
             EVENTS_SCHEMA,
         )
+        self.assertIn("enable_block_number_column = 1", EVENTS_SCHEMA)
+        self.assertIn("enable_block_offset_column = 1", EVENTS_SCHEMA)
 
-    def test_no_bloom_drop_migration_shipped(self):
+    def test_phase2_1_exc_001_is_recorded_and_protects_ngram(self):
+        with open(LOCKED_PLAN, encoding="utf-8") as handle:
+            plan = handle.read()
+        self.assertIn(ARCHITECTURE_EXCEPTION_ID, plan)
+        self.assertIn("`idx_search_ngram` is retained", plan)
+        self.assertIn("`idx_search_token` is retired by Phase 2.1", plan)
+        self.assertIn(
+            "INDEX idx_search_ngram search_blob TYPE ngrambf_v1(3, 512, 2, 0) GRANULARITY 4",
+            EVENTS_SCHEMA,
+        )
+        self.assertEqual(NGRAM_INDEX_NAME, "idx_search_ngram")
+        self.assertEqual(TOKEN_INDEX_NAME, "idx_search_token")
+
+    def test_accidental_ngram_removal_fails_phase2_1_contract(self):
+        self.assertIn("idx_search_ngram", EVENTS_SCHEMA)
+        with open(LOCKED_PLAN, encoding="utf-8") as handle:
+            plan = handle.read()
+        self.assertIn(ARCHITECTURE_EXCEPTION_ID, plan)
+        # A future drop of ngram is not authorized by this exception.
+        self.assertIn("new architecture review", plan)
+
+    def test_token_only_drop_migration_exists_dual_bloom_drop_does_not(self):
         migrations_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), "migrations")
         names = os.listdir(migrations_dir)
-        self.assertFalse(
-            any("bloom" in name and "drop" in name for name in names),
-            msg=names,
-        )
+        self.assertIn("drop_events_search_token_bloom.py", names)
         self.assertNotIn("drop_events_search_blob_bloom_indexes.py", names)
+        source = open(
+            os.path.join(migrations_dir, "drop_events_search_token_bloom.py"),
+            encoding="utf-8",
+        ).read()
+        self.assertNotIn("ALTER TABLE events DROP INDEX idx_search_ngram", source)
+        self.assertNotIn("ALTER TABLE events OPTIMIZE", source)
+        self.assertNotIn("ALTER TABLE events MATERIALIZE INDEX", source)
 
     def test_hunt_token_and_substring_paths_unchanged(self):
         source = inspect.getsource(hunting_query_helpers.build_hunting_search_clause)

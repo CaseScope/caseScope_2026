@@ -25,7 +25,6 @@ from typing import Any, Callable, Dict, Iterable, Optional, Sequence
 
 from migrations.add_events_block_number_offset import events_has_block_columns_enabled
 from migrations.add_events_search_blob_text_index import (
-    BLOOM_INDEX_NAMES,
     INDEX_NAME,
     PRODUCTION_DATABASE_NAMES,
     IncompatibleSearchBlobTextIndex,
@@ -37,6 +36,10 @@ from migrations.add_events_search_blob_text_index import (
     _skipping_indices,
     _table_exists,
     search_blob_text_index_is_compatible,
+)
+from migrations.drop_events_search_token_bloom import (
+    NGRAM_INDEX_NAME,
+    ngram_index_is_approved_exception,
 )
 
 
@@ -130,18 +133,26 @@ def require_compatible_text_index(client, table_name="events"):
     return index
 
 
+# PHASE2_1_EXC_001: idx_search_ngram remains required. idx_search_token is retired.
+REQUIRED_BLOOM_INDEX_NAMES = (NGRAM_INDEX_NAME,)
+
+
 def require_bloom_indexes(client, table_name="events"):
-    present = {
-        item["name"]
-        for item in skipping_indices(client, table_name)
-        if item["name"] in BLOOM_INDEX_NAMES
-    }
-    missing = [name for name in BLOOM_INDEX_NAMES if name not in present]
+    indices = skipping_indices(client, table_name)
+    by_name = {item["name"]: item for item in indices}
+    missing = [name for name in REQUIRED_BLOOM_INDEX_NAMES if name not in by_name]
     if missing:
         raise TextIndexOperatorError(
             f"{table_name} is missing required bloom index(es): {missing}"
         )
-    return tuple(BLOOM_INDEX_NAMES)
+    ngram = by_name[NGRAM_INDEX_NAME]
+    if not ngram_index_is_approved_exception(ngram):
+        raise TextIndexOperatorError(
+            f"{table_name}.{NGRAM_INDEX_NAME} is not the approved PHASE2_1_EXC_001 "
+            f"definition type={ngram.get('type_full')!r} expr={ngram.get('expr')!r} "
+            f"granularity={ngram.get('granularity')!r}"
+        )
+    return tuple(REQUIRED_BLOOM_INDEX_NAMES)
 
 
 def require_exclude_from_merge(client, table_name="events"):

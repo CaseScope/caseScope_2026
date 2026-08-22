@@ -1,0 +1,1418 @@
+{
+  "tranche": "phase2_1d2b_token_retirement_final_exit",
+  "recorded_at": "2026-08-22T14:55:53.905525+00:00",
+  "version": "4.26.0",
+  "version_bumped": true,
+  "version_policy": "feature/minor: canonical schema and production index inventory change; Phase 2.1 architecture-exception exit",
+  "verdict": "PHASE2_1D2B_PASS",
+  "phase2_1_state": "PHASE2_1_CLOSED_PENDING_INDEPENDENT_REVIEW",
+  "architecture_exception": {
+    "id": "PHASE2_1_EXC_001",
+    "keep": "idx_search_ngram",
+    "definition": {
+      "name": "idx_search_ngram",
+      "expr": "search_blob",
+      "type_full": "ngrambf_v1(3, 512, 2, 0)",
+      "granularity": 4
+    },
+    "retire": "idx_search_token",
+    "rationale": "Deployed ClickHouse 26.7.3.19 EXPLAIN and four-way ablation prove retained deterministic true-substring LIKE predicates materially use idx_search_ngram. The locked text index cannot safely replace all such predicates. idx_search_token is not part of this exception.",
+    "not_authorized": [
+      "keeping idx_search_token",
+      "adding new bloom indexes",
+      "retaining arbitrary obsolete indexes",
+      "changing pattern semantics",
+      "changing the locked text-index definition",
+      "ignoring future EXPLAIN evidence"
+    ]
+  },
+  "canonical_plan_amendment": {
+    "file": "casescope_database_flow_plan_v4_locked.md",
+    "history_entry": "2026-08-22 \u2014 PHASE2_1_EXC_001",
+    "later_phases_unchanged": true,
+    "publication_measurement_forensic_fail_closed_recall_unchanged": true
+  },
+  "baseline": {
+    "repository": "/opt/casescope",
+    "python": "/opt/casescope/venv/bin/python",
+    "head": "0c89dd36a31d2e885acb9268df7496ff57f4e49c",
+    "origin_main": "0c89dd36a31d2e885acb9268df7496ff57f4e49c",
+    "head_equals_origin_main": true,
+    "working_tree_clean_at_start": true,
+    "expected_head": "0c89dd36a31d2e885acb9268df7496ff57f4e49c",
+    "expected_version": "4.25.2",
+    "clickhouse_version": "26.7.3.19",
+    "ok": true
+  },
+  "architecture_review_input": {
+    "phase2_1d": "PHASE2_1D_NOT_READY",
+    "phase2_1d2a": "PHASE2_1D2A_PASS",
+    "approved_keep": "idx_search_ngram",
+    "approved_retire": "idx_search_token"
+  },
+  "production_index_before": {
+    "database": "casescope",
+    "clickhouse_version": "26.7.3.19",
+    "rows": 745463991,
+    "active_parts": 135,
+    "partitions": 25,
+    "coverage": {
+      "MATERIALIZED": 25,
+      "PARTIAL": 0,
+      "UNMATERIALIZED": 0,
+      "UNKNOWN": 0
+    },
+    "active_parts_MATERIALIZED": 135,
+    "mutations_in_progress": 0,
+    "idx_search_blob_text": {
+      "present": true,
+      "expr": "search_blob",
+      "type_full": "text(tokenizer = 'splitByNonAlpha', preprocessor = lower(search_blob))"
+    },
+    "idx_search_ngram": {
+      "present": true,
+      "expr": "search_blob",
+      "type_full": "ngrambf_v1(3, 512, 2, 0)",
+      "granularity": 4,
+      "compressed_bytes": 4049580
+    },
+    "idx_search_token": {
+      "present": true,
+      "expr": "search_blob",
+      "type_full": "tokenbf_v1(32768, 3, 0)",
+      "granularity": 4,
+      "compressed_bytes": 964699630
+    },
+    "idx_event_id": {
+      "present": true
+    },
+    "idx_selector_key": {
+      "present": true
+    },
+    "idx_evidence_record_key": {
+      "present": true
+    }
+  },
+  "token_safety": {
+    "ok": true,
+    "decision": "TOKEN_BLOOM_REDUNDANT",
+    "blocking": [],
+    "notes": [
+      "hastoken_10_powershell: idx_search_token changes hasToken counts (skip-index false negatives). Consumer class offline-admin is not a retained current reader."
+    ],
+    "results": [
+      {
+        "id": "hastoken_10_powershell",
+        "fn": "hasToken",
+        "case_id": 10,
+        "pred": "hasToken(search_blob, 'powershell')",
+        "consumer": "bin/database_flow_baseline.py / token class",
+        "consumer_class": "offline-admin",
+        "retained_current_reader": false,
+        "same_n": false,
+        "same_erk": false,
+        "n_with_token": 18604,
+        "n_ignore_token": null,
+        "read_rows_delta": 136196,
+        "p50_a_ms": 53.288,
+        "p50_b_ms": 58.942,
+        "token_pruned_in_a": true,
+        "ngram_prune_unchanged": true,
+        "text_path_unchanged": true,
+        "ok": true
+      },
+      {
+        "id": "hastoken_ci_10_powershell",
+        "fn": "hasTokenCaseInsensitive",
+        "case_id": 10,
+        "pred": "hasTokenCaseInsensitive(search_blob, 'powershell')",
+        "consumer": "utils/ioc_artifact_tagger.py",
+        "consumer_class": "background-derivation",
+        "retained_current_reader": true,
+        "same_n": true,
+        "same_erk": true,
+        "n_with_token": 19455,
+        "n_ignore_token": null,
+        "read_rows_delta": 0,
+        "p50_a_ms": 115.917,
+        "p50_b_ms": 115.927,
+        "token_pruned_in_a": false,
+        "ngram_prune_unchanged": true,
+        "text_path_unchanged": true,
+        "ok": true
+      },
+      {
+        "id": "hastoken_ci_7_powershell",
+        "fn": "hasTokenCaseInsensitive",
+        "case_id": 7,
+        "pred": "hasTokenCaseInsensitive(search_blob, 'powershell')",
+        "consumer": "utils/ioc_artifact_tagger.py",
+        "consumer_class": "background-derivation",
+        "retained_current_reader": true,
+        "same_n": true,
+        "same_erk": true,
+        "n_with_token": 705353,
+        "n_ignore_token": null,
+        "read_rows_delta": 0,
+        "p50_a_ms": 4470.014,
+        "p50_b_ms": 4571.886,
+        "token_pruned_in_a": false,
+        "ngram_prune_unchanged": true,
+        "text_path_unchanged": true,
+        "ok": true
+      },
+      {
+        "id": "like_10_ntlm",
+        "fn": "LIKE",
+        "case_id": 10,
+        "pred": "search_blob LIKE '%NTLM%'",
+        "consumer": "models/pattern_rules.py",
+        "consumer_class": "production-required",
+        "retained_current_reader": true,
+        "same_n": true,
+        "same_erk": true,
+        "n_with_token": 2200,
+        "n_ignore_token": null,
+        "read_rows_delta": 0,
+        "p50_a_ms": 112.323,
+        "p50_b_ms": 118.843,
+        "token_pruned_in_a": false,
+        "ngram_prune_unchanged": true,
+        "text_path_unchanged": true,
+        "ok": true
+      },
+      {
+        "id": "like_7_ntlm",
+        "fn": "LIKE",
+        "case_id": 7,
+        "pred": "search_blob LIKE '%NTLM%'",
+        "consumer": "models/pattern_rules.py",
+        "consumer_class": "production-required",
+        "retained_current_reader": true,
+        "same_n": true,
+        "same_erk": true,
+        "n_with_token": 73510,
+        "n_ignore_token": null,
+        "read_rows_delta": 0,
+        "p50_a_ms": 4054.409,
+        "p50_b_ms": 3792.376,
+        "token_pruned_in_a": false,
+        "ngram_prune_unchanged": true,
+        "text_path_unchanged": true,
+        "ok": true
+      },
+      {
+        "id": "like_32_ntlm",
+        "fn": "LIKE",
+        "case_id": 32,
+        "pred": "search_blob LIKE '%NTLM%'",
+        "consumer": "models/pattern_rules.py",
+        "consumer_class": "production-required",
+        "retained_current_reader": true,
+        "same_n": true,
+        "same_erk": true,
+        "n_with_token": 162596,
+        "n_ignore_token": null,
+        "read_rows_delta": 0,
+        "p50_a_ms": 3947.453,
+        "p50_b_ms": 3884.278,
+        "token_pruned_in_a": false,
+        "ngram_prune_unchanged": true,
+        "text_path_unchanged": true,
+        "ok": true
+      },
+      {
+        "id": "ilike_10_cmdexe",
+        "fn": "ILIKE",
+        "case_id": 10,
+        "pred": "search_blob ILIKE '%cmd.exe%'",
+        "consumer": "routes/hunting_query_helpers.py SUBSTRING",
+        "consumer_class": "production-required",
+        "retained_current_reader": true,
+        "same_n": true,
+        "same_erk": true,
+        "n_with_token": 3025,
+        "n_ignore_token": null,
+        "read_rows_delta": 0,
+        "p50_a_ms": 70.759,
+        "p50_b_ms": 87.022,
+        "token_pruned_in_a": false,
+        "ngram_prune_unchanged": true,
+        "text_path_unchanged": true,
+        "ok": true
+      },
+      {
+        "id": "lower_like_10_powershell",
+        "fn": "lower(search_blob) LIKE",
+        "case_id": 10,
+        "pred": "lower(search_blob) LIKE '%powershell%'",
+        "consumer": "utils/ioc_artifact_tagger.py / models/rag.py",
+        "consumer_class": "background-derivation",
+        "retained_current_reader": true,
+        "same_n": true,
+        "same_erk": true,
+        "n_with_token": 19995,
+        "n_ignore_token": null,
+        "read_rows_delta": 0,
+        "p50_a_ms": 161.634,
+        "p50_b_ms": 159.466,
+        "token_pruned_in_a": false,
+        "ngram_prune_unchanged": true,
+        "text_path_unchanged": true,
+        "ok": true
+      },
+      {
+        "id": "hasall_14_sonicwall",
+        "fn": "hasAllTokens",
+        "case_id": 14,
+        "pred": "hasAllTokens(search_blob, 'sonicwall')",
+        "consumer": "routes/hunting_query_helpers.py TOKEN_SAFE",
+        "consumer_class": "production-required",
+        "retained_current_reader": true,
+        "same_n": true,
+        "same_erk": true,
+        "n_with_token": 13,
+        "n_ignore_token": null,
+        "read_rows_delta": 0,
+        "p50_a_ms": 9.764,
+        "p50_b_ms": 9.651,
+        "token_pruned_in_a": false,
+        "ngram_prune_unchanged": true,
+        "text_path_unchanged": true,
+        "ok": true
+      },
+      {
+        "id": "hasall_10_powershell",
+        "fn": "hasAllTokens",
+        "case_id": 10,
+        "pred": "hasAllTokens(search_blob, 'powershell')",
+        "consumer": "routes/hunting_query_helpers.py TOKEN_SAFE",
+        "consumer_class": "production-required",
+        "retained_current_reader": true,
+        "same_n": true,
+        "same_erk": true,
+        "n_with_token": 19455,
+        "n_ignore_token": null,
+        "read_rows_delta": 0,
+        "p50_a_ms": 54.471,
+        "p50_b_ms": 54.269,
+        "token_pruned_in_a": false,
+        "ngram_prune_unchanged": true,
+        "text_path_unchanged": true,
+        "ok": true
+      },
+      {
+        "id": "hasany_10_or",
+        "fn": "hasAnyTokens",
+        "case_id": 10,
+        "pred": "hasAnyTokens(search_blob, 'powershell administrator')",
+        "consumer": "routes/hunting_query_helpers.py TOKEN_SAFE OR",
+        "consumer_class": "production-required",
+        "retained_current_reader": true,
+        "same_n": true,
+        "same_erk": true,
+        "n_with_token": 19654,
+        "n_ignore_token": null,
+        "read_rows_delta": 0,
+        "p50_a_ms": 54.434,
+        "p50_b_ms": 49.087,
+        "token_pruned_in_a": false,
+        "ngram_prune_unchanged": true,
+        "text_path_unchanged": true,
+        "ok": true
+      },
+      {
+        "id": "noise_hastoken_10",
+        "fn": "hasTokenCaseInsensitive",
+        "case_id": 10,
+        "pred": "hasTokenCaseInsensitive(search_blob, 'powershell')",
+        "consumer": "utils/noise_keywords.py",
+        "consumer_class": "background-derivation",
+        "retained_current_reader": true,
+        "same_n": true,
+        "same_erk": true,
+        "n_with_token": 19455,
+        "n_ignore_token": null,
+        "read_rows_delta": 0,
+        "p50_a_ms": 121.974,
+        "p50_b_ms": 110.48,
+        "token_pruned_in_a": false,
+        "ngram_prune_unchanged": true,
+        "text_path_unchanged": true,
+        "ok": true
+      }
+    ]
+  },
+  "ngram_exception_reproof": {
+    "ok": true,
+    "before": [
+      {
+        "id": "ngram_ntlm_10",
+        "case_id": 10,
+        "pred": "search_blob LIKE '%NTLM%'",
+        "n": 2200,
+        "skipped_no_matches": false,
+        "ngram_pruned": true,
+        "ok": true
+      },
+      {
+        "id": "ngram_ntlm_7",
+        "case_id": 7,
+        "pred": "search_blob LIKE '%NTLM%'",
+        "n": 73510,
+        "skipped_no_matches": false,
+        "ngram_pruned": true,
+        "ok": true
+      },
+      {
+        "id": "ngram_ntlm_32",
+        "case_id": 32,
+        "pred": "search_blob LIKE '%NTLM%'",
+        "n": 162596,
+        "skipped_no_matches": false,
+        "ngram_pruned": true,
+        "ok": true
+      },
+      {
+        "id": "ngram_rc4_10",
+        "case_id": 10,
+        "pred": "search_blob LIKE '%RC4%'",
+        "n": 29,
+        "skipped_no_matches": false,
+        "ngram_pruned": true,
+        "ok": true
+      },
+      {
+        "id": "ngram_rc4_7",
+        "case_id": 7,
+        "pred": "search_blob LIKE '%RC4%'",
+        "n": 7029,
+        "skipped_no_matches": false,
+        "ngram_pruned": true,
+        "ok": true
+      },
+      {
+        "id": "ngram_rc4_32",
+        "case_id": 32,
+        "pred": "search_blob LIKE '%RC4%'",
+        "n": 21596,
+        "skipped_no_matches": false,
+        "ngram_pruned": true,
+        "ok": true
+      },
+      {
+        "id": "ngram_ipc_10",
+        "case_id": 10,
+        "pred": "search_blob LIKE '%IPC$%'",
+        "n": 3014,
+        "skipped_no_matches": false,
+        "ngram_pruned": true,
+        "ok": true
+      },
+      {
+        "id": "ngram_ipc_7",
+        "case_id": 7,
+        "pred": "search_blob LIKE '%IPC$%'",
+        "n": 81422,
+        "skipped_no_matches": false,
+        "ngram_pruned": true,
+        "ok": true
+      },
+      {
+        "id": "ngram_ipc_32",
+        "case_id": 32,
+        "pred": "search_blob LIKE '%IPC$%'",
+        "n": 278572,
+        "skipped_no_matches": false,
+        "ngram_pruned": true,
+        "ok": true
+      },
+      {
+        "id": "ngram_txt_10",
+        "case_id": 10,
+        "pred": "search_blob LIKE '%TXT%'",
+        "n": 124,
+        "skipped_no_matches": false,
+        "ngram_pruned": true,
+        "ok": true
+      },
+      {
+        "id": "ngram_txt_7",
+        "case_id": 7,
+        "pred": "search_blob LIKE '%TXT%'",
+        "n": 30756,
+        "skipped_no_matches": false,
+        "ngram_pruned": true,
+        "ok": true
+      },
+      {
+        "id": "ngram_txt_32",
+        "case_id": 32,
+        "pred": "search_blob LIKE '%TXT%'",
+        "n": 19721,
+        "skipped_no_matches": false,
+        "ngram_pruned": true,
+        "ok": true
+      },
+      {
+        "id": "ngram_cmd_c_10",
+        "case_id": 10,
+        "pred": "search_blob LIKE '%cmd /c%'",
+        "n": 0,
+        "skipped_no_matches": true,
+        "ngram_pruned": null,
+        "ok": true
+      },
+      {
+        "id": "ngram_cmd_c_7",
+        "case_id": 7,
+        "pred": "search_blob LIKE '%cmd /c%'",
+        "n": 195,
+        "skipped_no_matches": false,
+        "ngram_pruned": true,
+        "ok": true
+      },
+      {
+        "id": "ngram_cmd_c_32",
+        "case_id": 32,
+        "pred": "search_blob LIKE '%cmd /c%'",
+        "n": 2,
+        "skipped_no_matches": false,
+        "ngram_pruned": true,
+        "ok": true
+      }
+    ],
+    "after": [
+      {
+        "id": "ngram_ntlm_10",
+        "case_id": 10,
+        "pred": "search_blob LIKE '%NTLM%'",
+        "n": 2200,
+        "skipped_no_matches": false,
+        "ngram_pruned": true,
+        "ok": true
+      },
+      {
+        "id": "ngram_ntlm_7",
+        "case_id": 7,
+        "pred": "search_blob LIKE '%NTLM%'",
+        "n": 73510,
+        "skipped_no_matches": false,
+        "ngram_pruned": true,
+        "ok": true
+      },
+      {
+        "id": "ngram_ntlm_32",
+        "case_id": 32,
+        "pred": "search_blob LIKE '%NTLM%'",
+        "n": 162596,
+        "skipped_no_matches": false,
+        "ngram_pruned": true,
+        "ok": true
+      },
+      {
+        "id": "ngram_rc4_10",
+        "case_id": 10,
+        "pred": "search_blob LIKE '%RC4%'",
+        "n": 29,
+        "skipped_no_matches": false,
+        "ngram_pruned": true,
+        "ok": true
+      },
+      {
+        "id": "ngram_rc4_7",
+        "case_id": 7,
+        "pred": "search_blob LIKE '%RC4%'",
+        "n": 7029,
+        "skipped_no_matches": false,
+        "ngram_pruned": true,
+        "ok": true
+      },
+      {
+        "id": "ngram_rc4_32",
+        "case_id": 32,
+        "pred": "search_blob LIKE '%RC4%'",
+        "n": 21596,
+        "skipped_no_matches": false,
+        "ngram_pruned": true,
+        "ok": true
+      },
+      {
+        "id": "ngram_ipc_10",
+        "case_id": 10,
+        "pred": "search_blob LIKE '%IPC$%'",
+        "n": 3014,
+        "skipped_no_matches": false,
+        "ngram_pruned": true,
+        "ok": true
+      },
+      {
+        "id": "ngram_ipc_7",
+        "case_id": 7,
+        "pred": "search_blob LIKE '%IPC$%'",
+        "n": 81422,
+        "skipped_no_matches": false,
+        "ngram_pruned": true,
+        "ok": true
+      },
+      {
+        "id": "ngram_ipc_32",
+        "case_id": 32,
+        "pred": "search_blob LIKE '%IPC$%'",
+        "n": 278572,
+        "skipped_no_matches": false,
+        "ngram_pruned": true,
+        "ok": true
+      },
+      {
+        "id": "ngram_txt_10",
+        "case_id": 10,
+        "pred": "search_blob LIKE '%TXT%'",
+        "n": 124,
+        "skipped_no_matches": false,
+        "ngram_pruned": true,
+        "ok": true
+      },
+      {
+        "id": "ngram_txt_7",
+        "case_id": 7,
+        "pred": "search_blob LIKE '%TXT%'",
+        "n": 30756,
+        "skipped_no_matches": false,
+        "ngram_pruned": true,
+        "ok": true
+      },
+      {
+        "id": "ngram_txt_32",
+        "case_id": 32,
+        "pred": "search_blob LIKE '%TXT%'",
+        "n": 19721,
+        "skipped_no_matches": false,
+        "ngram_pruned": true,
+        "ok": true
+      },
+      {
+        "id": "ngram_cmd_c_10",
+        "case_id": 10,
+        "pred": "search_blob LIKE '%cmd /c%'",
+        "n": 0,
+        "skipped_no_matches": true,
+        "ngram_pruned": null,
+        "ok": true
+      },
+      {
+        "id": "ngram_cmd_c_7",
+        "case_id": 7,
+        "pred": "search_blob LIKE '%cmd /c%'",
+        "n": 195,
+        "skipped_no_matches": false,
+        "ngram_pruned": true,
+        "ok": true
+      },
+      {
+        "id": "ngram_cmd_c_32",
+        "case_id": 32,
+        "pred": "search_blob LIKE '%cmd /c%'",
+        "n": 2,
+        "skipped_no_matches": false,
+        "ngram_pruned": true,
+        "ok": true
+      }
+    ]
+  },
+  "fresh_schema": {
+    "idx_search_ngram": "PRESENT",
+    "idx_search_blob_text": "PRESENT",
+    "idx_search_token": "ABSENT",
+    "idx_event_id": "PRESENT",
+    "idx_selector_key": "PRESENT",
+    "idx_evidence_record_key": "PRESENT",
+    "block_number_offset_unchanged": true
+  },
+  "token_retirement_migration": {
+    "module": "migrations/drop_events_search_token_bloom.py",
+    "sql": "ALTER TABLE events DROP INDEX idx_search_token SETTINGS mutations_sync = 1",
+    "idempotent": true,
+    "fail_closed_on_schema_drift": true,
+    "never_drops_ngram": true,
+    "not_invoked_from_app_startup": true,
+    "production_requires_apply_production": true
+  },
+  "production_quiescence": {
+    "producers_stopped_first": [
+      "casescope-web",
+      "casescope-beat"
+    ],
+    "broker_message_deletion": false,
+    "celery_before_worker_stop": {
+      "active": 0,
+      "reserved": 0,
+      "scheduled": 0,
+      "queued": 0,
+      "unacked": 0
+    },
+    "fence": {
+      "shared_writer_count": 0,
+      "exclusive": null
+    },
+    "workers_stopped_after_drain": true,
+    "all_units_inactive_before_ddl": true
+  },
+  "pre_drop_inventory": {
+    "recorded_at": "2026-08-22T14:47:25.787991+00:00",
+    "database": "casescope",
+    "clickhouse_version": "26.7.3.19",
+    "token_canonical": true,
+    "ngram_approved_exception": true,
+    "text_compatible": true,
+    "rows": 745463991,
+    "active_parts": 135,
+    "coverage": {
+      "MATERIALIZED": 25,
+      "PARTIAL": 0,
+      "UNMATERIALIZED": 0,
+      "UNKNOWN": 0
+    },
+    "mutations_in_progress": 0,
+    "fence": {
+      "ok": true,
+      "shared_writer_count": 0,
+      "exclusive": null,
+      "error": null,
+      "refusal_reason": null
+    },
+    "disk_free_bytes": 74495832064,
+    "storage": {
+      "idx_search_token_compressed_bytes": 964699630,
+      "idx_search_ngram_compressed_bytes": 4049580,
+      "idx_search_blob_text_compressed_bytes": 14603118274,
+      "events_compressed_bytes": 123153313168,
+      "disk_path": "/var/lib/clickhouse/",
+      "disk_free_bytes": 74495840256
+    },
+    "fingerprints": {
+      "14": {
+        "n": 1341,
+        "erk_fp": "16290571141753112801",
+        "blob_fp": "2290847619045851771"
+      },
+      "10": {
+        "n": 2447494,
+        "erk_fp": "15879089868034562296",
+        "blob_fp": "9045432129254969497"
+      },
+      "7": {
+        "n": 139579161,
+        "erk_fp": "11596268436448470487",
+        "blob_fp": "13060263514539614204"
+      },
+      "32": {
+        "n": 174899397,
+        "erk_fp": "2456590820591945009",
+        "blob_fp": "3125195348784430915"
+      }
+    },
+    "stop": false
+  },
+  "production_token_drop": {
+    "sql": "ALTER TABLE events DROP INDEX idx_search_token SETTINGS mutations_sync = 1",
+    "elapsed_s": 5.412,
+    "changed": true,
+    "mutation_id": "mutation_34837.txt",
+    "mutation_is_done": true,
+    "parts_to_do": 0,
+    "latest_fail_reason": "",
+    "ngram_mutated": false,
+    "search_blob_mutated": false,
+    "materialize_index": false,
+    "optimize_final": false,
+    "drop_ngram": false
+  },
+  "production_index_after": {
+    "idx_search_blob_text": {
+      "present": true,
+      "expr": "search_blob",
+      "type_full": "text(tokenizer = 'splitByNonAlpha', preprocessor = lower(search_blob))"
+    },
+    "idx_search_ngram": {
+      "present": true,
+      "expr": "search_blob",
+      "type_full": "ngrambf_v1(3, 512, 2, 0)",
+      "granularity": 4
+    },
+    "idx_search_token": {
+      "present": false
+    },
+    "idx_event_id": {
+      "present": true
+    },
+    "idx_selector_key": {
+      "present": true
+    },
+    "idx_evidence_record_key": {
+      "present": true
+    },
+    "coverage": {
+      "MATERIALIZED": 25,
+      "PARTIAL": 0,
+      "UNMATERIALIZED": 0,
+      "UNKNOWN": 0
+    },
+    "active_parts_MATERIALIZED": 135,
+    "active_parts": 135,
+    "mutations_in_progress": 0,
+    "expected_ok": true
+  },
+  "fingerprints": {
+    "before": {
+      "14": {
+        "n": 1341,
+        "erk_fp": "16290571141753112801",
+        "blob_fp": "2290847619045851771"
+      },
+      "10": {
+        "n": 2447494,
+        "erk_fp": "15879089868034562296",
+        "blob_fp": "9045432129254969497"
+      },
+      "7": {
+        "n": 139579161,
+        "erk_fp": "11596268436448470487",
+        "blob_fp": "13060263514539614204"
+      },
+      "32": {
+        "n": 174899397,
+        "erk_fp": "2456590820591945009",
+        "blob_fp": "3125195348784430915"
+      }
+    },
+    "after": {
+      "14": {
+        "n": 1341,
+        "erk_fp": "16290571141753112801",
+        "blob_fp": "2290847619045851771"
+      },
+      "10": {
+        "n": 2447494,
+        "erk_fp": "15879089868034562296",
+        "blob_fp": "9045432129254969497"
+      },
+      "7": {
+        "n": 139579161,
+        "erk_fp": "11596268436448470487",
+        "blob_fp": "13060263514539614204"
+      },
+      "32": {
+        "n": 174899397,
+        "erk_fp": "2456590820591945009",
+        "blob_fp": "3125195348784430915"
+      }
+    },
+    "unchanged": true
+  },
+  "semantic_parity": {
+    "ok": true,
+    "results": [
+      {
+        "id": "token_14_sonicwall",
+        "kind": "TOKEN_SAFE",
+        "case_id": 14,
+        "pred": "hasAllTokens(search_blob, 'sonicwall')",
+        "n": 13,
+        "same_n": true,
+        "same_erk": true,
+        "p50_ms_before": 9.41,
+        "p50_ms_after": 8.199,
+        "p95_ms_before": 9.416,
+        "p95_ms_after": 8.614,
+        "read_rows_before": 1341,
+        "read_rows_after": 1341,
+        "read_bytes_before": 320261,
+        "read_bytes_after": 320261,
+        "skip_names_before": [
+          "idx_search_blob_text"
+        ],
+        "skip_names_after": [
+          "idx_search_blob_text"
+        ],
+        "ngram_pruned_before": false,
+        "ngram_pruned_after": false,
+        "direct_text_before": true,
+        "direct_text_after": true
+      },
+      {
+        "id": "token_10_powershell",
+        "kind": "TOKEN_SAFE",
+        "case_id": 10,
+        "pred": "hasAllTokens(search_blob, 'powershell')",
+        "n": 19455,
+        "same_n": true,
+        "same_erk": true,
+        "p50_ms_before": 51.895,
+        "p50_ms_after": 56.061,
+        "p95_ms_before": 52.112,
+        "p95_ms_after": 60.124,
+        "read_rows_before": 1391279,
+        "read_rows_after": 1391279,
+        "read_bytes_before": 231134993,
+        "read_bytes_after": 231134993,
+        "skip_names_before": [
+          "idx_search_blob_text"
+        ],
+        "skip_names_after": [
+          "idx_search_blob_text"
+        ],
+        "ngram_pruned_before": false,
+        "ngram_pruned_after": false,
+        "direct_text_before": true,
+        "direct_text_after": true
+      },
+      {
+        "id": "token_7_powershell",
+        "kind": "TOKEN_SAFE",
+        "case_id": 7,
+        "pred": "hasAllTokens(search_blob, 'powershell')",
+        "n": 705353,
+        "same_n": true,
+        "same_erk": true,
+        "p50_ms_before": 1606.42,
+        "p50_ms_after": 1731.327,
+        "p95_ms_before": 1680.035,
+        "p95_ms_after": 1777.394,
+        "read_rows_before": 70967069,
+        "read_rows_after": 70967069,
+        "read_bytes_before": 12564126166,
+        "read_bytes_after": 12564126166,
+        "skip_names_before": [
+          "idx_search_blob_text"
+        ],
+        "skip_names_after": [
+          "idx_search_blob_text"
+        ],
+        "ngram_pruned_before": false,
+        "ngram_pruned_after": false,
+        "direct_text_before": true,
+        "direct_text_after": true
+      },
+      {
+        "id": "token_32_powershell",
+        "kind": "TOKEN_SAFE",
+        "case_id": 32,
+        "pred": "hasAllTokens(search_blob, 'powershell')",
+        "n": 940117,
+        "same_n": true,
+        "same_erk": true,
+        "p50_ms_before": 2372.474,
+        "p50_ms_after": 2377.758,
+        "p95_ms_before": 2635.692,
+        "p95_ms_after": 2402.348,
+        "read_rows_before": 104812410,
+        "read_rows_after": 104812410,
+        "read_bytes_before": 17421511306,
+        "read_bytes_after": 17421527045,
+        "skip_names_before": [
+          "idx_search_blob_text"
+        ],
+        "skip_names_after": [
+          "idx_search_blob_text"
+        ],
+        "ngram_pruned_before": false,
+        "ngram_pruned_after": false,
+        "direct_text_before": true,
+        "direct_text_after": true
+      },
+      {
+        "id": "sub_10_cmdexe",
+        "kind": "SUBSTRING",
+        "case_id": 10,
+        "pred": "search_blob ILIKE '%cmd.exe%'",
+        "n": 3025,
+        "same_n": true,
+        "same_erk": true,
+        "p50_ms_before": 86.951,
+        "p50_ms_after": 85.66,
+        "p95_ms_before": 87.778,
+        "p95_ms_after": 90.97,
+        "read_rows_before": 687142,
+        "read_rows_after": 687142,
+        "read_bytes_before": 309209452,
+        "read_bytes_after": 309209452,
+        "skip_names_before": [],
+        "skip_names_after": [],
+        "ngram_pruned_before": false,
+        "ngram_pruned_after": false,
+        "direct_text_before": false,
+        "direct_text_after": false
+      },
+      {
+        "id": "sub_10_ip",
+        "kind": "SUBSTRING",
+        "case_id": 10,
+        "pred": "search_blob ILIKE '%10.0.0.1%'",
+        "n": 0,
+        "same_n": true,
+        "same_erk": true,
+        "p50_ms_before": 8.362,
+        "p50_ms_after": 7.741,
+        "p95_ms_before": 9.071,
+        "p95_ms_after": 8.013,
+        "read_rows_before": 0,
+        "read_rows_after": 0,
+        "read_bytes_before": 0,
+        "read_bytes_after": 0,
+        "skip_names_before": [],
+        "skip_names_after": [],
+        "ngram_pruned_before": false,
+        "ngram_pruned_after": false,
+        "direct_text_before": false,
+        "direct_text_after": false
+      },
+      {
+        "id": "sub_10_winps",
+        "kind": "SUBSTRING",
+        "case_id": 10,
+        "pred": "search_blob ILIKE '%Windows PowerShell%'",
+        "n": 13370,
+        "same_n": true,
+        "same_erk": true,
+        "p50_ms_before": 43.173,
+        "p50_ms_after": 43.369,
+        "p95_ms_before": 44.78,
+        "p95_ms_after": 45.225,
+        "read_rows_before": 234203,
+        "read_rows_after": 234203,
+        "read_bytes_before": 167847676,
+        "read_bytes_after": 167847676,
+        "skip_names_before": [],
+        "skip_names_after": [],
+        "ngram_pruned_before": false,
+        "ngram_pruned_after": false,
+        "direct_text_before": false,
+        "direct_text_after": false
+      },
+      {
+        "id": "unicode_10_munchen",
+        "kind": "UNICODE",
+        "case_id": 10,
+        "pred": "search_blob ILIKE '%m\u00fcnchen%'",
+        "n": 0,
+        "same_n": true,
+        "same_erk": true,
+        "p50_ms_before": 7.113,
+        "p50_ms_after": 6.685,
+        "p95_ms_before": 7.362,
+        "p95_ms_after": 7.758,
+        "read_rows_before": 0,
+        "read_rows_after": 0,
+        "read_bytes_before": 0,
+        "read_bytes_after": 0,
+        "skip_names_before": [],
+        "skip_names_after": [],
+        "ngram_pruned_before": false,
+        "ngram_pruned_after": false,
+        "direct_text_before": false,
+        "direct_text_after": false
+      },
+      {
+        "id": "unicode_10_user",
+        "kind": "UNICODE",
+        "case_id": 10,
+        "pred": "search_blob ILIKE '%\u7528\u6237%'",
+        "n": 0,
+        "same_n": true,
+        "same_erk": true,
+        "p50_ms_before": 7.962,
+        "p50_ms_after": 6.369,
+        "p95_ms_before": 8.078,
+        "p95_ms_after": 7.084,
+        "read_rows_before": 0,
+        "read_rows_after": 0,
+        "read_bytes_before": 0,
+        "read_bytes_after": 0,
+        "skip_names_before": [],
+        "skip_names_after": [],
+        "ngram_pruned_before": false,
+        "ngram_pruned_after": false,
+        "direct_text_before": false,
+        "direct_text_after": false
+      },
+      {
+        "id": "struct_10_4688",
+        "kind": "STRUCTURED",
+        "case_id": 10,
+        "pred": "event_id = '4688'",
+        "n": 0,
+        "same_n": true,
+        "same_erk": true,
+        "p50_ms_before": 10.718,
+        "p50_ms_after": 10.071,
+        "p95_ms_before": 10.807,
+        "p95_ms_after": 10.161,
+        "read_rows_before": 0,
+        "read_rows_after": 0,
+        "read_bytes_before": 0,
+        "read_bytes_after": 0,
+        "skip_names_before": [
+          "idx_event_id"
+        ],
+        "skip_names_after": [
+          "idx_event_id"
+        ],
+        "ngram_pruned_before": false,
+        "ngram_pruned_after": false,
+        "direct_text_before": false,
+        "direct_text_after": false
+      },
+      {
+        "id": "excl_14_powershell",
+        "kind": "EXCLUSION",
+        "case_id": 14,
+        "pred": "NOT search_blob ILIKE '%powershell%'",
+        "n": 1341,
+        "same_n": true,
+        "same_erk": true,
+        "p50_ms_before": 8.294,
+        "p50_ms_after": 9.002,
+        "p95_ms_before": 8.528,
+        "p95_ms_after": 10.225,
+        "read_rows_before": 1341,
+        "read_rows_after": 1341,
+        "read_bytes_before": 974149,
+        "read_bytes_after": 974149,
+        "skip_names_before": [],
+        "skip_names_after": [],
+        "ngram_pruned_before": false,
+        "ngram_pruned_after": false,
+        "direct_text_before": false,
+        "direct_text_after": false
+      },
+      {
+        "id": "pattern_10_ntlm",
+        "kind": "PATTERN",
+        "case_id": 10,
+        "pred": "search_blob LIKE '%NTLM%'",
+        "n": 2200,
+        "same_n": true,
+        "same_erk": true,
+        "p50_ms_before": 120.609,
+        "p50_ms_after": 123.145,
+        "p95_ms_before": 122.827,
+        "p95_ms_after": 129.333,
+        "read_rows_before": 2336555,
+        "read_rows_after": 2336555,
+        "read_bytes_before": 713349079,
+        "read_bytes_after": 713349079,
+        "skip_names_before": [
+          "idx_search_blob_text",
+          "idx_search_ngram",
+          "idx_search_token"
+        ],
+        "skip_names_after": [
+          "idx_search_blob_text",
+          "idx_search_ngram"
+        ],
+        "ngram_pruned_before": true,
+        "ngram_pruned_after": true,
+        "direct_text_before": false,
+        "direct_text_after": false
+      },
+      {
+        "id": "pattern_10_rc4",
+        "kind": "PATTERN",
+        "case_id": 10,
+        "pred": "search_blob LIKE '%RC4%'",
+        "n": 29,
+        "same_n": true,
+        "same_erk": true,
+        "p50_ms_before": 119.994,
+        "p50_ms_after": 108.372,
+        "p95_ms_before": 120.821,
+        "p95_ms_after": 108.999,
+        "read_rows_before": 2426320,
+        "read_rows_after": 2426320,
+        "read_bytes_before": 631591165,
+        "read_bytes_after": 631591167,
+        "skip_names_before": [
+          "idx_search_blob_text",
+          "idx_search_ngram",
+          "idx_search_token"
+        ],
+        "skip_names_after": [
+          "idx_search_blob_text",
+          "idx_search_ngram"
+        ],
+        "ngram_pruned_before": true,
+        "ngram_pruned_after": true,
+        "direct_text_before": false,
+        "direct_text_after": false
+      },
+      {
+        "id": "pattern_10_ipc",
+        "kind": "PATTERN",
+        "case_id": 10,
+        "pred": "search_blob LIKE '%IPC$%'",
+        "n": 3014,
+        "same_n": true,
+        "same_erk": true,
+        "p50_ms_before": 128.417,
+        "p50_ms_after": 122.322,
+        "p95_ms_before": 144.27,
+        "p95_ms_after": 127.317,
+        "read_rows_before": 2447340,
+        "read_rows_after": 2447340,
+        "read_bytes_before": 733812379,
+        "read_bytes_after": 733812381,
+        "skip_names_before": [
+          "idx_search_blob_text",
+          "idx_search_ngram",
+          "idx_search_token"
+        ],
+        "skip_names_after": [
+          "idx_search_blob_text",
+          "idx_search_ngram"
+        ],
+        "ngram_pruned_before": true,
+        "ngram_pruned_after": true,
+        "direct_text_before": false,
+        "direct_text_after": false
+      },
+      {
+        "id": "pattern_10_txt",
+        "kind": "PATTERN",
+        "case_id": 10,
+        "pred": "search_blob LIKE '%TXT%'",
+        "n": 124,
+        "same_n": true,
+        "same_erk": true,
+        "p50_ms_before": 88.665,
+        "p50_ms_after": 101.137,
+        "p95_ms_before": 109.766,
+        "p95_ms_after": 105.432,
+        "read_rows_before": 2418848,
+        "read_rows_after": 2418848,
+        "read_bytes_before": 638044443,
+        "read_bytes_after": 638040987,
+        "skip_names_before": [
+          "idx_search_blob_text",
+          "idx_search_ngram",
+          "idx_search_token"
+        ],
+        "skip_names_after": [
+          "idx_search_blob_text",
+          "idx_search_ngram"
+        ],
+        "ngram_pruned_before": true,
+        "ngram_pruned_after": true,
+        "direct_text_before": false,
+        "direct_text_after": false
+      },
+      {
+        "id": "pattern_10_cmd_c",
+        "kind": "PATTERN",
+        "case_id": 10,
+        "pred": "search_blob LIKE '%cmd /c%'",
+        "n": 0,
+        "same_n": true,
+        "same_erk": true,
+        "p50_ms_before": 105.435,
+        "p50_ms_after": 98.193,
+        "p95_ms_before": 117.199,
+        "p95_ms_after": 104.094,
+        "read_rows_before": 2426320,
+        "read_rows_after": 2426320,
+        "read_bytes_before": 626671991,
+        "read_bytes_after": 626671993,
+        "skip_names_before": [
+          "idx_search_blob_text",
+          "idx_search_ngram",
+          "idx_search_token"
+        ],
+        "skip_names_after": [
+          "idx_search_blob_text",
+          "idx_search_ngram"
+        ],
+        "ngram_pruned_before": true,
+        "ngram_pruned_after": true,
+        "direct_text_before": false,
+        "direct_text_after": false
+      },
+      {
+        "id": "sub_7_ip",
+        "kind": "SUBSTRING",
+        "case_id": 7,
+        "pred": "search_blob ILIKE '%10.0.0.1%'",
+        "n": 3162,
+        "same_n": true,
+        "same_erk": true,
+        "p50_ms_before": 49.363,
+        "p50_ms_after": 56.647,
+        "p95_ms_before": 56.933,
+        "p95_ms_after": 56.992,
+        "read_rows_before": 375509,
+        "read_rows_after": 373173,
+        "read_bytes_before": 115596771,
+        "read_bytes_after": 147783804,
+        "skip_names_before": [],
+        "skip_names_after": [],
+        "ngram_pruned_before": false,
+        "ngram_pruned_after": false,
+        "direct_text_before": false,
+        "direct_text_after": false
+      },
+      {
+        "id": "struct_7_4688",
+        "kind": "STRUCTURED",
+        "case_id": 7,
+        "pred": "event_id = '4688'",
+        "n": 87,
+        "same_n": true,
+        "same_erk": true,
+        "p50_ms_before": 34.247,
+        "p50_ms_after": 37.644,
+        "p95_ms_before": 34.311,
+        "p95_ms_after": 37.875,
+        "read_rows_before": 1370981,
+        "read_rows_after": 1370981,
+        "read_bytes_before": 8561893,
+        "read_bytes_after": 14004953,
+        "skip_names_before": [
+          "idx_event_id"
+        ],
+        "skip_names_after": [
+          "idx_event_id"
+        ],
+        "ngram_pruned_before": false,
+        "ngram_pruned_after": false,
+        "direct_text_before": false,
+        "direct_text_after": false
+      }
+    ]
+  },
+  "explain_after": {
+    "token_safe_direct_text_unchanged": true,
+    "pattern_ngram_still_prunes": true,
+    "token_absent_from_skip_lists": true
+  },
+  "performance_after": {
+    "token_safe_read_rows_delta_zero": true,
+    "pattern_read_rows_delta_zero": true,
+    "no_material_token_retirement_regression": true
+  },
+  "storage": {
+    "before": {
+      "idx_search_token_compressed_bytes": 964699630,
+      "idx_search_ngram_compressed_bytes": 4049580,
+      "idx_search_blob_text_compressed_bytes": 14603118274,
+      "events_compressed_bytes": 123153313168,
+      "disk_path": "/var/lib/clickhouse/",
+      "disk_free_bytes": 74527657984
+    },
+    "after": {
+      "idx_search_token_compressed_bytes": null,
+      "idx_search_ngram_compressed_bytes": 4049580,
+      "idx_search_blob_text_compressed_bytes": 14603118274,
+      "events_compressed_bytes": 122188508065,
+      "disk_path": "/var/lib/clickhouse/",
+      "disk_free_bytes": 74459926528
+    },
+    "token_metadata": "absent",
+    "token_parts_compressed_bytes_reclaimed_in_system_parts": 964805103,
+    "filesystem_free_bytes_before": 74527657984,
+    "filesystem_free_bytes_after": 74459926528,
+    "filesystem_reclamation": "not_required_if_asynchronous; metadata absent is distinct from disk bytes reclaimed"
+  },
+  "product_smoke": {
+    "login": true,
+    "version_rendered": "v4.26.0",
+    "case_14_sonicwall_total": 13,
+    "grid_rows": 13,
+    "detail_ok": true,
+    "export_view_data_rows": 13,
+    "export_tagged_http_200": true,
+    "export_tagged_data_rows": 0,
+    "query_log_hasAllTokens": "hasAllTokens(search_blob, 'sonicwall')",
+    "query_log_publication_bridge": true,
+    "query_log_ilike_sonicwall": false,
+    "log_500_traceback_unknown_index_function_clickhouse_exception": false,
+    "services_after": {
+      "casescope-web": "active",
+      "casescope-workers": "active",
+      "casescope-beat": "active"
+    }
+  },
+  "publication_authority_regression": {
+    "suite": "tests/test_phase1b_tranche_f2_product_search_publication_gate.py",
+    "environment": {
+      "PHASE1B_PG_TEST_DATABASE_URL": "postgresql://\u2026@localhost/phase2_1c_test",
+      "PHASE1B_CH_TEST_DATABASE": "phase2_1c_test"
+    },
+    "required_skips": 0,
+    "result": "PASS",
+    "tests_passed": true,
+    "skipped": 0
+  },
+  "insert_index_decision": "KEEP_PRODUCTION_MATERIALIZE_SKIP_INDEXES_ON_INSERT_1",
+  "command_line_decision": "COMMAND_LINE_INDEX_DEFER",
+  "production_setting_materialize_skip_indexes_on_insert": "1",
+  "regression_tests": {
+    "result": "PASS",
+    "passed": 224,
+    "skipped": 0,
+    "failed": 0,
+    "seconds": 18.81,
+    "files": [
+      "tests/test_phase2_entry_gates.py",
+      "tests/test_phase2_1a_text_index_materialization.py",
+      "tests/test_phase2_1c_hunt_token_cutover.py",
+      "tests/test_phase1b_tranche_f2_product_search_publication_gate.py",
+      "tests/test_phase2_1d_final_exit.py",
+      "tests/test_phase2_1d2a_bloom_dependency_resolution.py",
+      "tests/test_query_hardening_regressions.py",
+      "tests/test_hunt_routes_contract.py",
+      "tests/test_ioc_hunting_regressions.py",
+      "tests/test_ingest_fence.py",
+      "tests/test_phase2_1d2b_token_retirement.py"
+    ],
+    "py_compile": true,
+    "pyflakes": true,
+    "git_diff_check": true
+  },
+  "no_later_phase": {
+    "DROP_idx_search_ngram": false,
+    "pattern_rules_rewrite": false,
+    "ILIKE_prefilter_production_migration": false,
+    "new_search_index": false,
+    "command_line_index": false,
+    "production_materialize_skip_indexes_on_insert_change": false,
+    "async_insert_decision": false,
+    "Phase_2_2": false,
+    "Phase_2_3": false,
+    "Phase_2_4": false,
+    "Phase_3_plus": false,
+    "LEK": false,
+    "events_current": false,
+    "event_observations_current": false,
+    "pagination_redesign": false
+  },
+  "phase2_1_exit_gates": {
+    "1_text_index_locked_definition_present": true,
+    "2_all_active_parts_text_index_coverage": true,
+    "3_token_safe_hunt_reader_live": true,
+    "4_substring_punctuation_unicode_correct": true,
+    "5_phase1b_publication_authority_enforced": true,
+    "6_idx_search_token_absent_and_proven_redundant": true,
+    "7_fresh_installs_do_not_create_token": true,
+    "8_upgrade_migration_idempotent_fail_closed": true,
+    "9_idx_search_ngram_present_under_PHASE2_1_EXC_001": true,
+    "10_ngram_exception_backed_by_d2a_explain_not_unproven_rewrite": true,
+    "11_KEEP_PRODUCTION_MATERIALIZE_SKIP_INDEXES_ON_INSERT_1": true,
+    "12_COMMAND_LINE_INDEX_DEFER": true,
+    "13_no_evidence_or_search_blob_rewrite": true,
+    "14_no_phase_2_2_plus_work": true
+  },
+  "remaining_work": [
+    "Independent review of D2B",
+    "After independent review accepts D2B, Phase 2.1 is CLOSED",
+    "Next locked tranche is Phase 2.2 insertion-mode benchmark/decision; not started here"
+  ]
+}

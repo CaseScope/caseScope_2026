@@ -36,12 +36,18 @@ EVIDENCE = os.path.join(
 
 
 class Phase21D2AContractTests(unittest.TestCase):
-    def test_version_unchanged(self):
+    def test_d2a_evidence_recorded_measurement_only_state(self):
         with open(os.path.join(os.path.dirname(os.path.dirname(__file__)), "version.json")) as handle:
             payload = json.load(handle)
-        self.assertEqual(payload["version"], "4.25.2")
+        self.assertTrue(payload["version"])
+        self.assertTrue(os.path.exists(EVIDENCE), msg="D2A JSON evidence is required")
+        with open(EVIDENCE) as handle:
+            d2a = json.load(handle)
+        self.assertEqual(d2a["version"], "4.25.2")
+        self.assertFalse(d2a["version_bumped"])
+        self.assertEqual(d2a["phase2_1_state"], "PHASE2_1_NOT_READY")
 
-    def test_canonical_schema_still_declares_both_blooms_and_text_index(self):
+    def test_canonical_schema_after_exc_001_keeps_ngram_not_token(self):
         self.assertIn("INDEX idx_search_blob_text search_blob TYPE text(", EVENTS_SCHEMA)
         self.assertIn("tokenizer = 'splitByNonAlpha'", EVENTS_SCHEMA)
         self.assertIn("preprocessor = lower(search_blob)", EVENTS_SCHEMA)
@@ -49,16 +55,16 @@ class Phase21D2AContractTests(unittest.TestCase):
             "INDEX idx_search_ngram search_blob TYPE ngrambf_v1(3, 512, 2, 0) GRANULARITY 4",
             EVENTS_SCHEMA,
         )
-        self.assertIn(
+        self.assertNotIn(
             "INDEX idx_search_token search_blob TYPE tokenbf_v1(32768, 3, 0) GRANULARITY 4",
             EVENTS_SCHEMA,
         )
 
-    def test_no_bloom_drop_migration_shipped(self):
+    def test_dual_bloom_drop_migration_was_not_shipped_by_d2a(self):
         migrations_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), "migrations")
         names = os.listdir(migrations_dir)
-        self.assertFalse(any("bloom" in name and "drop" in name for name in names), msg=names)
         self.assertNotIn("drop_events_search_blob_bloom_indexes.py", names)
+        self.assertFalse(any(name == "drop_events_search_blob_blooms.py" for name in names), msg=names)
 
     def test_hunt_and_pattern_readers_not_migrated(self):
         source = inspect.getsource(hunting_query_helpers.build_hunting_search_clause)
