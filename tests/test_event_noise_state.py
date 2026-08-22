@@ -18,6 +18,7 @@ def _load_module_under_test():
     original_event_selector = sys.modules.get("utils.event_selector")
 
     utils_package = types.ModuleType("utils")
+    utils_package.__path__ = [os.path.join(REPO_ROOT, "utils")]
     clickhouse_module = types.ModuleType("utils.clickhouse")
     clickhouse_module.get_client = lambda: None
     clickhouse_module.clickhouse_bool_literal = lambda value: "true" if value else "false"
@@ -25,6 +26,30 @@ def _load_module_under_test():
         "[" + ", ".join(f"'{value}'" for value in values) + "]"
     )
     clickhouse_module.clickhouse_string_literal = lambda value: f"'{value}'"
+    clickhouse_module.LIGHTWEIGHT_UPDATE_MAX_SELECTOR_KEYS = 1000
+
+    class _LightweightUpdateRefused(ValueError):
+        pass
+
+    clickhouse_module.LightweightUpdateRefused = _LightweightUpdateRefused
+
+    def _run_events_lightweight_update(
+        assignments_sql, *, case_id, selector_keys, artifact_type=None, client=None
+    ):
+        keys = list(selector_keys or [])
+        if not keys:
+            return True
+        if len(keys) > clickhouse_module.LIGHTWEIGHT_UPDATE_MAX_SELECTOR_KEYS:
+            raise _LightweightUpdateRefused("too many selector keys")
+        artifact_filter_sql = f"AND artifact_type = '{artifact_type}' " if artifact_type else ""
+        keys_sql = "[" + ", ".join(f"'{value}'" for value in keys) + "]"
+        client.command(
+            f"UPDATE events SET {assignments_sql} WHERE case_id = {int(case_id)} "
+            f"{artifact_filter_sql}AND has({keys_sql}, selector_key)"
+        )
+        return True
+
+    clickhouse_module.run_events_lightweight_update = _run_events_lightweight_update
     clickhouse_module.run_events_update = lambda assignments_sql, where_sql, *, client=None, wait=True: client.command(
         f"ALTER TABLE events UPDATE {assignments_sql} WHERE {where_sql}"
         f"{' SETTINGS mutations_sync = 1' if wait else ''}"
@@ -96,11 +121,13 @@ class EventNoiseStateTestCase(unittest.TestCase):
 
             self.assertEqual(updated, 1)
             self.assertEqual(len(commands), 1)
+            self.assertIn("UPDATE events SET", commands[0])
+            self.assertNotIn("ALTER TABLE events UPDATE", commands[0])
             self.assertIn("noise_matched = true", commands[0])
             self.assertIn("case_id = 7", commands[0])
             self.assertIn("artifact_type = 'evtx'", commands[0])
             self.assertIn("selector_key", commands[0])
-            self.assertIn("mutations_sync", commands[0])
+            self.assertNotIn("mutations_sync", commands[0])
 
     def test_upsert_manual_noise_state_rows_groups_by_artifact_type(self):
         commands = []

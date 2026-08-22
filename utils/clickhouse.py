@@ -20,6 +20,7 @@ from utils.ingest_fence import (
     IngestFenceUnavailable,
     exclusive_ingest_fence,
     get_active_exclusive_fence,
+    shared_ingest_admission,
 )
 from utils.ingest_metrics import diagnostic_counts_enabled, emit_metric, timed_stage
 
@@ -275,6 +276,62 @@ def clickhouse_bool_literal(value):
 def clickhouse_string_array_literal(values):
     """Return a ClickHouse Array(String) literal."""
     return '[' + ', '.join(clickhouse_string_literal(item) for item in (values or [])) + ']'
+
+
+# Phase 2.3 small-state bridge boundary. Gate B measured 1,000-row SQL UPDATE
+# in the small-state regime; 10,000 already showed patch-part amplification.
+# This is not a universal ClickHouse threshold. Changing it requires measurement.
+LIGHTWEIGHT_UPDATE_MAX_SELECTOR_KEYS = 1000
+
+
+class LightweightUpdateRefused(ValueError):
+    """The bounded lightweight UPDATE helper will not accept this selector set."""
+
+
+def _normalize_lightweight_selector_keys(selector_keys):
+    if selector_keys is None:
+        raise TypeError("selector_keys is required")
+    if isinstance(selector_keys, (str, bytes)):
+        raise TypeError("selector_keys must be a sequence of keys, not a string")
+    return list(selector_keys)
+
+
+def run_events_lightweight_update(
+    assignments_sql,
+    *,
+    case_id,
+    selector_keys,
+    artifact_type=None,
+    client=None,
+):
+    """Apply a selector-bounded SQL UPDATE to `events`.
+
+    Phase 2.3 small-state bridge only. The helper builds its own WHERE clause
+    from the mandatory case_id plus explicit selector keys. It does not accept
+    caller-supplied predicates and refuses more than
+    LIGHTWEIGHT_UPDATE_MAX_SELECTOR_KEYS keys. Broad rewrites must keep using
+    run_events_update behind the exclusive fence.
+    """
+    keys = _normalize_lightweight_selector_keys(selector_keys)
+    if not keys:
+        return True
+    if len(keys) > LIGHTWEIGHT_UPDATE_MAX_SELECTOR_KEYS:
+        raise LightweightUpdateRefused(
+            "Lightweight UPDATE refuses more than "
+            f"{LIGHTWEIGHT_UPDATE_MAX_SELECTOR_KEYS} selector keys; "
+            "use classic run_events_update"
+        )
+
+    case_id = int(case_id)
+    client = client or get_client()
+    where_parts = [f"case_id = {case_id}"]
+    if artifact_type:
+        where_parts.append(f"artifact_type = {clickhouse_string_literal(artifact_type)}")
+    where_parts.append(f"has({clickhouse_string_array_literal(keys)}, selector_key)")
+    sql = f"UPDATE events SET {assignments_sql} WHERE {' AND '.join(where_parts)}"
+    with shared_ingest_admission("events_lightweight_update", case_id=case_id):
+        client.command(sql)
+    return True
 
 
 def run_events_update(assignments_sql, where_sql, *, client=None, wait=True, audit=None):

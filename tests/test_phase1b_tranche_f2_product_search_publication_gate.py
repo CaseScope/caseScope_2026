@@ -252,14 +252,18 @@ class Phase1BF2ProductSearchPublicationGateTestCase(unittest.TestCase):
             autogenerate_session_id=False,
         )
         columns = ",\n".join(f"    {name} {definition}" for name, definition in EVENTS_COLUMN_DEFINITIONS.items())
+        cls.ch.command("DROP TABLE IF EXISTS events")
         cls.ch.command(f"""
-        CREATE TABLE IF NOT EXISTS events (
+        CREATE TABLE events (
         {columns}
         )
         ENGINE = MergeTree
         PARTITION BY case_id
         ORDER BY (case_id, timestamp_utc, artifact_type, source_host, source_file, event_id)
-        SETTINGS index_granularity = 8192
+        SETTINGS
+            index_granularity = 8192,
+            enable_block_number_column = 1,
+            enable_block_offset_column = 1
         """)
         for ddl in CLICKHOUSE_CONTROL_TABLE_DDL:
             cls.ch.command(ddl)

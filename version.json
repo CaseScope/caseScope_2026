@@ -1,6 +1,16 @@
 {
-  "version": "4.26.1",
+  "version": "4.26.2",
   "changelog": [
+    {
+      "version": "4.26.2",
+      "date": "2026-08-22",
+      "changes": [
+        "Phase 2.3 adds bounded lightweight ClickHouse UPDATE for selector-bounded analyst and manual-noise state",
+        "operations above the small-state boundary and all predicate/broad state rewrites remain on classic exclusive-fenced ALTER UPDATE",
+        "audit hooks and current selector-based product semantics are preserved",
+        "no Phase 2.4/3+ architecture started"
+      ]
+    },
     {
       "version": "4.26.1",
       "date": "2026-08-22",

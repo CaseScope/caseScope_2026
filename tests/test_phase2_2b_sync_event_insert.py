@@ -287,11 +287,13 @@ class EventInsertSettingsUnitTests(unittest.TestCase):
     def test_version_is_patch_4_26_1(self):
         with open(os.path.join(os.path.dirname(os.path.dirname(__file__)), "version.json"), encoding="utf-8") as handle:
             payload = json.load(handle)
-        self.assertEqual(payload["version"], "4.26.1")
-        self.assertEqual(payload["changelog"][0]["version"], "4.26.1")
-        joined = " ".join(payload["changelog"][0]["changes"])
+        versions = [entry.get("version") for entry in payload.get("changelog") or []]
+        self.assertIn("4.26.1", versions)
+        entry = next(item for item in payload["changelog"] if item.get("version") == "4.26.1")
+        joined = " ".join(entry["changes"])
         self.assertIn("synchronous", joined.lower())
         self.assertIn("10k", joined)
+        self.assertTrue(str(payload["version"]).startswith("4.26."), msg=payload["version"])
 
 
 class ManagedAndLegacyInsertUnitTests(unittest.TestCase):

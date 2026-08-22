@@ -1,10 +1,11 @@
 """Audit recording for mutations applied to stored evidence.
 
-Every change to the ClickHouse `events` table flows through
-`utils.clickhouse.run_events_update`. That statement is predicate-driven and
-a single call can rewrite hundreds of millions of rows, so per-event
-before/after capture is only viable when the caller is acting on a bounded,
-explicitly named set of events.
+Every change to the ClickHouse `events` table flows through either the
+bounded lightweight helper (`utils.clickhouse.run_events_lightweight_update`)
+or classic `utils.clickhouse.run_events_update`. Both preserve this evidence-audit
+contract. Classic ALTER UPDATE is predicate-driven and a single call can rewrite
+hundreds of millions of rows, so per-event before/after capture is only viable
+when the caller is acting on a bounded, explicitly named set of events.
 
 Two shapes are therefore recorded:
 

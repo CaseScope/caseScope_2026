@@ -7,10 +7,12 @@ from typing import Any, Dict, Iterable, List, Optional
 from uuid import uuid4
 
 from utils.clickhouse import (
+    LIGHTWEIGHT_UPDATE_MAX_SELECTOR_KEYS,
     clickhouse_bool_literal,
     clickhouse_string_array_literal,
     clickhouse_string_literal,
     get_client,
+    run_events_lightweight_update,
     run_events_update,
 )
 from utils.event_selector import build_event_selector_key
@@ -193,6 +195,8 @@ def upsert_manual_noise_state_rows(
     if not prepared_rows:
         return 0
 
+    use_lightweight = len(prepared_rows) <= LIGHTWEIGHT_UPDATE_MAX_SELECTOR_KEYS
+
     grouped_updates: Dict[tuple, List[str]] = {}
     for _, selector_key, artifact_type, noise_matched, noise_rules, _updated_by in prepared_rows:
         grouped_updates.setdefault((artifact_type, bool(noise_matched), tuple(noise_rules)), []).append(selector_key)
@@ -230,7 +234,16 @@ def upsert_manual_noise_state_rows(
 
         prior = _fetch_prior_noise_state(client, case_id, selector_keys)
         matched_selector_keys = [key for key in selector_keys if key in prior] or selector_keys
-        run_events_update(assignments_sql, where_sql, client=client)
+        if use_lightweight:
+            run_events_lightweight_update(
+                assignments_sql,
+                case_id=int(case_id),
+                selector_keys=selector_keys,
+                artifact_type=artifact_type,
+                client=client,
+            )
+        else:
+            run_events_update(assignments_sql, where_sql, client=client)
 
         new_state = {"noise_matched": bool(noise_matched), "noise_rules": list(noise_rules)}
         record_event_changes(

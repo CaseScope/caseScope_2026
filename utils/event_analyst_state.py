@@ -6,11 +6,13 @@ import logging
 from typing import Any, Dict, Iterable, List, Optional
 
 from utils.clickhouse import (
+    LIGHTWEIGHT_UPDATE_MAX_SELECTOR_KEYS,
     clickhouse_bool_literal,
     clickhouse_nullable_string_literal,
     clickhouse_string_array_literal,
     clickhouse_string_literal,
     get_client,
+    run_events_lightweight_update,
     run_events_update,
 )
 from utils.event_selector import build_event_selector_key
@@ -134,6 +136,8 @@ def upsert_event_analyst_state_rows(
     if not prepared_rows:
         return 0
 
+    use_lightweight = len(prepared_rows) <= LIGHTWEIGHT_UPDATE_MAX_SELECTOR_KEYS
+
     grouped_updates: Dict[tuple, List[str]] = {}
     for _, selector_key, artifact_type, analyst_tagged, analyst_tags, analyst_notes, _updated_by in prepared_rows:
         grouped_updates.setdefault(
@@ -183,7 +187,16 @@ def upsert_event_analyst_state_rows(
         prior = _fetch_prior_analyst_state(client, case_id, selector_keys)
         matched_selector_keys = [key for key in selector_keys if key in prior] or selector_keys
 
-        run_events_update(assignments_sql, where_sql, client=client)
+        if use_lightweight:
+            run_events_lightweight_update(
+                assignments_sql,
+                case_id=int(case_id),
+                selector_keys=selector_keys,
+                artifact_type=artifact_type,
+                client=client,
+            )
+        else:
+            run_events_update(assignments_sql, where_sql, client=client)
 
         new_state = {
             "analyst_tagged": bool(analyst_tagged),

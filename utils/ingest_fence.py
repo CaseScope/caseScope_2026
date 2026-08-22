@@ -875,7 +875,7 @@ def shared_ingest_admission(
     source_ref: Optional[str] = None,
     ttl_seconds: Optional[int] = None,
 ) -> Iterator[AdmissionLease]:
-    """Acquire a shared writer lease around a normal events INSERT."""
+    """Acquire a shared writer lease around a normal bounded events write."""
     held = _current_lease.get()
     if held is not None:
         if not _scope_covers(held, MODE_SHARED, case_id, source_ref):

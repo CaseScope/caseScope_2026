@@ -1,0 +1,179 @@
+{
+  "tranche": "phase2_3_lightweight_update_bridge",
+  "recorded_at": "2026-08-22T17:55:07+00:00",
+  "version": "4.26.2",
+  "version_bumped": true,
+  "version_policy": "patch: production runtime bounded lightweight UPDATE for small selector-bounded state",
+  "verdict": "PHASE2_3_PASS",
+  "phase2_3_state": "PHASE2_3_CLOSED_PENDING_INDEPENDENT_REVIEW",
+  "locked_contract": "Lightweight UPDATE bridge (Gate B) for small state paths, batched; classic mutations behind the drain-capable fail-closed fence for large rewrites; audit hooks carried over. Bridge only.",
+  "baseline": {
+    "repository": "/opt/casescope",
+    "python": "/opt/casescope/venv/bin/python",
+    "head": "658cd18e9647595d49edfb40e1831972837dbca3",
+    "origin_main": "658cd18e9647595d49edfb40e1831972837dbca3",
+    "head_equals_origin_main": true,
+    "working_tree_clean_at_start": true,
+    "expected_head": "658cd18e9647595d49edfb40e1831972837dbca3",
+    "expected_version": "4.26.1",
+    "clickhouse_version": "26.7.3.19",
+    "ok": true
+  },
+  "gate_b": {
+    "reopened": false,
+    "classic_ms": {"1": 19.1, "10": 38.3, "100": 22.0, "1000": 59.5, "10000": 362.0},
+    "lightweight_ms": {"1": 6.9, "10": 7.5, "100": 8.9, "1000": 20.6, "10000": 142.3},
+    "boundary": 1000,
+    "environment_override": false,
+    "small_bridge_candidates": [
+      "utils.event_analyst_state.upsert_event_analyst_state_rows",
+      "utils.event_noise_state.upsert_manual_noise_state_rows"
+    ]
+  },
+  "helper": {
+    "name": "run_events_lightweight_update",
+    "module": "utils.clickhouse",
+    "LIGHTWEIGHT_UPDATE_MAX_SELECTOR_KEYS": 1000,
+    "sql_form": "UPDATE events SET ... WHERE case_id = ... [AND artifact_type = ...] AND has([...], selector_key)",
+    "accepts_where_sql": false,
+    "uses_alter_update": false,
+    "empty_list": "no-op",
+    "oversize": "LightweightUpdateRefused",
+    "admission": "shared_ingest_admission('events_lightweight_update', case_id=case_id)"
+  },
+  "classic_helper": {
+    "name": "run_events_update",
+    "sql_form": "ALTER TABLE events UPDATE ... WHERE ... SETTINGS mutations_sync = 1",
+    "admission": "exclusive_ingest_fence('events_alter_update')",
+    "dynamic_mode_switch": false
+  },
+  "classic_paths_preserved": [
+    "start_noise_scan",
+    "insert_noise_scan_matches",
+    "start_ioc_refresh",
+    "insert_ioc_scan_matches",
+    "insert_mitre_rule_matches",
+    "rebuild_mitre_summary_columns",
+    "purge_case_event_overlay_state",
+    "hayabusa_mitre_reenrichment"
+  ],
+  "hayabusa": {
+    "deferred": true,
+    "MUTATION_RECORD_BATCH_SIZE": 5000,
+    "modified": false
+  },
+  "api_identity": {
+    "mutation_identity": "case_id + selector_key",
+    "erk_migration": false,
+    "hunting_routes_changed": false
+  },
+  "disposable_proof": {
+    "clickhouse_version": "26.7.3.19",
+    "schema": "EVENTS_SCHEMA",
+    "sizes": {"1": "pass", "100": "pass", "1000": "pass", "1001_helper": "refused", "1001_product": "classic_fallback"},
+    "immediate_visibility": true,
+    "optimize_final": false,
+    "materialize": false,
+    "sleep_for_correctness": false,
+    "state_parity": true,
+    "forensic_identity_unchanged": true
+  },
+  "production_pre_activation": {
+    "clickhouse_version": "26.7.3.19",
+    "enable_lightweight_update": "1",
+    "apply_patch_parts": "1",
+    "enable_block_number_column": 1,
+    "enable_block_offset_column": 1,
+    "idx_search_blob_text": true,
+    "idx_search_ngram": true,
+    "idx_search_token": false,
+    "mutations_in_progress": 0,
+    "events_rows": 745463991,
+    "active_parts": 135,
+    "partitions": 25,
+    "EVENT_INSERT_MODE": "sync",
+    "server_async_insert": {"value": "1", "changed": 0},
+    "settings_altered": false
+  },
+  "safe_activation": {
+    "before": {
+      "active": 0,
+      "reserved": 0,
+      "scheduled": 0,
+      "queued": 0,
+      "unacked": 0,
+      "shared_writer_count": 0,
+      "exclusive": null
+    },
+    "broker_message_deletion": false,
+    "beat_restarted": false,
+    "beat_reason": "beat does not import or execute the lightweight helper; analyst/manual-noise upserts run in web"
+  },
+  "service_state": {
+    "before": {
+      "casescope-web": {"MainPID": 1173723, "ExecMainStartTimestamp": "Sat 2026-08-22 17:23:24 UTC"},
+      "casescope-workers": {"MainPID": 1173262, "ExecMainStartTimestamp": "Sat 2026-08-22 17:22:51 UTC"},
+      "casescope-beat": {"MainPID": 1048416, "ExecMainStartTimestamp": "Sat 2026-08-22 14:51:38 UTC"}
+    },
+    "after": {
+      "casescope-web": {"MainPID": 1199751, "ExecMainStartTimestamp": "Sat 2026-08-22 17:54:11 UTC", "ActiveState": "active"},
+      "casescope-workers": {"MainPID": 1199819, "ExecMainStartTimestamp": "Sat 2026-08-22 17:54:15 UTC", "ActiveState": "active"},
+      "casescope-beat": {"MainPID": 1048416, "ExecMainStartTimestamp": "Sat 2026-08-22 14:51:38 UTC", "ActiveState": "active"}
+    }
+  },
+  "live_production_lightweight_update": "LIVE_PRODUCTION_LIGHTWEIGHT_UPDATE_NOT_OBSERVED",
+  "hunt_smoke": {
+    "login_get": 200,
+    "login_ok": true,
+    "ui_version": "v4.26.2",
+    "hunting_page": 200,
+    "case_id": 14,
+    "search": "sonicwall",
+    "grid_status": 200,
+    "grid_total": 13,
+    "grid_rows": 13,
+    "detail_status": 200,
+    "export_view_status": 200,
+    "export_content_type": "text/csv; charset=utf-8",
+    "analyst_tags_modified": false,
+    "noise_state_modified": false
+  },
+  "regression_tests": {
+    "passed": 162,
+    "failed": 0,
+    "skipped": 0,
+    "subtests_passed": 39,
+    "env": {
+      "PHASE1B_PG_TEST_DATABASE_URL": "postgresql://casescope:casescope@localhost/phase2_2a_test",
+      "PHASE1B_CH_TEST_DATABASE": "phase2_2a_test"
+    }
+  },
+  "production_mutation_audit": {
+    "evidence": "NO EVIDENCE MUTATION",
+    "index": "NO INDEX MUTATION",
+    "server_settings": "NO SERVER SETTINGS MUTATION",
+    "events_rows_after": 745463991
+  },
+  "no_later_phase_audit": {
+    "phase_2_4": false,
+    "erk_api": false,
+    "ioc_authority": false,
+    "mitre_authority": false,
+    "analyst_authority": false,
+    "noise_authority": false,
+    "events_immutability": false,
+    "lek": false,
+    "events_current": false,
+    "event_observations_current": false,
+    "search_change": false,
+    "index_change": false,
+    "insert_mode_change": false,
+    "generation_publication_change": false,
+    "forced_optimize_final": false,
+    "master_plan_amendment": false
+  },
+  "remaining_work": [
+    "Independent Phase 2.3 review",
+    "Phase 2.4 generation-aware accounting + deterministic-batch retry exclusion only after independent acceptance"
+  ]
+}
